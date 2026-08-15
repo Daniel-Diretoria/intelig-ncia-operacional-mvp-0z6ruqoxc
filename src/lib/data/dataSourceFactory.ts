@@ -1,5 +1,6 @@
 import type { IOperationalDataSource } from './operationalDataSource'
 import { MockOperationalAdapter } from './mockAdapter'
+import { ImportDataSource } from './importAdapter'
 
 // Future adapter stubs - ready for toggle via VITE_DATA_SOURCE without touching any UI component
 
@@ -50,6 +51,9 @@ export class DataSourceFactory {
       case 'tradepro':
       case 'api':
         activeInstance = new TradeProApiAdapter()
+        break
+      case 'import':
+        activeInstance = new ImportDataSource()
         break
       case 'skipcloud':
       case 'pocketbase':

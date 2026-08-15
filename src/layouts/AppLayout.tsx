@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   TrendingUp,
+  Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
@@ -43,6 +44,11 @@ const NAV_ITEMS = [
     to: '/relatorios',
     label: 'Relatórios',
     icon: FileBarChart,
+  },
+  {
+    to: '/importacao',
+    label: 'Importação',
+    icon: Upload,
   },
 ]
 

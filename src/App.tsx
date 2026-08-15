@@ -13,6 +13,7 @@ import { ValidadesPage } from '@/pages/Validades'
 import { RupturasPage } from '@/pages/Rupturas'
 import { AlertasPage } from '@/pages/Alertas'
 import { RelatoriosPage } from '@/pages/Relatorios'
+import { ImportacaoPage } from '@/pages/Importacao'
 import NotFound from '@/pages/NotFound'
 
 const App = () => (
@@ -38,6 +39,7 @@ const App = () => (
             <Route path="/rupturas" element={<RupturasPage />} />
             <Route path="/alertas" element={<AlertasPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
+            <Route path="/importacao" element={<ImportacaoPage />} />
           </Route>
 
           {/* Fallback */}

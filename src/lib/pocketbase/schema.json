@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-15T17:18:14.784Z",
+  "generatedAt": "2026-08-15T17:59:41.455Z",
   "collections": [
     {
       "name": "users",
@@ -42,6 +42,265 @@
       "indexes": [
         "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
         "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''"
+      ]
+    },
+    {
+      "name": "import_history",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "file_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "file_size",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "imported_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "skipped_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "completed", "failed"]
+        },
+        {
+          "name": "errors_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_import_history_created ON import_history (created DESC)"]
+    },
+    {
+      "name": "validades_imported",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "product",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "sku",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "lote",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Mercearia", "Laticínios", "Bebidas", "Limpeza", "Higiene"]
+        },
+        {
+          "name": "validade",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "diasRestantes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Crítico", "Próximo", "OK"]
+        },
+        {
+          "name": "unidade",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "estoque",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industria",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rede",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "uf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "promotor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "precoUnitario",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultimaAtualizacao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "import_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "import_history"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_validades_imported_sku ON validades_imported (sku)",
+        "CREATE INDEX idx_validades_imported_validade ON validades_imported (validade)",
+        "CREATE INDEX idx_validades_imported_import ON validades_imported (import_id)",
+        "CREATE INDEX idx_validades_imported_loja ON validades_imported (loja)"
       ]
     }
   ]
