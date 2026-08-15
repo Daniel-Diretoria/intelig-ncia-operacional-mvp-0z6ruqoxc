@@ -432,7 +432,11 @@ export function executarPipeline(input: PipelineInput): PipelineResult {
 
   // Passo 22: remover logicamente Quantidade zero da Base Atual
   // (depois das duas etapas de consolidação)
-  const baseAtual = selecionadosComMeta.filter((p) => p.quantidade > 0)
+  // Os registros selecionados com quantidade > 0 formam a Base Atual e recebem
+  // isBaseAtual = true (usado pelo adapter para listar a Base Atual).
+  const baseAtual = selecionadosComMeta
+    .filter((p) => p.quantidade > 0)
+    .map((p) => ({ ...p, isBaseAtual: true }))
   const quantidadeZeroRemovidos = selecionadosComMeta.filter((p) => p.quantidade === 0)
 
   // Descartados = não selecionados na etapa 2 + quantidade zero

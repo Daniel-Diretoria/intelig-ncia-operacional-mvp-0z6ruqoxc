@@ -55,35 +55,61 @@ const MAX_FUTURE_DAYS = 365 * 10
 
 /**
  * Valida campos obrigatórios de um item mapeado (modelo TradePro).
- * Os 7 obrigatórios são: Razão Social, Realizado, Cliente, Produto,
- * Quantidade, Validade, Fornecedor — já validados no mapper.
- * Aqui validamos campos obrigatórios do ValidadeItem legado.
+ *
+ * Pela especificação da Camada 04/TradePro, apenas 7 campos são obrigatórios:
+ *   Razão Social, Realizado, Cliente, Produto, Quantidade, Validade, Fornecedor.
+ *
+ * O mapper (excelMapper.mapRecord) já valida esses 7 no momento do mapeamento e
+ * descarta linhas inválidas. Esta função reconfirma os 7 já mapeados para o
+ * ValidadeItem, para garantir consistência sem reintroduzir campos opcionais
+ * (lote, sku, categoria, unidade, etc.) como obrigatórios.
+ *
+ * Mapeamento 7 obrigatórios -> ValidadeItem:
+ *   Razão Social -> loja
+ *   Realizado    -> ultimaAtualizacao
+ *   Cliente      -> cliente
+ *   Produto      -> product
+ *   Quantidade   -> quantidade / estoque
+ *   Validade     -> validade
+ *   Fornecedor   -> industria
  */
 export function validateRequiredFields(
   item: Partial<ValidadeItem>,
   rowIndex: number,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = []
-  const required: Array<keyof ValidadeItem> = [
-    'product',
-    'sku',
-    'lote',
-    'category',
-    'validade',
-    'estoque',
-    'unidade',
+
+  const required: Array<{ field: keyof ValidadeItem; label: string }> = [
+    { field: 'product', label: 'Produto' },
+    { field: 'validade', label: 'Validade' },
+    { field: 'cliente', label: 'Cliente' },
+    { field: 'industria', label: 'Fornecedor' },
+    { field: 'loja', label: 'Razão Social' },
+    { field: 'ultimaAtualizacao', label: 'Realizado' },
   ]
 
-  for (const field of required) {
+  for (const { field, label } of required) {
     const val = item[field]
     if (val == null || val === '' || (typeof val === 'number' && isNaN(val))) {
       issues.push({
         rowIndex,
         severity: 'error',
         field: String(field),
-        message: `Campo obrigatório "${field}" ausente ou vazio.`,
+        message: `Campo obrigatório "${label}" ausente ou vazio.`,
       })
     }
+  }
+
+  // Quantidade: 0 é válido; null/undefined é ausente (erro). Negativo é tratado
+  // em validateQuantidade.
+  const qtd = item.quantidade ?? item.estoque
+  if (qtd == null || (typeof qtd === 'number' && isNaN(qtd))) {
+    issues.push({
+      rowIndex,
+      severity: 'error',
+      field: 'quantidade',
+      message: 'Campo obrigatório "Quantidade" ausente ou vazio.',
+    })
   }
 
   return issues
@@ -191,7 +217,9 @@ export function validateCompleteness(
   rowIndex: number,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = []
-  const recommended: Array<keyof ValidadeItem> = ['cliente', 'loja', 'quantidade', 'precoUnitario']
+  // Apenas campos opcionais recomendados (não obrigatórios) geram warning de
+  // completude. Campos obrigatórios são tratados em validateRequiredFields.
+  const recommended: Array<keyof ValidadeItem> = ['precoUnitario', 'rede', 'cidade', 'uf']
 
   for (const field of recommended) {
     const val = item[field]

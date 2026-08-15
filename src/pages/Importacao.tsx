@@ -364,9 +364,19 @@ export const ImportacaoPage: React.FC = () => {
         setStage('done')
         setResultModalOpen(true)
         refetchHistory()
+        // Importante: resetar o provider (cache de instância) para que a próxima
+        // leitura (Validades, KPIs, etc.) busque dados frescos do backend já com
+        // os registros recém-persistidos. Um pequeno atraso garante que a
+        // transação do backend tenha commitado antes do refetch global.
         import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
           DataSourceFactory.reset()
           window.dispatchEvent(new Event('diretoria:refresh'))
+          // Segundo disparo após 600ms para garantir que componentes remontados
+          // (ao navegar entre abas) também recebam o refresh.
+          setTimeout(() => {
+            DataSourceFactory.reset()
+            window.dispatchEvent(new Event('diretoria:refresh'))
+          }, 600)
         })
       } else if (result.duplicate) {
         toast({
