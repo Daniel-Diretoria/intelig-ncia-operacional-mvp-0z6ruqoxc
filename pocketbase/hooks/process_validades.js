@@ -102,6 +102,8 @@ routerAdd(
 
     // ---------------------------------------------------------------------------
     // 2. Persiste dados brutos em validades_raw
+    //    Frontend envia camelCase; BD usa snake_case. Lemos ambos os formatos
+    //    (camelCase do pipeline + snake_case legado) para máxima compatibilidade.
     // ---------------------------------------------------------------------------
     let rawCount = 0
     const rawErrors = []
@@ -109,35 +111,47 @@ routerAdd(
     try {
       $app.runInTransaction((txApp) => {
         for (let i = 0; i < rawRecords.length; i++) {
-          const rec = rawRecords[i]
+          const rec = rawRecords[i] || {}
           try {
+            // Helper: lê camelCase com fallback snake_case
+            const pick = function (camel, snake) {
+              if (rec[camel] != null) return rec[camel]
+              if (rec[snake] != null) return rec[snake]
+              return undefined
+            }
+
             const r = new Record(validadesRawCol)
-            r.set('cod_colaborador', rec.cod_colaborador || '')
+            r.set('cod_colaborador', pick('codColaborador', 'cod_colaborador') || '')
             r.set('colaborador', rec.colaborador || '')
-            r.set('cod_supervisor', rec.cod_supervisor || '')
+            r.set('cod_supervisor', pick('codSupervisor', 'cod_supervisor') || '')
             r.set('supervisor', rec.supervisor || '')
-            r.set('cpf_cnpj', rec.cpf_cnpj || '')
-            r.set('razao_social', rec.razao_social || '')
+            r.set('cpf_cnpj', pick('cpfCnpj', 'cpf_cnpj') || '')
+            r.set('razao_social', pick('razaoSocial', 'razao_social') || '')
             r.set('fantasia', rec.fantasia || '')
             r.set('cidade', rec.cidade || '')
             r.set('estado', rec.estado || '')
-            r.set('cod_cliente', rec.cod_cliente || '')
+            r.set('cod_cliente', pick('codCliente', 'cod_cliente') || '')
             r.set('cliente', rec.cliente || '')
-            r.set('cod_produto', rec.cod_produto || '')
+            r.set('cod_produto', pick('codProduto', 'cod_produto') || '')
             r.set('produto', rec.produto || '')
-            r.set('cod_barras', rec.cod_barras || '')
-            r.set('data_fabricacao', rec.data_fabricacao || '')
+            r.set('cod_barras', pick('codBarras', 'cod_barras') || '')
+            const dataFabricacao = pick('dataFabricacao', 'data_fabricacao')
+            r.set('data_fabricacao', dataFabricacao || '')
             r.set('realizado', rec.realizado || '')
-            r.set('quantidade', rec.quantidade != null ? rec.quantidade : 0)
-            r.set('dias_vencimento_arquivo', rec.dias_vencimento_arquivo || 0)
+            r.set(
+              'quantidade',
+              pick('quantidade', 'quantidade') != null ? pick('quantidade', 'quantidade') : 0,
+            )
+            const diasVencArq = pick('diasVencimentoArquivo', 'dias_vencimento_arquivo')
+            r.set('dias_vencimento_arquivo', diasVencArq || 0)
             r.set('validade', rec.validade || '')
-            r.set('numero_lote', rec.numero_lote || '')
+            r.set('numero_lote', pick('numeroLote', 'numero_lote') || '')
             r.set('representante', rec.representante || '')
             r.set('cnpj', rec.cnpj || '')
             r.set('fornecedor', rec.fornecedor || '')
-            r.set('numero_linha', rec.numero_linha || 0)
-            r.set('data_arquivo', rec.data_arquivo || dataArquivo || '')
-            r.set('data_importacao', rec.data_importacao || '')
+            r.set('numero_linha', pick('numeroLinha', 'numero_linha') || 0)
+            r.set('data_arquivo', pick('dataArquivo', 'data_arquivo') || dataArquivo || '')
+            r.set('data_importacao', pick('dataImportacao', 'data_importacao') || '')
             r.set('import_id', importId)
             if (authRecord) r.set('created_by', authRecord.id)
             txApp.save(r)
@@ -184,11 +198,21 @@ routerAdd(
     try {
       $app.runInTransaction((txApp) => {
         for (let i = 0; i < baseAtual.length; i++) {
-          const rec = baseAtual[i]
+          const rec = baseAtual[i] || {}
           try {
+            // Frontend envia camelCase; BD usa snake_case.
+            // Helper: lê camelCase com fallback snake_case.
+            const pick = function (camel, snake) {
+              if (rec[camel] != null) return rec[camel]
+              if (rec[snake] != null) return rec[snake]
+              return undefined
+            }
+
+            const chaveOperacional = pick('chaveOperacional', 'chave_operacional')
+
             // upsert por chave_operacional: se existir, atualiza; senão, cria.
             let existing = null
-            if (rec.chave_operacional) {
+            if (chaveOperacional) {
               try {
                 const found = txApp.findRecordsByFilter(
                   'validades_base',
@@ -196,7 +220,7 @@ routerAdd(
                   '-updated',
                   1,
                   0,
-                  { c: rec.chave_operacional },
+                  { c: chaveOperacional },
                 )
                 if (found && found.length > 0) existing = found[0]
               } catch (_) {}
@@ -204,45 +228,79 @@ routerAdd(
 
             const r = existing || new Record(validadesBaseCol)
             if (rec.fornecedor != null) r.set('fornecedor', rec.fornecedor)
-            if (rec.razao_social != null) r.set('razao_social', rec.razao_social)
+            if (pick('razaoSocial', 'razao_social') != null)
+              r.set('razao_social', pick('razaoSocial', 'razao_social'))
             if (rec.produto != null) r.set('produto', rec.produto)
             if (rec.cliente != null) r.set('cliente', rec.cliente)
-            if (rec.cod_cliente != null) r.set('cod_cliente', rec.cod_cliente)
-            if (rec.cod_produto != null) r.set('cod_produto', rec.cod_produto)
-            if (rec.cod_barras != null) r.set('cod_barras', rec.cod_barras)
-            if (rec.cpf_cnpj != null) r.set('cpf_cnpj', rec.cpf_cnpj)
+            if (pick('codCliente', 'cod_cliente') != null)
+              r.set('cod_cliente', pick('codCliente', 'cod_cliente'))
+            if (pick('codProduto', 'cod_produto') != null)
+              r.set('cod_produto', pick('codProduto', 'cod_produto'))
+            if (pick('codBarras', 'cod_barras') != null)
+              r.set('cod_barras', pick('codBarras', 'cod_barras'))
+            if (pick('cpfCnpj', 'cpf_cnpj') != null) r.set('cpf_cnpj', pick('cpfCnpj', 'cpf_cnpj'))
             if (rec.cnpj != null) r.set('cnpj', rec.cnpj)
-            if (rec.codigo_loja != null) r.set('codigo_loja', rec.codigo_loja)
-            if (rec.nome_loja != null) r.set('nome_loja', rec.nome_loja)
+            if (pick('codigoLoja', 'codigo_loja') != null)
+              r.set('codigo_loja', pick('codigoLoja', 'codigo_loja'))
+            if (pick('nomeLoja', 'nome_loja') != null)
+              r.set('nome_loja', pick('nomeLoja', 'nome_loja'))
             if (rec.rede != null) r.set('rede', rec.rede)
             if (rec.cidade != null) r.set('cidade', rec.cidade)
             if (rec.estado != null) r.set('estado', rec.estado)
             if (rec.colaborador != null) r.set('colaborador', rec.colaborador)
-            if (rec.cod_colaborador != null) r.set('cod_colaborador', rec.cod_colaborador)
+            if (pick('codColaborador', 'cod_colaborador') != null)
+              r.set('cod_colaborador', pick('codColaborador', 'cod_colaborador'))
             if (rec.supervisor != null) r.set('supervisor', rec.supervisor)
-            if (rec.cod_supervisor != null) r.set('cod_supervisor', rec.cod_supervisor)
+            if (pick('codSupervisor', 'cod_supervisor') != null)
+              r.set('cod_supervisor', pick('codSupervisor', 'cod_supervisor'))
             if (rec.fantasia != null) r.set('fantasia', rec.fantasia)
             if (rec.representante != null) r.set('representante', rec.representante)
-            if (rec.numero_lote != null) r.set('numero_lote', rec.numero_lote)
+            if (pick('numeroLote', 'numero_lote') != null)
+              r.set('numero_lote', pick('numeroLote', 'numero_lote'))
             if (rec.realizado != null) r.set('realizado', rec.realizado)
-            if (rec.validade_original != null) r.set('validade_original', rec.validade_original)
-            if (rec.validade_efetiva != null) r.set('validade_efetiva', rec.validade_efetiva)
-            if (rec.data_arquivo != null) r.set('data_arquivo', rec.data_arquivo)
-            if (rec.data_importacao != null) r.set('data_importacao', rec.data_importacao)
-            if (rec.data_entrada != null) r.set('data_entrada', rec.data_entrada)
-            if (rec.ultima_aparicao != null) r.set('ultima_aparicao', rec.ultima_aparicao)
-            r.set('quantidade', rec.quantidade != null ? rec.quantidade : 0)
-            r.set('is_base_atual', rec.is_base_atual != null ? !!rec.is_base_atual : true)
-            if (rec.chave_operacional != null) r.set('chave_operacional', rec.chave_operacional)
-            if (rec.chave_dedup != null) r.set('chave_dedup', rec.chave_dedup)
-            r.set('correcao_aplicada', !!rec.correcao_aplicada)
-            if (rec.regra_correcao != null) r.set('regra_correcao', rec.regra_correcao)
-            r.set('dias_vencimento_atual', rec.dias_vencimento_atual || 0)
-            r.set('dias_vencimento_arquivo', rec.dias_vencimento_arquivo || 0)
-            r.set('dias_vencimento_entrada', rec.dias_vencimento_entrada || 0)
-            if (rec.status_operacional != null) r.set('status_operacional', rec.status_operacional)
-            if (rec.status_na_entrada != null) r.set('status_na_entrada', rec.status_na_entrada)
-            if (rec.situacao_atual != null) r.set('situacao_atual', rec.situacao_atual)
+            if (pick('validadeOriginal', 'validade_original') != null)
+              r.set('validade_original', pick('validadeOriginal', 'validade_original'))
+            if (pick('validadeEfetiva', 'validade_efetiva') != null)
+              r.set('validade_efetiva', pick('validadeEfetiva', 'validade_efetiva'))
+            if (pick('dataArquivo', 'data_arquivo') != null)
+              r.set('data_arquivo', pick('dataArquivo', 'data_arquivo'))
+            if (pick('dataImportacao', 'data_importacao') != null)
+              r.set('data_importacao', pick('dataImportacao', 'data_importacao'))
+            if (pick('dataEntrada', 'data_entrada') != null)
+              r.set('data_entrada', pick('dataEntrada', 'data_entrada'))
+            if (pick('ultimaAparicao', 'ultima_aparicao') != null)
+              r.set('ultima_aparicao', pick('ultimaAparicao', 'ultima_aparicao'))
+            r.set(
+              'quantidade',
+              pick('quantidade', 'quantidade') != null ? pick('quantidade', 'quantidade') : 0,
+            )
+            const isBaseAtualVal = pick('isBaseAtual', 'is_base_atual')
+            r.set('is_base_atual', isBaseAtualVal != null ? !!isBaseAtualVal : true)
+            if (chaveOperacional != null) r.set('chave_operacional', chaveOperacional)
+            if (pick('chaveDedup', 'chave_dedup') != null)
+              r.set('chave_dedup', pick('chaveDedup', 'chave_dedup'))
+            const correcaoAplicadaVal = pick('correcaoAplicada', 'correcao_aplicada')
+            r.set('correcao_aplicada', !!correcaoAplicadaVal)
+            if (pick('regraCorrecao', 'regra_correcao') != null)
+              r.set('regra_correcao', pick('regraCorrecao', 'regra_correcao'))
+            r.set(
+              'dias_vencimento_atual',
+              pick('diasVencimentoAtual', 'dias_vencimento_atual') || 0,
+            )
+            r.set(
+              'dias_vencimento_arquivo',
+              pick('diasVencimentoArquivo', 'dias_vencimento_arquivo') || 0,
+            )
+            r.set(
+              'dias_vencimento_entrada',
+              pick('diasVencimentoEntrada', 'dias_vencimento_entrada') || 0,
+            )
+            if (pick('statusOperacional', 'status_operacional') != null)
+              r.set('status_operacional', pick('statusOperacional', 'status_operacional'))
+            if (pick('statusNaEntrada', 'status_na_entrada') != null)
+              r.set('status_na_entrada', pick('statusNaEntrada', 'status_na_entrada'))
+            if (pick('situacaoAtual', 'situacao_atual') != null)
+              r.set('situacao_atual', pick('situacaoAtual', 'situacao_atual'))
             r.set('import_id', importId)
             if (authRecord) r.set('created_by', authRecord.id)
             txApp.save(r)
