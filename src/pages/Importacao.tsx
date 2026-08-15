@@ -366,6 +366,7 @@ export const ImportacaoPage: React.FC = () => {
         refetchHistory()
         import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
           DataSourceFactory.reset()
+          window.dispatchEvent(new Event('diretoria:refresh'))
         })
       } else if (result.duplicate) {
         toast({

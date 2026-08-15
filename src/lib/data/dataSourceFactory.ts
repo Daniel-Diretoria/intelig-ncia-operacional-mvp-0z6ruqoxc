@@ -46,7 +46,7 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       category: (rec.category as ValidadeItem['category']) || 'Mercearia',
       validade,
       diasRestantes,
-      status: (rec.status as ValidadeItem['status']) || deriveStatus(diasRestantes),
+      status: (rec.status_operacional as ValidadeItem['status']) || deriveStatus(diasRestantes),
       unidade: 'UN',
       estoque: typeof rec.quantidade === 'number' ? rec.quantidade : Number(rec.quantidade) || 0,
       cliente: (rec.cliente as string) || undefined,
@@ -67,6 +67,7 @@ export class TradeProApiAdapter implements IOperationalDataSource {
     try {
       const records = await pb.collection('validades_base').getFullList({
         sort: 'validade_efetiva',
+        filter: 'is_base_atual = true',
       })
       if (records.length === 0) {
         // Fallback para mock quando a Base Atual está vazia
