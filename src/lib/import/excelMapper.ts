@@ -9,7 +9,8 @@ import {
 
 /**
  * Camada de mapeamento — transforma registros genéricos (objetos chave/valor)
- * vindos de qualquer origem (Excel, API TradePro, Mock) em `ValidadeItem`.
+ * vindos de qualquer origem (Excel TradePro, API, Mock) em `ValidadeItem` ou
+ * em `TradeProRawRecord`.
  *
  * A entrada é sempre um array de objetos simples (`Record<string, unknown>`),
  * nunca algo acoplado ao formato Excel. Isso permite trocar a origem
@@ -36,8 +37,6 @@ export function parseDate(raw: unknown): string | null {
 
   // Excel serial date number
   if (typeof raw === 'number' && raw > 0 && raw < 100000) {
-    // SheetJS converte datas reais para objetos Date quando cellDates:true,
-    // mas fallback para serial numérico: 1 = 1900-01-01 (com correção de leap bug)
     const epoch = new Date(Date.UTC(1899, 11, 30))
     const d = new Date(epoch.getTime() + raw * 86400000)
     if (!isNaN(d.getTime())) {
@@ -99,6 +98,16 @@ export function parseString(raw: unknown): string {
   return String(raw).trim()
 }
 
+/**
+ * Converte valor genérico em identificador textual, preservando zeros à
+ * esquerda. NÃO valida como CPF/CNPJ fiscal. NÃO completa dígitos.
+ */
+export function parseTextId(raw: unknown): string {
+  if (raw == null) return ''
+  if (typeof raw === 'number') return Number.isInteger(raw) ? String(raw) : raw.toString()
+  return String(raw).trim()
+}
+
 /** Calcula dias restantes até a validade a partir de uma data ISO. */
 export function calcularDiasRestantes(validadeISO: string, refDate: Date = new Date()): number {
   const v = new Date(validadeISO + 'T00:00:00Z')
@@ -124,10 +133,8 @@ function resolveValue(
 ): unknown {
   const sourceKey = mapping[internalKey]
   if (sourceKey) {
-    // corresponde direto
     if (Object.prototype.hasOwnProperty.call(record, sourceKey)) return record[sourceKey]
   }
-  // fallback: procura por chave normalizada
   const aliasNorm = normalizeHeader(sourceKey ?? internalKey)
   for (const k of Object.keys(record)) {
     if (normalizeHeader(k) === aliasNorm) return record[k]
@@ -135,7 +142,20 @@ function resolveValue(
   return undefined
 }
 
-/** Mapeia um único registro genérico para ValidadeItem parcial. */
+/**
+ * Mapeia um registro genérico (linha do Excel TradePro) para o modelo interno
+ * `ValidadeItem`, compatível com a UI existente.
+ *
+ * Mapeia as 23 colunas TradePro para os campos de ValidadeItem:
+ *  - razaoSocial -> cliente / loja (extraído)
+ *  - fornecedor -> industria
+ *  - produto -> product
+ *  - codProduto -> sku
+ *  - quantidade -> estoque (e quantidade)
+ *  - validade -> validade
+ *  - cidade/estado -> cidade/uf
+ *  - colaborador/supervisor -> promotor/supervisor
+ */
 export function mapRecord(
   record: Record<string, unknown>,
   mapping: ColumnMapping,
@@ -146,29 +166,38 @@ export function mapRecord(
 
   const get = (key: string): unknown => resolveValue(record, key, mapping)
 
+  // Identificadores textuais (preservam zeros à esquerda)
+  const codColaborador = parseTextId(get('codColaborador'))
+  const codSupervisor = parseTextId(get('codSupervisor'))
+  const cpfCnpj = parseTextId(get('cpfCnpj'))
+  const codCliente = parseTextId(get('codCliente'))
+  const codProduto = parseTextId(get('codProduto'))
+  const codBarras = parseTextId(get('codBarras'))
+  const cnpj = parseTextId(get('cnpj'))
+
   // Strings
-  const product = parseString(get('product'))
-  const sku = parseString(get('sku'))
-  const lote = parseString(get('lote'))
-  const unidade = parseString(get('unidade')) || 'UN'
-  const cliente = parseString(get('cliente')) || undefined
-  const industria = parseString(get('industria')) || undefined
-  const rede = parseString(get('rede')) || undefined
-  const loja = parseString(get('loja')) || undefined
-  const cidade = parseString(get('cidade')) || undefined
-  const uf = parseString(get('uf')) || undefined
-  const promotor = parseString(get('promotor')) || undefined
-  const supervisor = parseString(get('supervisor')) || undefined
+  const colaborador = parseString(get('colaborador'))
+  const supervisor = parseString(get('supervisor'))
+  const razaoSocial = parseString(get('razaoSocial'))
+  const fantasia = parseString(get('fantasia'))
+  const cidade = parseString(get('cidade'))
+  const estado = parseString(get('estado')) || parseString(get('uf'))
+  const cliente = parseString(get('cliente'))
+  const produto = parseString(get('produto'))
+  const numeroLote = parseString(get('numeroLote')) || parseString(get('lote'))
+  const representante = parseString(get('representante'))
+  const fornecedor = parseString(get('fornecedor'))
 
   // Números
-  const estoque = parseNumber(get('estoque'))
   const quantidade = parseNumber(get('quantidade'))
-  const precoUnitario = parseNumber(get('precoUnitario'))
+  const diasVencimentoArquivo = parseNumber(get('diasVencimentoArquivo'))
 
-  // Data
+  // Datas
+  const realizado = parseDate(get('realizado'))
   const validade = parseDate(get('validade'))
+  const dataFabricacao = parseDate(get('dataFabricacao'))
 
-  // Categoria (enum)
+  // Categoria — não existe no TradePro; deriva best-effort ou usa Mercearia
   const catRaw = parseString(get('category'))
   let category: ProductCategory | null = null
   if (catRaw) {
@@ -179,15 +208,18 @@ export function mapRecord(
       if (norm) category = norm
     }
   }
+  if (!category) category = 'Mercearia'
 
-  // Coleta erros de campos obrigatórios ausentes
-  if (!product) errors.push('Produto ausente')
-  if (!sku) errors.push('SKU ausente')
-  if (!lote) errors.push('Lote ausente')
-  if (!category) errors.push(`Categoria ausente ou inválida ("${catRaw}")`)
-  if (!validade) errors.push('Data de validade ausente ou inválida')
-  if (estoque == null) errors.push('Estoque ausente ou inválido')
-  if (!unidade) errors.push('Unidade ausente')
+  // --- Campos obrigatórios do modelo TradePro (7) ---
+  // Razão Social, Realizado, Cliente, Produto, Quantidade, Validade, Fornecedor
+  if (!razaoSocial) errors.push('Razão Social ausente')
+  if (!realizado) errors.push('Realizado (data da coleta) ausente ou inválido')
+  if (!cliente) errors.push('Cliente ausente')
+  if (!produto) errors.push('Produto ausente')
+  if (quantidade == null) errors.push('Quantidade ausente')
+  else if (quantidade < 0) errors.push('Quantidade negativa é rejeitada')
+  if (!validade) errors.push('Validade ausente ou inválida')
+  if (!fornecedor) errors.push('Fornecedor ausente')
 
   if (errors.length > 0) {
     return { item: { ...item }, errors }
@@ -196,26 +228,60 @@ export function mapRecord(
   const diasRestantes = calcularDiasRestantes(validade!)
   const status = deriveStatus(diasRestantes)
 
+  // Extrai loja da Razão Social quando possível (código - nome)
+  let loja: string | undefined
+  let codigoLoja: string | undefined
+  const m = razaoSocial.match(/^(\S{1,20})\s+-\s+(.+)$/)
+  if (m) {
+    codigoLoja = m[1].trim()
+    loja = m[2].trim()
+  } else {
+    loja = razaoSocial
+  }
+
   item.id = `imp-${Date.now()}-${index}`
-  item.product = product
-  item.sku = sku
-  item.lote = lote
-  item.category = category!
+  item.product = produto
+  item.sku = codProduto || codBarras || `TP-${index}`
+  item.lote = numeroLote || ''
+  item.category = category
   item.validade = validade!
   item.diasRestantes = diasRestantes
   item.status = status
-  item.unidade = unidade
-  item.estoque = estoque!
-  if (cliente) item.cliente = cliente
-  if (industria) item.industria = industria
-  if (rede) item.rede = rede
-  if (loja) item.loja = loja
-  if (cidade) item.cidade = cidade
-  if (uf) item.uf = uf
-  if (promotor) item.promotor = promotor
-  if (supervisor) item.supervisor = supervisor
-  if (quantidade != null) item.quantidade = quantidade
-  if (precoUnitario != null) item.precoUnitario = precoUnitario
+  item.unidade = 'UN'
+  item.estoque = quantidade ?? 0
+  // cliente = campo "Cliente" do TradePro; loja extraída da Razão Social
+  item.cliente = cliente || undefined
+  item.industria = fornecedor || undefined
+  item.rede = undefined
+  item.loja = loja || razaoSocial || undefined
+  item.cidade = cidade || undefined
+  item.uf = estado || undefined
+  item.promotor = colaborador || undefined
+  item.supervisor = supervisor || undefined
+  item.quantidade = quantidade ?? 0
+  item.precoUnitario = undefined
+  item.ultimaAtualizacao = realizado || undefined
+
+  // Campos extras do TradePro são preservados via attachment em runtime
+  // (não fazem parte de ValidadeItem, mas o pipeline os utiliza).
+  ;(item as ValidadeItem & Record<string, unknown>)._tradePro = {
+    codColaborador,
+    codSupervisor,
+    cpfCnpj,
+    codCliente,
+    codProduto,
+    codBarras,
+    cnpj,
+    fantasia,
+    numeroLote,
+    representante,
+    fornecedor,
+    razaoSocial,
+    realizado,
+    dataFabricacao,
+    diasVencimentoArquivo,
+    codigoLoja,
+  }
 
   return { item: item as ValidadeItem, errors }
 }

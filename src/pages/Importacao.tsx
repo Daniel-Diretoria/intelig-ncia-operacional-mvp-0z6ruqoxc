@@ -15,6 +15,10 @@ import {
   Database,
   Check,
   Table2,
+  Layers,
+  Filter,
+  GitMerge,
+  ShieldAlert,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/ui/alert-banner'
@@ -44,16 +48,23 @@ import {
   parseExcelFile,
   validateStructure,
   suggestMapping,
-  mapRecords,
   validateDataset,
+  mapRecords,
   filterValidItems,
+  detectRupturaFile,
   EXPECTED_COLUMNS,
   REQUIRED_COLUMNS,
-  OPTIONAL_COLUMNS,
   type ColumnMapping,
   type DatasetValidationReport,
 } from '@/lib/import'
 import { submitImport } from '@/lib/import/importClient'
+import { submitProcessValidades, checkFileHash } from '@/lib/import/importClient'
+import {
+  executarPipeline,
+  calcularHashArquivo,
+  type PipelineResult,
+  toRawRecord,
+} from '@/lib/data/tradeProPipeline'
 import { useImportHistory } from '@/services'
 import type { ValidadeItem } from '@/types'
 
@@ -61,6 +72,7 @@ interface FileInfo {
   name: string
   size: number
   selectedAt: string
+  hash?: string
 }
 
 type Stage = 'idle' | 'parsed' | 'validated' | 'importing' | 'done'
@@ -116,6 +128,17 @@ const statusLabel = (status: string): string => {
   }
 }
 
+// Etapas do pipeline visual (30 passos resumidos em 7 fases)
+const PIPELINE_FASES = [
+  { id: 'identificar', label: 'Identificar arquivo', icon: FileUp },
+  { id: 'ler', label: 'Ler aba Pesquisa Validade', icon: Table2 },
+  { id: 'validar', label: 'Validar colunas e tipos', icon: CheckCircle2 },
+  { id: 'corrigir', label: 'Aplicar correções', icon: ShieldAlert },
+  { id: 'deduplicar', label: 'Deduplicação 2 etapas', icon: GitMerge },
+  { id: 'status', label: 'Status e datas', icon: Layers },
+  { id: 'persistir', label: 'Persistir Base Atual', icon: Database },
+] as const
+
 export const ImportacaoPage: React.FC = () => {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -124,9 +147,12 @@ export const ImportacaoPage: React.FC = () => {
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [rupturaDetected, setRupturaDetected] = useState(false)
 
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([])
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([])
+  const [sheetName, setSheetName] = useState<string>('')
+  const [dataArquivo, setDataArquivo] = useState<string | undefined>(undefined)
   const [mapping, setMapping] = useState<ColumnMapping>({})
 
   const [validationReport, setValidationReport] = useState<DatasetValidationReport | null>(null)
@@ -138,7 +164,16 @@ export const ImportacaoPage: React.FC = () => {
     skipped: number
     errors: number
   } | null>(null)
+  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null)
   const [resultModalOpen, setResultModalOpen] = useState(false)
+
+  // Detecção de reenvio
+  const [duplicateHash, setDuplicateHash] = useState<{
+    hash: string
+    importId?: string
+    created?: string
+  } | null>(null)
+  const [forceReprocess, setForceReprocess] = useState(false)
 
   const { history, isLoading: historyLoading, refetch: refetchHistory } = useImportHistory()
 
@@ -155,13 +190,19 @@ export const ImportacaoPage: React.FC = () => {
     setStage('idle')
     setFileInfo(null)
     setParseError(null)
+    setRupturaDetected(false)
     setDetectedHeaders([])
     setRawRows([])
+    setSheetName('')
+    setDataArquivo(undefined)
     setMapping({})
     setValidationReport(null)
     setMappedItems([])
     setImportProgress(0)
     setImportResult(null)
+    setPipelineResult(null)
+    setDuplicateHash(null)
+    setForceReprocess(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
 
@@ -169,15 +210,47 @@ export const ImportacaoPage: React.FC = () => {
     async (file: File) => {
       setIsParsing(true)
       setParseError(null)
+      setRupturaDetected(false)
+      setDuplicateHash(null)
+      setForceReprocess(false)
       try {
         const parsed = await parseExcelFile(file)
+
+        // Passo 1-2: identificar tipo do arquivo e confirmar Validades
+        const isRup = detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
+        if (isRup) {
+          setRupturaDetected(true)
+          setParseError(
+            'Este arquivo foi identificado como uma exportação de Rupturas. Utilize o importador correspondente.',
+          )
+          setStage('idle')
+          return
+        }
+
         setDetectedHeaders(parsed.headers)
         setRawRows(parsed.rows)
+        setSheetName(parsed.sheetName)
+        setDataArquivo(parsed.dataArquivo)
+
+        // Calcula hash para proteção contra reenvio
+        const hash = await calcularHashArquivo(file)
         setFileInfo({
           name: file.name,
           size: file.size,
           selectedAt: new Date().toISOString(),
+          hash,
         })
+
+        // Verifica reenvio
+        const dupCheck = await checkFileHash(hash)
+        if (dupCheck.duplicate) {
+          setDuplicateHash({
+            hash,
+            importId: dupCheck.importId,
+            created: dupCheck.created,
+          })
+        }
+
         const suggested = suggestMapping(parsed.headers)
         setMapping(suggested)
         setStage('parsed')
@@ -185,7 +258,9 @@ export const ImportacaoPage: React.FC = () => {
         setMappedItems([])
         toast({
           title: 'Arquivo carregado',
-          description: `${parsed.rows.length} linhas detectadas em "${parsed.sheetName}".`,
+          description: `${parsed.rows.length} linhas detectadas em "${parsed.sheetName}"${
+            parsed.dataArquivo ? ` • Data Arquivo: ${parsed.dataArquivo}` : ''
+          }.`,
         })
       } catch (err) {
         setParseError(err instanceof Error ? err.message : 'Falha ao ler o arquivo.')
@@ -246,16 +321,34 @@ export const ImportacaoPage: React.FC = () => {
     }, 250)
 
     try {
-      const result = await submitImport({
+      // Executa o pipeline TradePro completo (30 passos)
+      const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
+      const pipeline = executarPipeline({
+        rawRecords: rawRows,
+        mapping,
+        fileName: fileInfo.name,
+        dataArquivo,
+        importId: undefined,
+      })
+      setPipelineResult(pipeline)
+      setImportProgress(70)
+
+      // Envia para o backend persistir (validades_raw + validades_base + import_history)
+      const result = await submitProcessValidades({
         fileName: fileInfo.name,
         fileSize: fileInfo.size,
-        records: valid,
+        fileHash: fileInfo.hash || '',
+        arquivoTipo: 'validades',
+        dataArquivo,
+        force: forceReprocess,
+        rawRecords: rawTradePro,
+        baseAtual: pipeline.baseAtual,
         summary: {
-          totalRows: validationReport.totalRows,
-          validRows: validationReport.validRows,
-          invalidRows: validationReport.invalidRows,
-          warningRows: validationReport.warningRows,
-          errors: validationReport.issues.slice(0, 100),
+          totalBrutos: pipeline.summary.totalBrutos,
+          filtrados90Dias: pipeline.summary.filtrados90Dias,
+          consolidados: pipeline.summary.consolidados,
+          baseAtual: pipeline.summary.baseAtual,
+          maiorDataArquivo: pipeline.summary.maiorDataArquivo,
         },
       })
 
@@ -265,21 +358,33 @@ export const ImportacaoPage: React.FC = () => {
       if (result.success) {
         setImportResult({
           imported: result.importedRows,
-          skipped: validationReport.totalRows - result.importedRows,
+          skipped: result.skippedRows,
           errors: result.errorRows,
         })
         setStage('done')
         setResultModalOpen(true)
         refetchHistory()
-        // limpa cache do DataSourceFactory para que a próxima leitura de Validades
-        // busque os dados recém-importados
         import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
           DataSourceFactory.reset()
         })
+      } else if (result.duplicate) {
+        toast({
+          title: 'Arquivo já importado',
+          description:
+            result.message ||
+            'Este arquivo já foi processado anteriormente. Marque "Reprocessar" para substituir.',
+          variant: 'destructive',
+        })
+        setDuplicateHash({
+          hash: fileInfo.hash || '',
+          importId: result.previousImportId,
+          created: result.previousDate,
+        })
+        setStage('validated')
       } else {
         toast({
-          title: 'Falha na importação',
-          description: result.error || 'Não foi possível concluir a importação.',
+          title: 'Falha no processamento',
+          description: result.error || 'Não foi possível concluir o processamento.',
           variant: 'destructive',
         })
         setStage('validated')
@@ -293,13 +398,24 @@ export const ImportacaoPage: React.FC = () => {
       })
       setStage('validated')
     }
-  }, [validationReport, fileInfo, mappedItems, toast, refetchHistory])
+  }, [
+    validationReport,
+    fileInfo,
+    mappedItems,
+    rawRows,
+    mapping,
+    dataArquivo,
+    forceReprocess,
+    toast,
+    refetchHistory,
+  ])
 
-  const canValidate = structure.isStructureValid && stage === 'parsed'
+  const canValidate = structure.isStructureValid && stage === 'parsed' && !rupturaDetected
   const canImport =
     (stage === 'validated' || stage === 'importing') &&
     !!validationReport &&
-    validationReport.validRows > 0
+    validationReport.validRows > 0 &&
+    !rupturaDetected
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -308,7 +424,8 @@ export const ImportacaoPage: React.FC = () => {
         <div>
           <h3 className="text-xl font-bold text-slate-900 tracking-tight">Importação de Dados</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Carregue a base operacional via Excel para alimentar o módulo de Validades.
+            Carregue a exportação do TradePro (aba “Pesquisa Validade”) para alimentar o módulo de
+            Validades.
           </p>
         </div>
         {stage !== 'idle' && (
@@ -319,52 +436,83 @@ export const ImportacaoPage: React.FC = () => {
         )}
       </div>
 
-      {/* Pipeline de etapas */}
+      {/* Pipeline visual — 7 fases */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500 flex-wrap">
-        {[
-          { id: 'upload', label: 'Selecionar arquivo', active: stage !== 'idle' },
-          { id: 'structure', label: 'Validar estrutura', active: stage !== 'idle' },
-          { id: 'mapping', label: 'Mapear colunas', active: stage !== 'idle' },
-          {
-            id: 'validate',
-            label: 'Validar dados',
-            active: ['validated', 'importing', 'done'].includes(stage),
-          },
-          { id: 'import', label: 'Importar', active: stage === 'done' },
-        ].map((s, i, arr) => (
-          <React.Fragment key={s.id}>
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border',
-                s.active
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                  : 'bg-white text-slate-400 border-slate-200',
-              )}
-            >
+        {PIPELINE_FASES.map((f, i, arr) => {
+          const active =
+            stage === 'done'
+              ? true
+              : stage === 'importing'
+                ? i <= 6
+                : stage === 'validated'
+                  ? i <= 4
+                  : stage === 'parsed'
+                    ? i <= 2
+                    : i === 0
+          const Icon = f.icon
+          return (
+            <React.Fragment key={f.id}>
               <span
                 className={cn(
-                  'w-4 h-4 rounded-full flex items-center justify-center text-[10px]',
-                  s.active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500',
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border',
+                  active
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    : 'bg-white text-slate-400 border-slate-200',
                 )}
               >
-                {s.active ? <Check className="w-2.5 h-2.5" /> : i + 1}
+                <span
+                  className={cn(
+                    'w-4 h-4 rounded-full flex items-center justify-center',
+                    active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500',
+                  )}
+                >
+                  {active ? <Check className="w-2.5 h-2.5" /> : <Icon className="w-2.5 h-2.5" />}
+                </span>
+                {f.label}
               </span>
-              {s.label}
-            </span>
-            {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-slate-300" />}
-          </React.Fragment>
-        ))}
+              {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-slate-300" />}
+            </React.Fragment>
+          )
+        })}
       </div>
 
-      {/* Erro de leitura */}
+      {/* Erro de leitura / Ruptura detectada */}
       {parseError && (
         <AlertBanner
-          type="error"
-          title="Não foi possível ler o arquivo"
+          type={rupturaDetected ? 'error' : 'error'}
+          title={
+            rupturaDetected ? 'Arquivo de Rupturas detectado' : 'Não foi possível ler o arquivo'
+          }
           message={parseError}
           onRetry={reset}
           retryLabel="Tentar outro arquivo"
         />
+      )}
+
+      {/* Alerta de reenvio */}
+      {duplicateHash && stage === 'parsed' && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50">
+          <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+            <p className="font-semibold text-amber-800 mb-1">Possível reenvio de arquivo</p>
+            <p>
+              Este arquivo (hash idêntico) já foi importado e concluído
+              {duplicateHash.created ? ` em ${fmtDate(duplicateHash.created)}` : ''}. Para evitar
+              duplicação de somas, o sistema não reprocessa automaticamente.
+            </p>
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={forceReprocess}
+                onChange={(e) => setForceReprocess(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              <span className="font-medium text-amber-800">
+                Reprocessar explicitamente (substitui importação anterior)
+              </span>
+            </label>
+          </div>
+        </div>
       )}
 
       {/* Upload area */}
@@ -392,10 +540,11 @@ export const ImportacaoPage: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-900">
-                {isParsing ? 'Lendo arquivo...' : 'Arraste um arquivo Excel aqui'}
+                {isParsing ? 'Lendo arquivo...' : 'Arraste um arquivo Excel do TradePro aqui'}
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                ou clique para selecionar • formatos .xlsx, .xls
+                Padrão: <code className="text-indigo-600">Validade_YYYY_MM_DD.xlsx</code> • aba
+                “Pesquisa Validade”
               </p>
             </div>
             <Button
@@ -429,7 +578,12 @@ export const ImportacaoPage: React.FC = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {dataArquivo && (
+                <Badge variant="outline" className="text-xs">
+                  Data Arquivo: {dataArquivo}
+                </Badge>
+              )}
               <Badge variant="outline" className="text-xs">
                 {detectedHeaders.length} colunas
               </Badge>
@@ -461,7 +615,9 @@ export const ImportacaoPage: React.FC = () => {
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Table2 className="w-4 h-4 text-indigo-600" />
-                <h4 className="text-sm font-bold text-slate-900">Mapeamento de colunas</h4>
+                <h4 className="text-sm font-bold text-slate-900">
+                  Mapeamento de colunas (TradePro)
+                </h4>
               </div>
               <span className="text-xs text-slate-400">
                 {EXPECTED_COLUMNS.length} campos • {REQUIRED_COLUMNS.length} obrigatórios
@@ -515,7 +671,8 @@ export const ImportacaoPage: React.FC = () => {
               <div className="flex items-center gap-1.5 text-xs text-slate-500">
                 <Info className="w-3.5 h-3.5" />
                 <span>
-                  O sistema se adapta ao arquivo: mapeie cada coluna do Excel ao campo interno.
+                  Identificadores (Cód., CPF/CNPJ) são tratados como texto, preservando zeros à
+                  esquerda.
                 </span>
               </div>
               <Button
@@ -570,7 +727,7 @@ export const ImportacaoPage: React.FC = () => {
                 {stage === 'importing' && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs text-slate-600">
-                      <span className="font-medium">Importando registros...</span>
+                      <span className="font-medium">Processando pipeline (30 passos)...</span>
                       <span className="tabular-nums">{Math.round(importProgress)}%</span>
                     </div>
                     <Progress value={importProgress} className="h-2" />
@@ -616,23 +773,29 @@ export const ImportacaoPage: React.FC = () => {
                 {/* Ação de importar */}
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
                   <p className="text-xs text-slate-500">
-                    {validationReport.validRows} registro(s) prontos para importar.
+                    {validationReport.validRows} registro(s) prontos para processar.
+                    {duplicateHash && (
+                      <span className="text-amber-700 font-medium">
+                        {' '}
+                        ⚠ Reenvio detectado{forceReprocess ? ' (reprocessar ativo)' : ''}.
+                      </span>
+                    )}
                   </p>
                   <Button
                     size="sm"
                     onClick={handleImport}
-                    disabled={!canImport}
+                    disabled={!canImport || (!!duplicateHash && !forceReprocess)}
                     className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
                   >
                     {stage === 'importing' ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Importando...
+                        Processando...
                       </>
                     ) : (
                       <>
                         <Download className="w-4 h-4" />
-                        Importar {validationReport.validRows} registro(s)
+                        Processar {validationReport.validRows} registro(s)
                       </>
                     )}
                   </Button>
@@ -641,12 +804,64 @@ export const ImportacaoPage: React.FC = () => {
             </div>
           )}
 
+          {/* Resumo pós-processamento (pipeline) */}
+          {pipelineResult && stage === 'done' && (
+            <div className="bg-white rounded-xl border border-indigo-200 overflow-hidden">
+              <div className="p-4 border-b border-indigo-100 flex items-center gap-2 bg-indigo-50/40">
+                <Layers className="w-4 h-4 text-indigo-600" />
+                <h4 className="text-sm font-bold text-slate-900">Resumo do processamento</h4>
+              </div>
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase">
+                    <Database className="w-3 h-3" /> Brutos
+                  </div>
+                  <p className="text-xl font-bold text-slate-900 tabular-nums">
+                    {pipelineResult.summary.totalBrutos}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-600 uppercase">
+                    <Filter className="w-3 h-3" /> 90 dias
+                  </div>
+                  <p className="text-xl font-bold text-blue-700 tabular-nums">
+                    {pipelineResult.summary.filtrados90Dias}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 uppercase">
+                    <GitMerge className="w-3 h-3" /> Consolidados
+                  </div>
+                  <p className="text-xl font-bold text-amber-700 tabular-nums">
+                    {pipelineResult.summary.consolidados}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 uppercase">
+                    <CheckCircle2 className="w-3 h-3" /> Base Atual
+                  </div>
+                  <p className="text-xl font-bold text-emerald-700 tabular-nums">
+                    {pipelineResult.summary.baseAtual}
+                  </p>
+                </div>
+              </div>
+              {pipelineResult.summary.quantidadeZeroRemovidos > 0 && (
+                <div className="px-4 pb-4">
+                  <p className="text-[11px] text-slate-500">
+                    {pipelineResult.summary.quantidadeZeroRemovidos} ocorrência(s) com quantidade
+                    zero não exibida(s) na Base Atual (registro bruto preservado).
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Resultado (done) */}
           {stage === 'done' && importResult && (
             <AlertBanner
               type="success"
-              title="Importação concluída"
-              message={`${importResult.imported} registro(s) importado(s) com sucesso, ${importResult.skipped} ignorado(s), ${importResult.errors} com erro.`}
+              title="Processamento concluído"
+              message={`${importResult.imported} ocorrência(s) na Base Atual, ${importResult.skipped} não selecionada(s), ${importResult.errors} com erro.`}
             />
           )}
         </div>
@@ -728,12 +943,14 @@ export const ImportacaoPage: React.FC = () => {
           <Info className="w-4 h-4" />
         </div>
         <div className="text-xs text-slate-700 leading-relaxed">
-          <p className="font-semibold text-slate-900 mb-0.5">Preparado para TradePro API</p>
+          <p className="font-semibold text-slate-900 mb-0.5">Pipeline TradePro (30 passos)</p>
           <p>
-            O pipeline de importação (upload → validação → mapeamento → persistência) é genérico: os
-            validators e o mapper aceitam dados em formato de array de objetos. No futuro, o passo
-            de upload de Excel poderá ser substituído por um fetch da API TradePro sem alterar o
-            restante do fluxo.
+            O sistema identifica o arquivo, confirma que é Validades (recusa Rupturas), lê a aba
+            “Pesquisa Validade”, preserva os dados brutos, valida os 7 campos obrigatórios, filtra
+            últimos 90 dias, aplica correções de validade, deduplica em duas etapas (somar por Chave
+            Dedup → selecionar maior Realizado por Chave Operacional), remove quantidade zero,
+            calcula Status Operacional e Situação Atual, reconhece loja/rede e persiste a Base
+            Atual.
           </p>
         </div>
       </div>
@@ -742,7 +959,7 @@ export const ImportacaoPage: React.FC = () => {
       <Modal
         isOpen={resultModalOpen}
         onClose={() => setResultModalOpen(false)}
-        title="Importação concluída"
+        title="Processamento concluído"
         description="Resumo da operação"
         footer={
           <Button
@@ -763,23 +980,25 @@ export const ImportacaoPage: React.FC = () => {
             </div>
             <div>
               <p className="font-semibold text-slate-900 text-sm">
-                Importação realizada com sucesso
+                Base Atual atualizada com sucesso
               </p>
               <p className="text-xs text-slate-500">
-                Os dados importados já alimentam o módulo de Validades.
+                As ocorrências processadas já alimentam o módulo de Validades.
               </p>
             </div>
           </div>
           {importResult && (
             <div className="grid grid-cols-3 gap-2 pt-1">
               <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-center">
-                <p className="text-[10px] font-semibold text-emerald-600 uppercase">Importados</p>
+                <p className="text-[10px] font-semibold text-emerald-600 uppercase">Base Atual</p>
                 <p className="text-lg font-bold text-emerald-700 tabular-nums">
                   {importResult.imported}
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-center">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase">Ignorados</p>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                  Não selecionados
+                </p>
                 <p className="text-lg font-bold text-slate-700 tabular-nums">
                   {importResult.skipped}
                 </p>

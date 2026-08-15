@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-15T17:59:41.455Z",
+  "generatedAt": "2026-08-15T19:23:29.454Z",
   "collections": [
     {
       "name": "users",
@@ -130,9 +130,54 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "file_hash",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "arquivo_tipo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "filtered_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "base_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_arquivo",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_importacao",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
-      "indexes": ["CREATE INDEX idx_import_history_created ON import_history (created DESC)"]
+      "indexes": [
+        "CREATE INDEX idx_import_history_created ON import_history (created DESC)",
+        "CREATE INDEX `idx_import_history_hash` ON `import_history` (file_hash)"
+      ]
     },
     {
       "name": "validades_imported",
@@ -301,6 +346,845 @@
         "CREATE INDEX idx_validades_imported_validade ON validades_imported (validade)",
         "CREATE INDEX idx_validades_imported_import ON validades_imported (import_id)",
         "CREATE INDEX idx_validades_imported_loja ON validades_imported (loja)"
+      ]
+    },
+    {
+      "name": "validades_raw",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "cod_colaborador",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "colaborador",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cpf_cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fantasia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_barras",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fabricacao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "realizado",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_vencimento_arquivo",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero_lote",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "representante",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fornecedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero_linha",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_arquivo",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_importacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "import_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "import_history"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_validades_raw_import ON validades_raw (import_id)",
+        "CREATE INDEX idx_validades_raw_realizado ON validades_raw (realizado)"
+      ]
+    },
+    {
+      "name": "networks",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_externo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_networks_nome ON networks (nome)"]
+    },
+    {
+      "name": "stores",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_externo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "network_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "networks"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_stores_codigo ON stores (codigo_externo)",
+        "CREATE INDEX idx_stores_network ON stores (network_id)"
+      ]
+    },
+    {
+      "name": "validades_base",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "fornecedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_barras",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cpf_cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo_loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rede",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "colaborador",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_colaborador",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fantasia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "representante",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero_lote",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "realizado",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade_original",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade_efetiva",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_arquivo",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_importacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_entrada",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_aparicao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_base_atual",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "chave_operacional",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "chave_dedup",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "correcao_aplicada",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "regra_correcao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_vencimento_atual",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_vencimento_arquivo",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_vencimento_entrada",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_operacional",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Vencido", "Crítico", "Atenção", "Moderado", "Normal"]
+        },
+        {
+          "name": "status_na_entrada",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Vencido", "Crítico", "Atenção", "Moderado", "Normal"]
+        },
+        {
+          "name": "situacao_atual",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Ativo", "Encerrado/Não Reportado"]
+        },
+        {
+          "name": "import_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "import_history"
+        },
+        {
+          "name": "store_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "stores"
+        },
+        {
+          "name": "network_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "networks"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_validades_base_chave ON validades_base (chave_operacional)",
+        "CREATE INDEX idx_validades_base_validade ON validades_base (validade_efetiva)",
+        "CREATE INDEX idx_validades_base_realizado ON validades_base (realizado)",
+        "CREATE INDEX idx_validades_base_import ON validades_base (import_id)",
+        "CREATE INDEX idx_validades_base_loja ON validades_base (nome_loja)"
+      ]
+    },
+    {
+      "name": "validades_corrections",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "fornecedor",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "produto",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "validade_errada",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "validade_correta",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "regra",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_correcao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_validades_corrections_key ON validades_corrections (fornecedor, razao_social, produto, validade_errada)"
+      ]
+    },
+    {
+      "name": "store_aliases",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "alias",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "stores"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_store_aliases_alias ON store_aliases (alias)",
+        "CREATE INDEX idx_store_aliases_store ON store_aliases (store_id)"
+      ]
+    },
+    {
+      "name": "network_aliases",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "alias",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "network_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "networks"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_network_aliases_alias ON network_aliases (alias)",
+        "CREATE INDEX idx_network_aliases_network ON network_aliases (network_id)"
       ]
     }
   ]

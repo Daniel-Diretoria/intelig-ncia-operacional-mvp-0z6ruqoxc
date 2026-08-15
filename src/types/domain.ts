@@ -1,3 +1,176 @@
+// =============================================================================
+// TradePro — modelo bruto e processado de Validades
+// =============================================================================
+
+/**
+ * Identificadores tratados como texto (preservam zeros à esquerda):
+ * Cód. Colaborador, Cód. Supervisor, CPF/CNPJ, Cód. Cliente, Cód. Produto,
+ * Cód. Barras, CNPJ. Não validados como CPF/CNPJ fiscal.
+ */
+export interface TradeProRawRecord {
+  /** Código do colaborador (texto, preserva zeros à esquerda). */
+  codColaborador?: string
+  colaborador?: string
+  codSupervisor?: string
+  supervisor?: string
+  /** CPF/CNPJ do cliente (texto bruto). */
+  cpfCnpj?: string
+  /** Razão Social original — ex.: "250 - FORT ATACADISTA FLORESTA". */
+  razaoSocial?: string
+  fantasia?: string
+  cidade?: string
+  estado?: string
+  codCliente?: string
+  cliente?: string
+  codProduto?: string
+  produto?: string
+  codBarras?: string
+  /** Data de fabricação (ISO YYYY-MM-DD quando disponível). */
+  dataFabricacao?: string
+  /** Data da coleta (ISO YYYY-MM-DD). */
+  realizado?: string
+  realizadoRaw?: unknown
+  /** Indica se a linha foi realizada (campo "Realizado" do TradePro). */
+  realizadoFlag?: string | boolean
+  quantidade?: number
+  quantidadeRaw?: unknown
+  /** Dias para vencimento conforme arquivo (camada bruta de auditoria). */
+  diasVencimentoArquivo?: number
+  /** Validade original do arquivo (ISO YYYY-MM-DD). */
+  validade?: string
+  validadeRaw?: unknown
+  numeroLote?: string
+  representante?: string
+  /** CNPJ do fornecedor (texto bruto). */
+  cnpj?: string
+  fornecedor?: string
+  /** Número da linha no arquivo de origem (1-based, para desempate). */
+  numeroLinha?: number
+}
+
+/** Reconhecimento de loja a partir da Razão Social. */
+export interface StoreRecognition {
+  /** Parte anterior ao primeiro " - " (código externo da loja). */
+  codigoLoja?: string
+  /** Parte posterior ao primeiro " - " (nome recebido da loja). */
+  nomeLoja?: string
+  /** Conteúdo completo da Razão Social. */
+  razaoSocialOriginal?: string
+  /** Rede identificada (quando aplicável). */
+  rede?: string
+  /** Fonte da identificação da loja. */
+  origemReconhecimento?:
+    | 'codigo_externo'
+    | 'alias'
+    | 'cnpj'
+    | 'razao_cidade'
+    | 'fantasia_rede'
+    | 'manual'
+    | 'nao_reconhecido'
+}
+
+/** Chave de correção de validade. */
+export interface ValidadeCorrection {
+  id?: string
+  fornecedor: string
+  razaoSocial: string
+  produto: string
+  /** Validade original (ISO YYYY-MM-DD). */
+  validadeErrada: string
+  /** Validade correta (ISO YYYY-MM-DD). */
+  validadeCorreta: string
+  regra?: string
+  usuario?: string
+  dataCorrecao?: string
+}
+
+/** Chave operacional e de deduplicação. */
+export interface DedupKey {
+  /** Fornecedor|Razão Social|Produto|Validade efetiva (normalizada). */
+  chaveOperacional: string
+  /** Chave Operacional + |Realizado (normalizada). */
+  chaveDedup: string
+}
+
+/**
+ * Resultado processado de uma ocorrência de validade após o pipeline TradePro.
+ * Representa uma linha da Base Atual (validades_base).
+ */
+export interface ProcessedValidade {
+  id: string
+  // Identificadores operacionais
+  fornecedor: string
+  razaoSocial: string
+  produto: string
+  cliente?: string
+  codCliente?: string
+  codProduto?: string
+  codBarras?: string
+  cpfCnpj?: string
+  cnpj?: string
+  // Loja / Rede
+  codigoLoja?: string
+  nomeLoja?: string
+  rede?: string
+  cidade?: string
+  estado?: string
+  // Colaborador / Supervisor
+  colaborador?: string
+  codColaborador?: string
+  supervisor?: string
+  codSupervisor?: string
+  fantasia?: string
+  representante?: string
+  numeroLote?: string
+  // Datas
+  /** Data da coleta (ISO YYYY-MM-DD). */
+  realizado: string
+  /** Validade original do arquivo (ISO YYYY-MM-DD). */
+  validadeOriginal: string
+  /** Validade após correções (ISO YYYY-MM-DD). */
+  validadeEfetiva: string
+  /** Data representada pelo arquivo (ISO YYYY-MM-DD). */
+  dataArquivo?: string
+  /** Data em que o sistema recebeu o arquivo (ISO date-time). */
+  dataImportacao?: string
+  /** Primeira aparição da ocorrência (menor Data Arquivo). */
+  dataEntrada?: string
+  /** Última aparição da ocorrência (maior Data Arquivo). */
+  ultimaAparicao?: string
+  // Quantidade
+  quantidade: number
+  /** Indica se a linha-base foi selecionada na etapa 2 (maior Realizado). */
+  isBaseAtual: boolean
+  // Chaves
+  chaveOperacional: string
+  chaveDedup: string
+  // Correção aplicada
+  correcaoAplicada?: boolean
+  regraCorrecao?: string
+  // Status
+  /** Dias p/ Vencimento recalculado (Validade efetiva − data atual). */
+  diasVencimentoAtual: number
+  /** Dias p/ Vencimento preservado do arquivo (auditoria). */
+  diasVencimentoArquivo?: number
+  /** Dias p/ Vencimento na entrada (histórico, não varia). */
+  diasVencimentoEntrada?: number
+  /** Status Operacional atual (Vencido/Crítico/Atenção/Moderado/Normal). */
+  statusOperacional: StatusOperacional
+  /** Status na entrada (histórico). */
+  statusNaEntrada?: StatusOperacional
+  /** Situação atual: Ativo | Encerrado/Não Reportado. */
+  situacaoAtual: 'Ativo' | 'Encerrado/Não Reportado'
+  /** Referência à importação (import_history.id). */
+  importId?: string
+  created?: string
+  updated?: string
+}
+
+/** Status Operacional conforme faixas de dias para vencimento. */
+export type StatusOperacional = 'Vencido' | 'Crítico' | 'Atenção' | 'Moderado' | 'Normal'
+
+// =============================================================================
+
 export type ProductCategory = 'Mercearia' | 'Laticínios' | 'Bebidas' | 'Limpeza' | 'Higiene'
 
 export type ValidadeStatus = 'Crítico' | 'Próximo' | 'OK'

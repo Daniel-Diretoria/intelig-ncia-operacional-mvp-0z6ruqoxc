@@ -9,16 +9,17 @@ import type { ProductCategory, ValidadeItem } from '@/types'
  * são obrigatórios e qual o tipo esperado de cada um. A UI de importação e o
  * mapper consomem este array — nenhum nome de coluna é hardcoded na interface.
  *
- * O nome interno (`key`) corresponde a um campo de `ValidadeItem`.
+ * O nome interno (`key`) corresponde a um campo de `ValidadeItem` ou a um dos
+ * campos do modelo TradePro (`TradeProRawRecord`).
  * O `aliases` traz os rótulos pt-BR mais comuns encontrados em planilhas
  * operacionais, usados para sugerir automaticamente um mapeamento.
  */
 
-export type ColumnType = 'string' | 'number' | 'date' | 'enum'
+export type ColumnType = 'string' | 'number' | 'date' | 'enum' | 'text-id'
 
 export interface ExpectedColumn {
-  /** Campo interno — espelha uma propriedade de `ValidadeItem`. */
-  key: keyof ValidadeItem | 'import_id'
+  /** Campo interno — espelha uma propriedade de `ValidadeItem` ou `TradeProRawRecord`. */
+  key: string
   /** Rótulo exibido na UI de mapeamento. */
   label: string
   /** Descrição curta auxiliar. */
@@ -36,90 +37,65 @@ export interface ExpectedColumn {
 /**
  * Colunas esperadas pelo sistema. Edite este array para ajustar o contrato
  * de importação — a UI, o mapper e os validators se adaptam automaticamente.
+ *
+ * O formato TradePro (aba "Pesquisa Validade") possui exatamente 23 colunas,
+ * mapeadas abaixo. Os aliases cobrem pequenas variações de acentuação, caixa,
+ * espaços e abreviações previamente mapeadas.
  */
 export const EXPECTED_COLUMNS: ExpectedColumn[] = [
+  // --- Colunas do formato TradePro (23) ---
   {
-    key: 'product',
-    label: 'Produto',
-    description: 'Nome/descrição do produto',
-    required: true,
-    type: 'string',
-    aliases: ['produto', 'descricao', 'descricao do produto', 'nome do produto', 'item'],
+    key: 'codColaborador',
+    label: 'Cód. Colaborador',
+    description: 'Texto — preserva zeros à esquerda',
+    required: false,
+    type: 'text-id',
+    aliases: ['cod. colaborador', 'codigo colaborador', 'cod colaborador', 'cod.colaborador'],
   },
   {
-    key: 'sku',
-    label: 'SKU',
-    description: 'Código do produto',
-    required: true,
-    type: 'string',
-    aliases: ['sku', 'codigo', 'codigo do produto', 'cod', 'ean', 'gtin'],
-  },
-  {
-    key: 'lote',
-    label: 'Lote',
-    required: true,
-    type: 'string',
-    aliases: ['lote', 'lote fabricacao', 'batch', 'numero do lote'],
-  },
-  {
-    key: 'category',
-    label: 'Categoria',
-    required: true,
-    type: 'enum',
-    enumValues: ['Mercearia', 'Laticínios', 'Bebidas', 'Limpeza', 'Higiene'],
-    aliases: ['categoria', 'departamento', 'grupo', 'categoria do produto'],
-  },
-  {
-    key: 'validade',
-    label: 'Data de Validade',
-    description: 'Data de vencimento (dd/mm/aaaa ou aaaa-mm-dd)',
-    required: true,
-    type: 'date',
-    aliases: ['validade', 'vencimento', 'data de validade', 'data vencimento', 'val', 'shelf life'],
-  },
-  {
-    key: 'estoque',
-    label: 'Estoque',
-    description: 'Quantidade em estoque',
-    required: true,
-    type: 'number',
-    aliases: ['estoque', 'saldo', 'quantidade em estoque', 'qtde estoque', 'qtd estoque'],
-  },
-  {
-    key: 'unidade',
-    label: 'Unidade',
-    description: 'Unidade de medida (UN, CX, PCT, FD...)',
-    required: true,
-    type: 'string',
-    aliases: ['unidade', 'un', 'unidade de medida', 'uom', 'embalagem'],
-  },
-  {
-    key: 'cliente',
-    label: 'Cliente',
+    key: 'colaborador',
+    label: 'Colaborador',
     required: false,
     type: 'string',
-    aliases: ['cliente', 'razao social', 'chain', 'distribuidor'],
+    aliases: ['colaborador'],
   },
   {
-    key: 'industria',
-    label: 'Indústria',
+    key: 'codSupervisor',
+    label: 'Cód. Supervisor',
+    description: 'Texto — preserva zeros à esquerda',
     required: false,
-    type: 'string',
-    aliases: ['industria', 'fabricante', 'fornecedor', 'marca'],
+    type: 'text-id',
+    aliases: ['cod. supervisor', 'codigo supervisor', 'cod supervisor', 'cod.supervisor'],
   },
   {
-    key: 'rede',
-    label: 'Rede',
+    key: 'supervisor',
+    label: 'Supervisor',
     required: false,
     type: 'string',
-    aliases: ['rede', 'bandeira', 'chain'],
+    aliases: ['supervisor'],
   },
   {
-    key: 'loja',
-    label: 'Loja',
+    key: 'cpfCnpj',
+    label: 'CPF/CNPJ',
+    description: 'Texto — não validar como CPF/CNPJ fiscal',
+    required: false,
+    type: 'text-id',
+    aliases: ['cpf/cnpj', 'cpf cnpj', 'cpfcnpj', 'cpf / cnpj'],
+  },
+  {
+    key: 'razaoSocial',
+    label: 'Razão Social',
+    description: 'Ex.: "250 - FORT ATACADISTA FLORESTA"',
+    required: true,
+    type: 'string',
+    aliases: ['razao social', 'razão social', 'razaosocial', 'razao'],
+  },
+  {
+    key: 'fantasia',
+    label: 'Fantasia',
     required: false,
     type: 'string',
-    aliases: ['loja', 'unidade loja', 'filial', 'store', 'pdv'],
+    aliases: ['fantasia', 'nome fantasia'],
   },
   {
     key: 'cidade',
@@ -129,41 +105,118 @@ export const EXPECTED_COLUMNS: ExpectedColumn[] = [
     aliases: ['cidade', 'municipio', 'city'],
   },
   {
-    key: 'uf',
-    label: 'UF',
+    key: 'estado',
+    label: 'Estado',
     required: false,
     type: 'string',
-    aliases: ['uf', 'estado', 'sigla estado', 'state'],
+    aliases: ['estado', 'uf', 'sigla estado', 'state'],
   },
   {
-    key: 'promotor',
-    label: 'Promotor',
+    key: 'codCliente',
+    label: 'Cód. Cliente',
+    description: 'Texto — preserva zeros à esquerda',
     required: false,
-    type: 'string',
-    aliases: ['promotor', 'consultor', 'promotor de vendas'],
+    type: 'text-id',
+    aliases: ['cod. cliente', 'codigo cliente', 'cod cliente', 'cod.cliente'],
   },
   {
-    key: 'supervisor',
-    label: 'Supervisor',
-    required: false,
+    key: 'cliente',
+    label: 'Cliente',
+    required: true,
     type: 'string',
-    aliases: ['supervisor', 'coordenador', 'gerente'],
+    aliases: ['cliente'],
+  },
+  {
+    key: 'codProduto',
+    label: 'Cód. Produto',
+    description: 'Texto — preserva zeros à esquerda',
+    required: false,
+    type: 'text-id',
+    aliases: ['cod. produto', 'codigo produto', 'cod produto', 'cod.produto'],
+  },
+  {
+    key: 'produto',
+    label: 'Produto',
+    description: 'Nome/descrição do produto',
+    required: true,
+    type: 'string',
+    aliases: ['produto', 'descricao', 'descricao do produto', 'nome do produto', 'item'],
+  },
+  {
+    key: 'codBarras',
+    label: 'Cód. Barras',
+    description: 'Texto — preserva zeros à esquerda (EAN/GTIN)',
+    required: false,
+    type: 'text-id',
+    aliases: ['cod. barras', 'codigo barras', 'cod barras', 'ean', 'gtin', 'cod.barras'],
+  },
+  {
+    key: 'dataFabricacao',
+    label: 'Data Fabricação',
+    required: false,
+    type: 'date',
+    aliases: ['data fabricacao', 'data de fabricacao', 'fab', 'fabricacao'],
+  },
+  {
+    key: 'realizado',
+    label: 'Realizado',
+    description: 'Data da coleta',
+    required: true,
+    type: 'date',
+    aliases: ['realizado', 'data realizado', 'data da coleta', 'coleta'],
   },
   {
     key: 'quantidade',
     label: 'Quantidade',
-    description: 'Quantidade envolvida na ocorrência',
-    required: false,
+    description: 'Quantidade envolvida (0 é válido; negativo é rejeitado)',
+    required: true,
     type: 'number',
     aliases: ['quantidade', 'qtd', 'qtde', 'volume', 'quantidade unidades'],
   },
   {
-    key: 'precoUnitario',
-    label: 'Preço Unitário',
-    description: 'Preço médio unitário (R$)',
+    key: 'diasVencimentoArquivo',
+    label: 'Dias p/ Vencimento',
+    description: 'Preservado do arquivo para auditoria',
     required: false,
     type: 'number',
-    aliases: ['preco unitario', 'preco', 'valor unitario', 'preco medio', 'price'],
+    aliases: ['dias p/ vencimento', 'dias p vencimento', 'dias para vencimento', 'dias vencimento'],
+  },
+  {
+    key: 'validade',
+    label: 'Validade',
+    description: 'Data de vencimento (dd/mm/aaaa ou aaaa-mm-dd)',
+    required: true,
+    type: 'date',
+    aliases: ['validade', 'vencimento', 'data de validade', 'data vencimento', 'val', 'shelf life'],
+  },
+  {
+    key: 'numeroLote',
+    label: 'Número do lote',
+    required: false,
+    type: 'string',
+    aliases: ['numero do lote', 'lote', 'n lote', 'n. lote', 'lote fabricacao', 'batch'],
+  },
+  {
+    key: 'representante',
+    label: 'Representante',
+    required: false,
+    type: 'string',
+    aliases: ['representante', 'rep', 'representante comercial'],
+  },
+  {
+    key: 'cnpj',
+    label: 'CNPJ',
+    description: 'CNPJ do fornecedor — texto, preserva zeros à esquerda',
+    required: false,
+    type: 'text-id',
+    aliases: ['cnpj'],
+  },
+  {
+    key: 'fornecedor',
+    label: 'Fornecedor',
+    required: true,
+    type: 'string',
+    aliases: ['fornecedor', 'industria', 'fabricante', 'marca', 'supplier'],
   },
 ]
 
@@ -264,6 +317,46 @@ export function validateStructure(detectedHeaders: string[]): StructureValidatio
     missingOptional,
     isStructureValid: missingRequired.length === 0,
   }
+}
+
+/**
+ * Conjunto característico de colunas de um arquivo de Rupturas (aba "Ruptura").
+ * Usado para recusar arquivos de Rupturas no importador de Validades.
+ */
+const RUPTURA_COLUMN_HINTS = [
+  'ruptura',
+  'data ruptura',
+  'inicio ruptura',
+  'fim ruptura',
+  'dias ruptura',
+  'motivo ruptura',
+  'reposicao',
+  'previsao chegada',
+  'previsao reposicao',
+  'tipo ruptura',
+]
+
+/**
+ * Abas consideradas indicativas de arquivo de Rupturas.
+ */
+export const RUPTURA_SHEET_HINTS = ['ruptura', 'rupturas']
+
+/**
+ * Detecta se os cabeçalhos/aba correspondem a um arquivo de Rupturas.
+ * Retorna true quando há forte indício de que o arquivo é de Rupturas.
+ */
+export function isRupturaFile(detectedHeaders: string[], sheetName?: string): boolean {
+  const normalized = detectedHeaders.map(normalizeHeader)
+  const sheet = sheetName ? normalizeHeader(sheetName) : ''
+
+  // aba principal "Ruptura"
+  if (RUPTURA_SHEET_HINTS.includes(sheet)) return true
+
+  // conjunto de colunas característico de Rupturas
+  const rupturaHits = RUPTURA_COLUMN_HINTS.filter((h) => normalized.some((hdr) => hdr.includes(h)))
+  if (rupturaHits.length >= 2) return true
+
+  return false
 }
 
 /** Valida se um valor de categoria é aceito pelo sistema. */

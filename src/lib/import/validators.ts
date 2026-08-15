@@ -1,5 +1,6 @@
 import type { ValidadeItem } from '@/types'
 import { parseDate } from './excelMapper'
+import { isRupturaFile } from './columnMapping'
 
 /**
  * Camada de validação de dados de importação.
@@ -35,6 +36,8 @@ export interface DatasetValidationReport {
   warningRows: number
   issues: ValidationIssue[]
   duplicates: DuplicateGroup[]
+  /** Indica se o arquivo foi detectado como Rupturas. */
+  isRupturaFile?: boolean
 }
 
 export interface DuplicateGroup {
@@ -51,8 +54,10 @@ const MAX_PAST_DAYS = 365 * 5
 const MAX_FUTURE_DAYS = 365 * 10
 
 /**
- * Valida campos obrigatórios de um item mapeado.
- * Retorna erros para campos obrigatórios vazios.
+ * Valida campos obrigatórios de um item mapeado (modelo TradePro).
+ * Os 7 obrigatórios são: Razão Social, Realizado, Cliente, Produto,
+ * Quantidade, Validade, Fornecedor — já validados no mapper.
+ * Aqui validamos campos obrigatórios do ValidadeItem legado.
  */
 export function validateRequiredFields(
   item: Partial<ValidadeItem>,
@@ -129,6 +134,26 @@ export function validateDates(item: Partial<ValidadeItem>, rowIndex: number): Va
 }
 
 /**
+ * Valida Quantidade: 0 é válido, negativo deve ser rejeitado.
+ */
+export function validateQuantidade(
+  item: Partial<ValidadeItem>,
+  rowIndex: number,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const q = item.quantidade ?? item.estoque
+  if (q != null && q < 0) {
+    issues.push({
+      rowIndex,
+      severity: 'error',
+      field: 'quantidade',
+      message: `Quantidade negativa (${q}) é rejeitada.`,
+    })
+  }
+  return issues
+}
+
+/**
  * Detecta duplicidades evidentes: mesmo produto + loja + validade.
  * Se loja for ausente, usa sku + validade como fallback.
  */
@@ -184,6 +209,19 @@ export function validateCompleteness(
 }
 
 /**
+ * Detecta se um arquivo é de Rupturas com base no nome, aba e cabeçalhos.
+ */
+export function detectRupturaFile(
+  fileName: string,
+  sheetName: string,
+  detectedHeaders: string[],
+): boolean {
+  const lowerName = (fileName || '').toLowerCase()
+  if (lowerName.includes('ruptura') || lowerName.includes('rupturas')) return true
+  return isRupturaFile(detectedHeaders, sheetName)
+}
+
+/**
  * Executa a validação completa de um dataset de itens mapeados.
  */
 export function validateDataset(items: ValidadeItem[]): DatasetValidationReport {
@@ -192,7 +230,11 @@ export function validateDataset(items: ValidadeItem[]): DatasetValidationReport 
   const warningRows = new Set<number>()
 
   items.forEach((item, idx) => {
-    const errs = [...validateRequiredFields(item, idx), ...validateDates(item, idx)]
+    const errs = [
+      ...validateRequiredFields(item, idx),
+      ...validateDates(item, idx),
+      ...validateQuantidade(item, idx),
+    ]
     const warns = validateCompleteness(item, idx)
 
     errs.forEach((e) => {
