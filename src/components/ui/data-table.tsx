@@ -23,6 +23,8 @@ interface DataTableProps<T> {
   emptyMessage?: string
   className?: string
   stickyFirstCol?: boolean
+  /** Quando definido, cada linha fica clicável e invoca este callback. */
+  onRowClick?: (row: T, index: number) => void
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -36,6 +38,7 @@ export function DataTable<T extends Record<string, any>>({
   emptyMessage = 'Nenhum registro encontrado.',
   className,
   stickyFirstCol = true,
+  onRowClick,
 }: DataTableProps<T>) {
   if (isLoading) {
     return (
@@ -151,7 +154,11 @@ export function DataTable<T extends Record<string, any>>({
             {data.map((row, rowIdx) => (
               <tr
                 key={row.id || rowIdx}
-                className="group hover:bg-slate-50/80 transition-colors duration-150 h-12"
+                onClick={() => onRowClick?.(row, rowIdx)}
+                className={cn(
+                  'group hover:bg-slate-50/80 transition-colors duration-150 h-12',
+                  onRowClick && 'cursor-pointer',
+                )}
               >
                 {columns.map((col, colIdx) => {
                   const isFirst = colIdx === 0 && stickyFirstCol

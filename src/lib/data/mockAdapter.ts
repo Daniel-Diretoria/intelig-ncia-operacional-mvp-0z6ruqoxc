@@ -12,6 +12,8 @@ import type {
   ChartCategoryData,
   ChartRupturaPeriodData,
 } from '@/types'
+import { classificarCriticidade } from './criticidade'
+import { MOCK_VALIDADES_VAREJO } from './mockValidades'
 
 // Realistic sample seed data for Diretoria Promoções
 const MOCK_VALIDADES: ValidadeItem[] = [
@@ -442,7 +444,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
 
   async listValidades(filters?: ValidadesFilter): Promise<ValidadeItem[]> {
     await delay()
-    let items = [...MOCK_VALIDADES]
+    // Camada 02: usa o dataset enriquecido de varejo (mesma forma do dataset
+    // original, porém com cliente/indústria/rede/loja/cidade/promotor/supervisor).
+    let items = [...MOCK_VALIDADES_VAREJO]
 
     if (filters?.search) {
       const q = filters.search.trim().toLowerCase()
@@ -450,7 +454,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
         (i) =>
           i.product.toLowerCase().includes(q) ||
           i.sku.toLowerCase().includes(q) ||
-          i.lote.toLowerCase().includes(q),
+          i.lote.toLowerCase().includes(q) ||
+          (i.cliente ?? '').toLowerCase().includes(q) ||
+          (i.loja ?? '').toLowerCase().includes(q),
       )
     }
 
@@ -458,8 +464,43 @@ export class MockOperationalAdapter implements IOperationalDataSource {
       items = items.filter((i) => i.category === filters.category)
     }
 
+    // status legado (Crítico / Próximo / OK) — mantido por compatibilidade
     if (filters?.status && filters.status !== 'Todos') {
       items = items.filter((i) => i.status === filters.status)
+    }
+
+    // --- Filtros Camada 02 ---
+    if (filters?.cliente) items = items.filter((i) => i.cliente === filters.cliente)
+    if (filters?.industria) items = items.filter((i) => i.industria === filters.industria)
+    if (filters?.rede) items = items.filter((i) => i.rede === filters.rede)
+    if (filters?.loja) items = items.filter((i) => i.loja === filters.loja)
+    if (filters?.cidade) items = items.filter((i) => i.cidade === filters.cidade)
+    if (filters?.produto) items = items.filter((i) => i.product === filters.produto)
+    if (filters?.promotor) items = items.filter((i) => i.promotor === filters.promotor)
+    if (filters?.supervisor) items = items.filter((i) => i.supervisor === filters.supervisor)
+
+    if (filters?.criticidades && filters.criticidades.length > 0) {
+      items = items.filter((i) =>
+        filters.criticidades!.includes(classificarCriticidade(i.diasRestantes)),
+      )
+    }
+
+    if (filters?.dataInicio) {
+      const inicio = new Date(filters.dataInicio + 'T00:00:00').getTime()
+      items = items.filter((i) => new Date(i.validade + 'T00:00:00').getTime() >= inicio)
+    }
+    if (filters?.dataFim) {
+      const fim = new Date(filters.dataFim + 'T23:59:59').getTime()
+      items = items.filter((i) => new Date(i.validade + 'T00:00:00').getTime() <= fim)
+    }
+
+    // --- Drill-down hierárquico ---
+    if (filters?.drill) {
+      const d = filters.drill
+      if (d.cliente) items = items.filter((i) => i.cliente === d.cliente)
+      if (d.loja) items = items.filter((i) => i.loja === d.loja)
+      if (d.produto) items = items.filter((i) => i.product === d.produto)
+      if (d.ocorrenciaId) items = items.filter((i) => i.id === d.ocorrenciaId)
     }
 
     return items
