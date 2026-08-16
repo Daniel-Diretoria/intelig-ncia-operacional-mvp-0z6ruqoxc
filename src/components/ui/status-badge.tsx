@@ -2,6 +2,7 @@ import React from 'react'
 import { cn } from '@/lib/utils'
 
 export type StatusBadgeVariant =
+  | 'vencido'
   | 'critico'
   | 'proximo'
   | 'ok'
@@ -34,9 +35,17 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   let resolvedVariant = variant
   if (!resolvedVariant && typeof text === 'string') {
     const s = text.toLowerCase().trim()
-    if (s === 'crítico' || s === 'critico') resolvedVariant = 'critico'
-    else if (s === 'próximo' || s === 'proximo') resolvedVariant = 'proximo'
-    else if (s === 'ok' || s === 'regular') resolvedVariant = 'ok'
+    if (s === 'vencido') resolvedVariant = 'vencido'
+    else if (s === 'crítico' || s === 'critico') resolvedVariant = 'critico'
+    else if (
+      s === 'próximo' ||
+      s === 'proximo' ||
+      s === 'atenção' ||
+      s === 'atencao' ||
+      s === 'moderado'
+    )
+      resolvedVariant = 'proximo'
+    else if (s === 'normal' || s === 'ok' || s === 'regular') resolvedVariant = 'ok'
     else if (s === 'em ruptura' || s === 'ruptura') resolvedVariant = 'em-ruptura'
     else if (s.includes('reposição') || s.includes('reposicao'))
       resolvedVariant = 'reposicao-prevista'
@@ -46,6 +55,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   }
 
   const stylesByVariant: Record<StatusBadgeVariant, string> = {
+    vencido: 'bg-rose-50 text-rose-800 border-rose-200/60 ring-rose-500/10',
     critico: 'bg-red-50 text-red-700 border-red-200/60 ring-red-500/10',
     danger: 'bg-red-50 text-red-700 border-red-200/60 ring-red-500/10',
     proximo: 'bg-amber-50 text-amber-800 border-amber-200/60 ring-amber-500/10',

@@ -17,7 +17,7 @@ export interface CriticidadeFaixa {
   /** Limite superior (inclusive) de diasRestantes para esta faixa. null = sem limite. */
   maxDias: number | null
   /** Variante visual compatível com StatusBadge. */
-  badgeVariant: 'critico' | 'alto' | 'warning' | 'proximo' | 'ok'
+  badgeVariant: 'vencido' | 'critico' | 'alto' | 'warning' | 'proximo' | 'ok'
   /** Cor de texto Tailwind para números/ícones. */
   textClass: string
   /** Classes de chip (fundo + texto) para uso em mini-KPIs. */
@@ -29,16 +29,27 @@ export interface CriticidadeFaixa {
 /**
  * Configuração das faixas de criticidade. Ordenar do mais crítico ao menos crítico.
  * Centralizado e atualizado conforme especificação:
- *   - Crítico: 0 a 15 dias para vencer
+ *   - Vencido: dias <= 0
+ *   - Crítico: 1 a 15 dias para vencer
  *   - Atenção: 16 a 25 dias para vencer
  *   - Moderado: 26 a 35 dias para vencer
- *   - Normal / OK: > 35 dias para vencer
+ *   - OK / Normal: > 35 dias para vencer
  */
 export const CRITICIDADE_FAIXAS: CriticidadeFaixa[] = [
   {
+    level: 'Vencido',
+    label: 'Vencido',
+    descricao: 'Produto vencido (dias <= 0)',
+    maxDias: 0,
+    badgeVariant: 'vencido',
+    textClass: 'text-rose-700',
+    chipClass: 'bg-rose-100 text-rose-700',
+    prioridade: 0,
+  },
+  {
     level: 'Crítico',
     label: 'Crítico',
-    descricao: 'Vencido (dias <= 0) ou vencendo entre 0 e 15 dias',
+    descricao: 'Vencendo entre 1 e 15 dias',
     maxDias: 15,
     badgeVariant: 'critico',
     textClass: 'text-red-600',
@@ -99,10 +110,12 @@ export function classificarStatusOperacional(dias: number): StatusOperacional {
 
 /**
  * Classifica um item pelo número de dias restantes até o vencimento.
- * Dias negativos (vencido) sempre caem em "Crítico".
+ * Dias <= 0 caem em "Vencido"; os demais seguem as faixas de CRITICIDADE_FAIXAS.
  */
 export function classificarCriticidade(diasRestantes: number): CriticidadeLevel {
+  if (diasRestantes <= 0) return 'Vencido'
   for (const faixa of CRITICIDADE_FAIXAS) {
+    if (faixa.level === 'Vencido') continue
     if (faixa.maxDias === null) return faixa.level
     if (diasRestantes <= faixa.maxDias) return faixa.level
   }

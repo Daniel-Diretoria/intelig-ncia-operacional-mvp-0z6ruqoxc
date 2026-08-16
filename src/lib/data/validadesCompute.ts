@@ -33,7 +33,7 @@ export function calcularKpis(items: ValidadeItem[]): ValidadeKpis {
 
   for (const it of items) {
     const nivel = classificarCriticidade(it.diasRestantes)
-    if (nivel === 'Crítico') criticos++
+    if (nivel === 'Vencido' || nivel === 'Crítico') criticos++
     else if (nivel === 'Atenção') atencao++
     else if (nivel === 'Moderado') moderado++
     else ok++
@@ -94,7 +94,8 @@ function agruparRanking(
       exposicao: 0,
     }
     cur.ocorrencias++
-    if (classificarCriticidade(it.diasRestantes) === 'Crítico') cur.criticos++
+    const nivel = classificarCriticidade(it.diasRestantes)
+    if (nivel === 'Vencido' || nivel === 'Crítico') cur.criticos++
     cur.quantidade += it.quantidade ?? it.estoque
     cur.exposicao += (it.quantidade ?? it.estoque) * (it.precoUnitario ?? 0)
     map.set(chave, cur)

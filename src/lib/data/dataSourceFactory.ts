@@ -2,9 +2,16 @@ import type { IOperationalDataSource } from './operationalDataSource'
 import { MockOperationalAdapter } from './mockAdapter'
 import { ImportDataSource } from './importAdapter'
 import pb from '@/lib/pocketbase/client'
-import type { ValidadeItem, ValidadesFilter } from '@/types'
+import type {
+  ValidadeItem,
+  ValidadesFilter,
+  KpiSummary,
+  ChartCategoryData,
+  ChartRupturaPeriodData,
+} from '@/types'
 import { classificarCriticidade } from './criticidade'
 import { calcularDiasRestantes, deriveStatus } from '@/lib/import/excelMapper'
+import { calcularKpis } from './validadesCompute'
 
 // Future adapter stubs - ready for toggle via VITE_DATA_SOURCE without touching any UI component
 
@@ -46,12 +53,14 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       category: (rec.category as ValidadeItem['category']) || 'Mercearia',
       validade,
       diasRestantes,
+      // status_operacional já vem no formato Vencido/Crítico/Atenção/Moderado/Normal
       status: (rec.status_operacional as ValidadeItem['status']) || deriveStatus(diasRestantes),
       unidade: 'UN',
       estoque: typeof rec.quantidade === 'number' ? rec.quantidade : Number(rec.quantidade) || 0,
       cliente: (rec.cliente as string) || undefined,
       industria: (rec.fornecedor as string) || undefined,
       rede: (rec.rede as string) || undefined,
+      codigoLoja: (rec.codigo_loja as string) || undefined,
       loja: (rec.nome_loja as string) || (rec.razao_social as string) || undefined,
       cidade: (rec.cidade as string) || undefined,
       uf: (rec.estado as string) || undefined,
@@ -140,11 +149,80 @@ export class TradeProApiAdapter implements IOperationalDataSource {
   }
 
   async getKpis(): Promise<{
-    summary: import('@/types').KpiSummary
-    categoryDistribution: import('@/types').ChartCategoryData[]
-    rupturasOverTime: import('@/types').ChartRupturaPeriodData[]
+    summary: KpiSummary
+    categoryDistribution: ChartCategoryData[]
+    rupturasOverTime: ChartRupturaPeriodData[]
   }> {
-    return this.mockFallback.getKpis()
+    try {
+      const records = await pb.collection('validades_base').getFullList({
+        sort: 'validade_efetiva',
+        filter: 'is_base_atual = true',
+      })
+      if (records.length === 0) {
+        // Base Atual vazia → fallback mock
+        return this.mockFallback.getKpis()
+      }
+
+      const items: ValidadeItem[] = records.map((r) =>
+        this.toValidadeItem(r as unknown as Record<string, unknown>),
+      )
+      const kpis = calcularKpis(items)
+
+      // Distribuição por categoria (usa categoria padrão Mercearia quando ausente)
+      const categories: Array<ValidadeItem['category']> = [
+        'Mercearia',
+        'Laticínios',
+        'Bebidas',
+        'Limpeza',
+        'Higiene',
+      ]
+      const categoryDistribution: ChartCategoryData[] = categories.map((cat) => {
+        const catItems = items.filter((i) => i.category === cat)
+        const c = catItems.filter((i) => i.status === 'Vencido' || i.status === 'Crítico').length
+        const p = catItems.filter((i) => i.status === 'Atenção' || i.status === 'Moderado').length
+        const o = catItems.filter((i) => i.status === 'Normal').length
+        return { category: cat, critico: c, proximo: p, ok: o, total: catItems.length }
+      })
+
+      const summary: KpiSummary = {
+        validadesCriticas: {
+          count: kpis.criticos,
+          delta: `${kpis.criticos} críticos`,
+          trend: 'neutral',
+        },
+        rupturasAtivas: {
+          count: 0,
+          delta: 'Sem rupturas',
+          trend: 'neutral',
+        },
+        alertasAbertos: {
+          count: kpis.criticos,
+          delta: `${kpis.criticos} críticos`,
+          trend: 'neutral',
+        },
+        produtosEmRisco: {
+          count: new Set(items.filter((i) => i.status !== 'Normal').map((i) => i.sku)).size,
+          delta: 'Atenção operacional',
+          trend: 'neutral',
+        },
+        validadesStatusCounts: {
+          critico: kpis.criticos,
+          proximo: kpis.atencao + kpis.moderado,
+          ok: kpis.ok,
+        },
+        rupturasStatusCounts: { emRuptura: 0, critico: 0, reposicaoPrevista: 0 },
+      }
+
+      return {
+        summary,
+        categoryDistribution,
+        // Sem histórico de rupturas no TradePro; retorna vazio
+        rupturasOverTime: [],
+      }
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao calcular KPIs:', err)
+      return this.mockFallback.getKpis()
+    }
   }
 
   async listRupturas(

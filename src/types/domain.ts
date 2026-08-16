@@ -173,7 +173,7 @@ export type StatusOperacional = 'Vencido' | 'Crítico' | 'Atenção' | 'Moderado
 
 export type ProductCategory = 'Mercearia' | 'Laticínios' | 'Bebidas' | 'Limpeza' | 'Higiene'
 
-export type ValidadeStatus = 'Crítico' | 'Próximo' | 'OK'
+export type ValidadeStatus = StatusOperacional
 export type RupturaStatus = 'Em Ruptura' | 'Crítico' | 'Reposição Prevista'
 export type AlertaSeverity = 'Crítico' | 'Alto' | 'Médio'
 export type AlertaType = 'Validade' | 'Ruptura'
@@ -181,8 +181,9 @@ export type AlertaType = 'Validade' | 'Ruptura'
 /**
  * Níveis de criticidade de validade usados pela camada de negócio.
  * O mapeamento dias -> nível fica centralizado em `src/lib/data/criticidade.ts`.
+ * Inclui 'Vencido' (dias <= 0) como nível distinto de 'Crítico'.
  */
-export type CriticidadeLevel = 'Crítico' | 'Atenção' | 'Moderado' | 'OK'
+export type CriticidadeLevel = 'Vencido' | 'Crítico' | 'Atenção' | 'Moderado' | 'OK'
 
 export interface Product {
   id: string
@@ -208,6 +209,8 @@ export interface ValidadeItem {
   cliente?: string
   industria?: string
   rede?: string
+  /** Código externo da loja extraído da Razão Social (ex.: "305"). */
+  codigoLoja?: string
   loja?: string
   cidade?: string
   uf?: string

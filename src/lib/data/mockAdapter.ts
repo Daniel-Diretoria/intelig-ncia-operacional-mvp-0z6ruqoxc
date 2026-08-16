@@ -61,7 +61,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Laticínios',
     validade: '2025-05-30',
     diasRestantes: 18,
-    status: 'Próximo',
+    status: 'Atenção',
     unidade: 'UN',
     estoque: 64,
   },
@@ -73,7 +73,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Mercearia',
     validade: '2025-06-05',
     diasRestantes: 24,
-    status: 'Próximo',
+    status: 'Atenção',
     unidade: 'PCT',
     estoque: 180,
   },
@@ -85,7 +85,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Bebidas',
     validade: '2025-06-08',
     diasRestantes: 27,
-    status: 'Próximo',
+    status: 'Moderado',
     unidade: 'FD',
     estoque: 320,
   },
@@ -97,7 +97,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Bebidas',
     validade: '2025-06-11',
     diasRestantes: 30,
-    status: 'Próximo',
+    status: 'Moderado',
     unidade: 'FD',
     estoque: 155,
   },
@@ -109,7 +109,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Mercearia',
     validade: '2025-08-15',
     diasRestantes: 95,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'FD',
     estoque: 450,
   },
@@ -121,7 +121,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Mercearia',
     validade: '2025-08-20',
     diasRestantes: 100,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'FD',
     estoque: 390,
   },
@@ -133,7 +133,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Mercearia',
     validade: '2025-09-02',
     diasRestantes: 113,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'CX',
     estoque: 275,
   },
@@ -145,7 +145,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Mercearia',
     validade: '2025-09-14',
     diasRestantes: 125,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'CX',
     estoque: 195,
   },
@@ -157,7 +157,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Limpeza',
     validade: '2025-11-20',
     diasRestantes: 192,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'CX',
     estoque: 310,
   },
@@ -169,7 +169,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Limpeza',
     validade: '2025-12-05',
     diasRestantes: 207,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'CX',
     estoque: 420,
   },
@@ -181,7 +181,7 @@ const MOCK_VALIDADES: ValidadeItem[] = [
     category: 'Higiene',
     validade: '2025-12-18',
     diasRestantes: 220,
-    status: 'OK',
+    status: 'Normal',
     unidade: 'CX',
     estoque: 160,
   },
@@ -356,9 +356,13 @@ export class MockOperationalAdapter implements IOperationalDataSource {
   }> {
     await delay()
 
-    const criticosCount = MOCK_VALIDADES.filter((v) => v.status === 'Crítico').length
-    const proximosCount = MOCK_VALIDADES.filter((v) => v.status === 'Próximo').length
-    const okCount = MOCK_VALIDADES.filter((v) => v.status === 'OK').length
+    const criticosCount = MOCK_VALIDADES.filter(
+      (v) => v.status === 'Vencido' || v.status === 'Crítico',
+    ).length
+    const proximosCount = MOCK_VALIDADES.filter(
+      (v) => v.status === 'Atenção' || v.status === 'Moderado',
+    ).length
+    const okCount = MOCK_VALIDADES.filter((v) => v.status === 'Normal').length
 
     const emRupturaCount = MOCK_RUPTURAS.filter((r) => r.status === 'Em Ruptura').length
     const ruptCriticosCount = MOCK_RUPTURAS.filter((r) => r.status === 'Crítico').length
@@ -368,7 +372,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
 
     // Distinct products in risk (critical validity or active rupture)
     const produtosRiscoSet = new Set<string>()
-    MOCK_VALIDADES.filter((v) => v.status === 'Crítico').forEach((v) => produtosRiscoSet.add(v.sku))
+    MOCK_VALIDADES.filter((v) => v.status === 'Vencido' || v.status === 'Crítico').forEach((v) =>
+      produtosRiscoSet.add(v.sku),
+    )
     MOCK_RUPTURAS.forEach((r) => produtosRiscoSet.add(r.sku))
 
     const summary: KpiSummary = {
@@ -414,9 +420,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
 
     const categoryDistribution: ChartCategoryData[] = categories.map((cat) => {
       const items = MOCK_VALIDADES.filter((v) => v.category === cat)
-      const c = items.filter((v) => v.status === 'Crítico').length
-      const p = items.filter((v) => v.status === 'Próximo').length
-      const o = items.filter((v) => v.status === 'OK').length
+      const c = items.filter((v) => v.status === 'Vencido' || v.status === 'Crítico').length
+      const p = items.filter((v) => v.status === 'Atenção' || v.status === 'Moderado').length
+      const o = items.filter((v) => v.status === 'Normal').length
       return {
         category: cat,
         critico: c,
@@ -464,7 +470,7 @@ export class MockOperationalAdapter implements IOperationalDataSource {
       items = items.filter((i) => i.category === filters.category)
     }
 
-    // status legado (Crítico / Próximo / OK) — mantido por compatibilidade
+    // status operacional (Vencido / Crítico / Atenção / Moderado / Normal)
     if (filters?.status && filters.status !== 'Todos') {
       items = items.filter((i) => i.status === filters.status)
     }
@@ -565,9 +571,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
         const categories = ['Mercearia', 'Laticínios', 'Bebidas', 'Limpeza', 'Higiene']
         const rows = categories.map((cat) => {
           const items = MOCK_VALIDADES.filter((v) => v.category === cat)
-          const crit = items.filter((v) => v.status === 'Crítico').length
-          const prox = items.filter((v) => v.status === 'Próximo').length
-          const ok = items.filter((v) => v.status === 'OK').length
+          const crit = items.filter((v) => v.status === 'Vencido' || v.status === 'Crítico').length
+          const prox = items.filter((v) => v.status === 'Atenção' || v.status === 'Moderado').length
+          const ok = items.filter((v) => v.status === 'Normal').length
           const totalEstoque = items.reduce((acc, i) => acc + i.estoque, 0)
           return {
             categoria: cat,
@@ -604,12 +610,14 @@ export class MockOperationalAdapter implements IOperationalDataSource {
             { label: 'Categorias Monitoradas', value: categories.length },
             {
               label: 'Lotes Críticos',
-              value: MOCK_VALIDADES.filter((v) => v.status === 'Crítico').length,
+              value: MOCK_VALIDADES.filter((v) => v.status === 'Vencido' || v.status === 'Crítico')
+                .length,
               accent: 'danger',
             },
             {
               label: 'Lotes Próximos',
-              value: MOCK_VALIDADES.filter((v) => v.status === 'Próximo').length,
+              value: MOCK_VALIDADES.filter((v) => v.status === 'Atenção' || v.status === 'Moderado')
+                .length,
               accent: 'warning',
             },
           ],
@@ -726,7 +734,7 @@ export class MockOperationalAdapter implements IOperationalDataSource {
       }
 
       case 'validades-proximas-vencer': {
-        const criticalAndNear = MOCK_VALIDADES.filter((v) => v.status !== 'OK').sort(
+        const criticalAndNear = MOCK_VALIDADES.filter((v) => v.status !== 'Normal').sort(
           (a, b) => a.diasRestantes - b.diasRestantes,
         )
 

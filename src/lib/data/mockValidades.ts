@@ -339,11 +339,13 @@ function gerarValidades(): ValidadeItem[] {
     ultimaDate.setUTCDate(ultimaDate.getUTCDate() - Math.floor(rng() * 14))
     const ultimaAtualizacao = ultimaDate.toISOString()
 
-    // status legado mantido por compatibilidade com Dashboard/Kpis
+    // status operacional (faixas TradePro) — Vencido/Crítico/Atenção/Moderado/Normal
     let status: ValidadeItem['status']
-    if (diasRestantes <= 7) status = 'Crítico'
-    else if (diasRestantes <= 30) status = 'Próximo'
-    else status = 'OK'
+    if (diasRestantes <= 0) status = 'Vencido'
+    else if (diasRestantes <= 15) status = 'Crítico'
+    else if (diasRestantes <= 25) status = 'Atenção'
+    else if (diasRestantes <= 35) status = 'Moderado'
+    else status = 'Normal'
 
     items.push({
       id: `val-${String(i + 1).padStart(3, '0')}`,

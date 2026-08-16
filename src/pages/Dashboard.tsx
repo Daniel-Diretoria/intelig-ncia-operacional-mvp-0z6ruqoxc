@@ -56,7 +56,9 @@ export const DashboardPage: React.FC = () => {
   }
 
   // Filter preview items
-  const criticalValidades = validades.filter((v) => v.status === 'Crítico').slice(0, 4)
+  const criticalValidades = validades
+    .filter((v) => v.status === 'Crítico' || v.status === 'Vencido')
+    .slice(0, 4)
   const activeRupturas = rupturas.slice(0, 4)
   const recentAlerts = alertas.slice(0, 4)
 

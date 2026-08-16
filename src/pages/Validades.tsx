@@ -20,16 +20,6 @@ import {
 } from 'lucide-react'
 import { classificarCriticidade, getCriticidadeFaixa } from '@/lib/data/criticidade'
 import { calcularKpis } from '@/lib/data/validadesCompute'
-import {
-  MOCK_VALIDADES_CLIENTES,
-  MOCK_VALIDADES_INDUSTRIAS,
-  MOCK_VALIDADES_REDES,
-  MOCK_VALIDADES_LOJAS,
-  MOCK_VALIDADES_CIDADES,
-  MOCK_VALIDADES_PRODUTOS,
-  MOCK_VALIDADES_PROMOTORES,
-  MOCK_VALIDADES_SUPERVISORES,
-} from '@/lib/data/mockValidades'
 import { ValidadesKpis, type KpiTile } from '@/components/validades/ValidadesKpis'
 import {
   ValidadesBreadcrumb,
@@ -260,18 +250,20 @@ export const ValidadesPage: React.FC = () => {
     [sortedData, currentPage],
   )
 
-  // Opções de filtro
+  // Opções de filtro derivadas dos dados reais (não mais do mock)
+  const uniqueSorted = (vals: Array<string | undefined | null>) =>
+    [...new Set(vals.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   const toOptions = (arr: string[]) => arr.map((v) => ({ label: v, value: v }))
   const filterOptions = useMemo(
     () => ({
-      clientes: toOptions(MOCK_VALIDADES_CLIENTES),
-      industrias: toOptions(MOCK_VALIDADES_INDUSTRIAS),
-      redes: toOptions(MOCK_VALIDADES_REDES),
-      lojas: toOptions(MOCK_VALIDADES_LOJAS),
-      cidades: toOptions(MOCK_VALIDADES_CIDADES),
-      produtos: toOptions(MOCK_VALIDADES_PRODUTOS),
-      promotores: toOptions(MOCK_VALIDADES_PROMOTORES),
-      supervisores: toOptions(MOCK_VALIDADES_SUPERVISORES),
+      clientes: toOptions(uniqueSorted(validades.map((v) => v.cliente))),
+      industrias: toOptions(uniqueSorted(validades.map((v) => v.industria))),
+      redes: toOptions(uniqueSorted(validades.map((v) => v.rede))),
+      lojas: toOptions(uniqueSorted(validades.map((v) => v.loja))),
+      cidades: toOptions(uniqueSorted(validades.map((v) => v.cidade))),
+      produtos: toOptions(uniqueSorted(validades.map((v) => v.product))),
+      promotores: toOptions(uniqueSorted(validades.map((v) => v.promotor))),
+      supervisores: toOptions(uniqueSorted(validades.map((v) => v.supervisor))),
       categorias: [
         { label: 'Mercearia', value: 'Mercearia' },
         { label: 'Laticínios', value: 'Laticínios' },
@@ -280,7 +272,7 @@ export const ValidadesPage: React.FC = () => {
         { label: 'Higiene', value: 'Higiene' },
       ],
     }),
-    [],
+    [validades],
   )
 
   // KPI tiles
@@ -387,7 +379,7 @@ export const ValidadesPage: React.FC = () => {
       },
       {
         key: 'industria',
-        header: 'Indústria',
+        header: 'Fornecedor',
         className: 'min-w-[120px] text-slate-600',
         sortable: true,
       },
@@ -398,7 +390,15 @@ export const ValidadesPage: React.FC = () => {
         sortable: true,
         render: (row) => (
           <div className="min-w-0">
-            <p className="truncate">{row.loja}</p>
+            <p className="truncate">
+              {row.codigoLoja ? (
+                <>
+                  <span className="font-mono font-bold text-indigo-700">{row.codigoLoja}</span>
+                  <span className="text-slate-400"> • </span>
+                </>
+              ) : null}
+              {row.loja}
+            </p>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {row.cidade}/{row.uf}
             </p>

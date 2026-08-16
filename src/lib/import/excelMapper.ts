@@ -118,11 +118,13 @@ export function calcularDiasRestantes(validadeISO: string, refDate: Date = new D
   return Math.floor((v.getTime() - today.getTime()) / 86400000)
 }
 
-/** Deriva status legado a partir dos dias restantes. */
+/** Deriva status operacional a partir dos dias restantes (faixas TradePro). */
 export function deriveStatus(diasRestantes: number): ValidadeStatus {
-  if (diasRestantes <= 7) return 'Crítico'
-  if (diasRestantes <= 30) return 'Próximo'
-  return 'OK'
+  if (diasRestantes <= 0) return 'Vencido'
+  if (diasRestantes <= 15) return 'Crítico'
+  if (diasRestantes <= 25) return 'Atenção'
+  if (diasRestantes <= 35) return 'Moderado'
+  return 'Normal'
 }
 
 /** Resolve o valor de um campo em um registro genérico usando o mapeamento. */
@@ -253,6 +255,7 @@ export function mapRecord(
   item.cliente = cliente || undefined
   item.industria = fornecedor || undefined
   item.rede = undefined
+  item.codigoLoja = codigoLoja || undefined
   item.loja = loja || razaoSocial || undefined
   item.cidade = cidade || undefined
   item.uf = estado || undefined

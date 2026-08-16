@@ -10,7 +10,7 @@ import {
   prioridadeAtuacao,
   type RankingItem,
 } from '@/lib/data/validadesCompute'
-import { getCriticidadeFaixa } from '@/lib/data/criticidade'
+import { getCriticidadeFaixa, classificarCriticidade } from '@/lib/data/criticidade'
 import { CriticidadeBadge } from './CriticidadeBadge'
 
 const fmtMoney = (v: number) =>
@@ -314,44 +314,40 @@ export const ValidadesIntelligence: React.FC<{ items: ValidadeItem[]; isLoading?
 
 function ResumoQuantitativo({ items }: { items: ValidadeItem[] }) {
   const counts = React.useMemo(() => {
-    let c = 0
-    let a = 0
-    let m = 0
-    let o = 0
+    let v = 0 // Vencido
+    let c = 0 // Crítico
+    let a = 0 // Atenção
+    let m = 0 // Moderado
+    let o = 0 // OK
     let qtd = 0
     let exp = 0
     for (const it of items) {
-      const nivel =
-        it.diasRestantes <= 7
-          ? 'Crítico'
-          : it.diasRestantes <= 15
-            ? 'Atenção'
-            : it.diasRestantes <= 30
-              ? 'Moderado'
-              : 'OK'
-      if (nivel === 'Crítico') c++
+      const nivel = classificarCriticidade(it.diasRestantes)
+      if (nivel === 'Vencido') v++
+      else if (nivel === 'Crítico') c++
       else if (nivel === 'Atenção') a++
       else if (nivel === 'Moderado') m++
       else o++
       qtd += it.quantidade ?? it.estoque
       exp += (it.quantidade ?? it.estoque) * (it.precoUnitario ?? 0)
     }
-    return { c, a, m, o, qtd, exp, total: items.length }
+    return { v, c, a, m, o, qtd, exp, total: items.length }
   }, [items])
 
   const rows: Array<{ label: string; value: string; chip: string }> = [
-    { label: 'Crítico (≤ 7 dias)', value: fmtInt(counts.c), chip: 'bg-red-100 text-red-700' },
+    { label: 'Vencido (≤ 0 dias)', value: fmtInt(counts.v), chip: 'bg-rose-100 text-rose-700' },
+    { label: 'Crítico (1–15 dias)', value: fmtInt(counts.c), chip: 'bg-red-100 text-red-700' },
     {
-      label: 'Atenção (8–15 dias)',
+      label: 'Atenção (16–25 dias)',
       value: fmtInt(counts.a),
       chip: 'bg-orange-100 text-orange-700',
     },
     {
-      label: 'Moderado (16–30 dias)',
+      label: 'Moderado (26–35 dias)',
       value: fmtInt(counts.m),
       chip: 'bg-amber-100 text-amber-800',
     },
-    { label: 'OK (> 30 dias)', value: fmtInt(counts.o), chip: 'bg-emerald-100 text-emerald-700' },
+    { label: 'OK (> 35 dias)', value: fmtInt(counts.o), chip: 'bg-emerald-100 text-emerald-700' },
     {
       label: 'Quantidade total envolvida',
       value: `${fmtInt(counts.qtd)} un.`,
