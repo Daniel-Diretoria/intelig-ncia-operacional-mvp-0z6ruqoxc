@@ -22,7 +22,7 @@
 
 routerAdd(
   'POST',
-  '/backend/v1/process-validades',
+  '/api/backend/v1/process-validades',
   (e) => {
     const body = e.requestInfo().body || {}
     const authRecord = e.requestInfo().auth
