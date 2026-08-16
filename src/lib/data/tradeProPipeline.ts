@@ -418,7 +418,7 @@ export function executarPipeline(input: PipelineInput): PipelineResult {
 
     // Passo 28: Situação Atual
     const situacaoAtual: 'Ativo' | 'Encerrado/Não Reportado' =
-      ultimaAparicao === maiorDataArquivo ? 'Ativo' : 'Encerrado/Não Reportado'
+      maiorDataArquivo && ultimaAparicao === maiorDataArquivo ? 'Ativo' : 'Encerrado/Não Reportado'
 
     return {
       ...p,

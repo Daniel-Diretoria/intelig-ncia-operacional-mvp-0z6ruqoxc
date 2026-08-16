@@ -1,4 +1,5 @@
 import type { IOperationalDataSource } from './operationalDataSource'
+import { DataSourceFactory } from './dataSourceFactory'
 import type {
   ValidadeItem,
   ValidadesFilter,
@@ -149,7 +150,7 @@ export class ImportDataSource implements IOperationalDataSource {
   }
 
   async listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]> {
-    return this.mockFallback.listAlertas(filters)
+    return DataSourceFactory.getProvider().listAlertas(filters)
   }
 
   async getReportData(reportType: ReportType): Promise<ReportData> {

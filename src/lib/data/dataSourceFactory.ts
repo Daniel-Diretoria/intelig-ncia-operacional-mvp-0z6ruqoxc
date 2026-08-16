@@ -234,7 +234,80 @@ export class TradeProApiAdapter implements IOperationalDataSource {
   async listAlertas(
     filters?: import('@/types').AlertasFilter,
   ): Promise<import('@/types').AlertaItem[]> {
-    return this.mockFallback.listAlertas(filters)
+    try {
+      const records = await pb.collection('validades_base').getFullList({
+        filter: 'is_base_atual = true',
+        sort: '-updated',
+      })
+
+      const alertas: import('@/types').AlertaItem[] = []
+
+      for (const rec of records) {
+        const r = rec as unknown as Record<string, unknown>
+        const status = (r.status_operacional as string) || ''
+
+        if (status !== 'Vencido' && status !== 'Crítico') {
+          continue
+        }
+
+        const produto = (r.produto as string) || 'Produto'
+        const quantidade =
+          typeof r.quantidade === 'number' ? r.quantidade : Number(r.quantidade) || 0
+        const dias = typeof r.dias_vencimento_atual === 'number' ? r.dias_vencimento_atual : 0
+        const sku = (r.cod_produto as string) || (r.cod_barras as string) || ''
+        const realizado = (r.realizado as string) || ''
+        const updatedAt = (r.updated as string) || ''
+        const timestamp = updatedAt || realizado || new Date().toISOString()
+
+        const severity: 'Crítico' | 'Alto' | 'Médio' = 'Crítico'
+
+        let diasTexto = `${dias} dias`
+        if (dias <= 0) {
+          diasTexto = `${Math.abs(dias)} dias atrás`
+        }
+
+        const description = `${produto} possui ${quantidade} unidades vencendo em ${diasTexto}.`
+
+        alertas.push({
+          id: `alerta-${r.id}`,
+          title: status === 'Vencido' ? 'Produto Vencido' : 'Validade Iminente',
+          message: description,
+          severity,
+          type: 'Validade',
+          timestamp,
+          isRead: false,
+          product: produto,
+          sku,
+          category: 'Mercearia',
+        })
+      }
+
+      let items = alertas
+
+      if (filters?.search) {
+        const q = filters.search.trim().toLowerCase()
+        items = items.filter(
+          (i) =>
+            i.title.toLowerCase().includes(q) ||
+            i.message.toLowerCase().includes(q) ||
+            (i.product && i.product.toLowerCase().includes(q)) ||
+            (i.sku && i.sku.toLowerCase().includes(q)),
+        )
+      }
+
+      if (filters?.severity && filters.severity !== 'Todos') {
+        items = items.filter((i) => i.severity === filters.severity)
+      }
+
+      if (filters?.type && filters.type !== 'Todos') {
+        items = items.filter((i) => i.type === filters.type)
+      }
+
+      return items
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao listar alertas:', err)
+      return []
+    }
   }
 
   async getReportData(

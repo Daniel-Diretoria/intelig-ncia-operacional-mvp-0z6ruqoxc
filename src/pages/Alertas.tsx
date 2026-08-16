@@ -78,12 +78,20 @@ export const AlertasPage: React.FC = () => {
   ]
 
   const getRelativeTime = (timestamp: string) => {
+    if (!timestamp) return 'hoje'
     const date = new Date(timestamp)
+    if (isNaN(date.getTime())) return 'hoje'
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
+    if (diffMs < 0) return 'hoje'
+
+    const diffMinutes = Math.floor(diffMs / (1000 * 60))
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-    if (diffDays <= 0) return 'hoje'
+    if (diffMinutes < 1) return 'agora mesmo'
+    if (diffMinutes < 60) return `há ${diffMinutes} min`
+    if (diffHours < 24) return `há ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`
     if (diffDays === 1) return 'há 1 dia'
     return `há ${diffDays} dias`
   }
