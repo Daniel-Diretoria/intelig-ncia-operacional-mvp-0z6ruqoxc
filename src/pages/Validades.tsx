@@ -208,10 +208,10 @@ export const ValidadesPage: React.FC = () => {
     if (selectedKpi) {
       const labels: Record<KpiId, string> = {
         total: 'Todas as ocorrências',
-        criticos: 'Produtos Críticos',
-        atencao: 'Atenção (8–15 dias)',
-        moderado: 'Moderado (16–30 dias)',
-        ok: 'OK (> 30 dias)',
+        criticos: 'Produtos Críticos (0–15 dias)',
+        atencao: 'Atenção (16–25 dias)',
+        moderado: 'Moderado (26–35 dias)',
+        ok: 'OK (> 35 dias)',
         quantidade: 'Quantidade total',
         lojas: 'Lojas afetadas',
         clientes: 'Clientes afetados',
@@ -301,7 +301,7 @@ export const ValidadesPage: React.FC = () => {
         value: fmtInt(kpis.criticos),
         icon: AlertOctagon,
         chipClass: 'bg-red-100 text-red-700',
-        hint: 'Vencido ou ≤ 7 dias',
+        hint: '0 a 15 dias',
         active: selectedKpi === 'criticos',
       },
       {
@@ -309,8 +309,8 @@ export const ValidadesPage: React.FC = () => {
         label: 'Atenção',
         value: fmtInt(kpis.atencao),
         icon: CalendarClock,
-        chipClass: 'bg-orange-100 text-orange-700',
-        hint: '8 a 15 dias',
+        chipClass: 'bg-amber-100 text-amber-800',
+        hint: '16 a 25 dias',
         active: selectedKpi === 'atencao',
       },
       {
@@ -318,8 +318,8 @@ export const ValidadesPage: React.FC = () => {
         label: 'Moderado',
         value: fmtInt(kpis.moderado),
         icon: CalendarClock,
-        chipClass: 'bg-amber-100 text-amber-800',
-        hint: '16 a 30 dias',
+        chipClass: 'bg-amber-50 text-amber-900 border border-amber-200',
+        hint: '26 a 35 dias',
         active: selectedKpi === 'moderado',
       },
       {
@@ -328,7 +328,7 @@ export const ValidadesPage: React.FC = () => {
         value: fmtInt(kpis.ok),
         icon: CheckCircle2,
         chipClass: 'bg-emerald-100 text-emerald-700',
-        hint: '> 30 dias',
+        hint: '> 35 dias',
         active: selectedKpi === 'ok',
       },
       {

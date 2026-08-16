@@ -11,10 +11,10 @@ import { classificarCriticidade, CRITICIDADE_FAIXAS, getCriticidadeFaixa } from 
 
 export interface ValidadeKpis {
   total: number
-  criticos: number // vencido ou <= 7 dias
-  atencao: number // 8 a 15 dias
-  moderado: number // 16 a 30 dias
-  ok: number // > 30 dias
+  criticos: number // 0 a 15 dias
+  atencao: number // 16 a 25 dias
+  moderado: number // 26 a 35 dias
+  ok: number // > 35 dias
   quantidadeTotal: number // soma de unidades envolvidas
   lojasAfetadas: number // contagem distinta de lojas
   clientesAfetados: number // contagem distinta de clientes/indústrias

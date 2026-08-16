@@ -80,16 +80,18 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/40 antialiased font-sans">
       <div className="w-full max-w-md">
         {/* Login Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8 sm:p-10 animate-fade-in-up">
-          {/* Brand & Subtitle */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 mb-4">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Diretoria Promoções
-            </h1>
-            <p className="text-sm font-medium text-slate-500 mt-1">Inteligência Operacional</p>
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xl p-8 sm:p-10 animate-fade-in-up">
+          {/* Brand & Logo */}
+          <div className="text-center mb-8 flex flex-col items-center">
+            <img
+              src="/src/assets/image-9f672.png"
+              alt="Diretoria Promoções Logo"
+              className="h-20 sm:h-24 w-auto object-contain mb-3 drop-shadow-sm"
+            />
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Diretoria Promoções</h1>
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 mt-1">
+              Inteligência Operacional
+            </p>
           </div>
 
           {/* Error Banner */}
@@ -188,7 +190,7 @@ export const LoginPage: React.FC = () => {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-11 mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-lg shadow-sm shadow-indigo-600/25 transition-all duration-150 active:scale-[0.98]"
+              className="w-full h-11 mt-2 bg-[#09152B] hover:bg-[#0F2342] text-amber-300 font-semibold text-sm rounded-lg shadow-md transition-all duration-150 active:scale-[0.98] border border-amber-500/30"
             >
               {isSubmitting ? (
                 <>

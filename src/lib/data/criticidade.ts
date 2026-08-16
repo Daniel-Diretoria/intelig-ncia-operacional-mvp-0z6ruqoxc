@@ -28,20 +28,17 @@ export interface CriticidadeFaixa {
 
 /**
  * Configuração das faixas de criticidade. Ordenar do mais crítico ao menos crítico.
- * Edite este array para reconfigurar as faixas sem tocar nos componentes.
- *
- * Faixas atuais (TradePro / Status Operacional):
- *   Dias <= 0        -> Vencido (mapeado para Crítico no nível legado)
- *   Dias 1 a 15      -> Crítico
- *   Dias 16 a 20     -> Atenção
- *   Dias 21 a 29     -> Moderado
- *   Dias >= 30       -> Normal (mapeado para OK no nível legado)
+ * Centralizado e atualizado conforme especificação:
+ *   - Crítico: 0 a 15 dias para vencer
+ *   - Atenção: 16 a 25 dias para vencer
+ *   - Moderado: 26 a 35 dias para vencer
+ *   - Normal / OK: > 35 dias para vencer
  */
 export const CRITICIDADE_FAIXAS: CriticidadeFaixa[] = [
   {
     level: 'Crítico',
     label: 'Crítico',
-    descricao: 'Vencido (dias <= 0) ou vencendo entre 1 e 15 dias',
+    descricao: 'Vencido (dias <= 0) ou vencendo entre 0 e 15 dias',
     maxDias: 15,
     badgeVariant: 'critico',
     textClass: 'text-red-600',
@@ -51,27 +48,27 @@ export const CRITICIDADE_FAIXAS: CriticidadeFaixa[] = [
   {
     level: 'Atenção',
     label: 'Atenção',
-    descricao: 'Vencendo entre 16 e 20 dias',
-    maxDias: 20,
+    descricao: 'Vencendo entre 16 e 25 dias',
+    maxDias: 25,
     badgeVariant: 'warning',
-    textClass: 'text-orange-600',
-    chipClass: 'bg-orange-100 text-orange-700',
+    textClass: 'text-amber-600',
+    chipClass: 'bg-amber-100 text-amber-800',
     prioridade: 2,
   },
   {
     level: 'Moderado',
     label: 'Moderado',
-    descricao: 'Vencendo entre 21 e 29 dias',
-    maxDias: 29,
+    descricao: 'Vencendo entre 26 e 35 dias',
+    maxDias: 35,
     badgeVariant: 'proximo',
-    textClass: 'text-amber-600',
-    chipClass: 'bg-amber-100 text-amber-800',
+    textClass: 'text-amber-700',
+    chipClass: 'bg-amber-50 text-amber-900 border border-amber-200',
     prioridade: 3,
   },
   {
     level: 'OK',
     label: 'OK',
-    descricao: '30 dias ou mais para o vencimento',
+    descricao: 'Mais de 35 dias para o vencimento',
     maxDias: null,
     badgeVariant: 'ok',
     textClass: 'text-emerald-600',
@@ -83,19 +80,20 @@ export const CRITICIDADE_FAIXAS: CriticidadeFaixa[] = [
 /**
  * Faixas de Status Operacional (TradePro), distintas do CriticidadeLevel legado.
  * Usado pelo pipeline de processamento (validades_base).
- *   Dias <= 0   -> Vencido
- *   Dias 1-15   -> Crítico
- *   Dias 16-20  -> Atenção
- *   Dias 21-29  -> Moderado
- *   Dias >= 30  -> Normal
+ * Regras centralizadas:
+ *   - Dias <= 0   -> Vencido
+ *   - Dias 1-15   -> Crítico
+ *   - Dias 16-25  -> Atenção
+ *   - Dias 26-35  -> Moderado
+ *   - Dias > 35   -> Normal
  */
 export type StatusOperacional = 'Vencido' | 'Crítico' | 'Atenção' | 'Moderado' | 'Normal'
 
 export function classificarStatusOperacional(dias: number): StatusOperacional {
   if (dias <= 0) return 'Vencido'
   if (dias <= 15) return 'Crítico'
-  if (dias <= 20) return 'Atenção'
-  if (dias <= 29) return 'Moderado'
+  if (dias <= 25) return 'Atenção'
+  if (dias <= 35) return 'Moderado'
   return 'Normal'
 }
 

@@ -211,29 +211,17 @@ export function detectDuplicates(items: ValidadeItem[]): DuplicateGroup[] {
 
 /**
  * Valida completude: campos opcionais ausentes viram warnings (não bloqueiam).
+ *
+ * Nota: 'rede' e 'precoUnitario' NÃO devem gerar avisos/warnings, pois não são
+ * obrigatórios e sua ausência não impacta a operação ("rede, preço não tem nada haver").
  */
 export function validateCompleteness(
-  item: Partial<ValidadeItem>,
-  rowIndex: number,
+  _item: Partial<ValidadeItem>,
+  _rowIndex: number,
 ): ValidationIssue[] {
-  const issues: ValidationIssue[] = []
-  // Apenas campos opcionais recomendados (não obrigatórios) geram warning de
-  // completude. Campos obrigatórios são tratados em validateRequiredFields.
-  const recommended: Array<keyof ValidadeItem> = ['precoUnitario', 'rede', 'cidade', 'uf']
-
-  for (const field of recommended) {
-    const val = item[field]
-    if (val == null || val === '') {
-      issues.push({
-        rowIndex,
-        severity: 'warning',
-        field: String(field),
-        message: `Campo recomendado "${field}" ausente.`,
-      })
-    }
-  }
-
-  return issues
+  // Rede e precoUnitario removidos explicitamente a pedido do usuário.
+  // Nenhum warning por ausência de rede ou precoUnitario é gerado.
+  return []
 }
 
 /**

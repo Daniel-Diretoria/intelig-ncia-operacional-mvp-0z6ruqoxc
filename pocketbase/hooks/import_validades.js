@@ -16,7 +16,7 @@
 
 routerAdd(
   'POST',
-  '/api/backend/v1/import-validades',
+  '/backend/v1/import-validades',
   (e) => {
     const body = e.requestInfo().body || {}
     const authRecord = e.requestInfo().auth

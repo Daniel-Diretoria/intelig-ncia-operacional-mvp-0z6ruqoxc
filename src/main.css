@@ -9,51 +9,54 @@
 
 @layer base {
   :root {
-    /* Change the colors to match the design system */
-    --background: 210 40% 98%; /* slate-50 #F8FAFC */
-    --foreground: 222.2 47.4% 11.2%; /* slate-900 #0F172A */
+    /* Diretoria Promoções Premium Color Palette: White, Navy Blue, Gold, Gray */
+    --background: 210 20% 98%; /* refined crisp off-white #F8FAFC */
+    --foreground: 222 47% 11%; /* dark slate/navy #0F172A */
 
-    --card: 0 0% 100%; /* white */
-    --card-foreground: 222.2 47.4% 11.2%;
+    --card: 0 0% 100%; /* pure white */
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 47.4% 11.2%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 243.4 75.4% 58.6%; /* indigo-600 #4F46E5 */
+    /* Primary: Deep Navy Blue (#0F2342 / hsl(216, 63%, 16%)) */
+    --primary: 216 63% 16%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 226 100% 97%; /* indigo-50 #EEF2FF */
-    --secondary-foreground: 243.4 75.4% 58.6%;
+    /* Secondary / Accent: Soft Metallic Gold / Gold tint (#F7F3E6 / hsl(43, 60%, 93%)) */
+    --secondary: 43 60% 93%;
+    --secondary-foreground: 41 85% 32%; /* Rich Dark Gold (#A1740A) */
 
-    --muted: 210 40% 96.1%; /* slate-100 */
-    --muted-foreground: 215.4 16.3% 46.9%; /* slate-600 #475569 */
+    --muted: 210 20% 96%; /* slate-100 refined gray */
+    --muted-foreground: 215 16% 47%; /* slate-600 */
 
-    --accent: 226 100% 97%;
-    --accent-foreground: 243.4 75.4% 58.6%;
+    --accent: 43 60% 93%;
+    --accent-foreground: 41 85% 32%;
 
-    --destructive: 0 84.2% 60.2%; /* red-500 #EF4444 */
+    --destructive: 0 84% 60%; /* red-500 */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%; /* slate-200 #E2E8F0 */
-    --input: 214.3 31.8% 91.4%;
-    --ring: 243.4 75.4% 58.6%;
+    --border: 214 20% 90%; /* slate-200 refined */
+    --input: 214 20% 90%;
+    --ring: 216 63% 16%; /* Navy focus ring */
 
-    --radius: 0.75rem; /* 12px default */
+    --radius: 0.75rem; /* 12px */
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222.2 47.4% 11.2%;
-    --sidebar-primary: 243.4 75.4% 58.6%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 226 100% 97%;
-    --sidebar-accent-foreground: 243.4 75.4% 58.6%;
-    --sidebar-border: 214.3 31.8% 91.4%;
-    --sidebar-ring: 243.4 75.4% 58.6%;
+    /* Sidebar theme: Elegant Deep Navy Sidebar */
+    --sidebar-background: 216 63% 12%; /* Dark Navy #0A192F */
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-primary: 43 85% 50%; /* Gold #E5B31B */
+    --sidebar-primary-foreground: 216 63% 12%;
+    --sidebar-accent: 216 50% 20%;
+    --sidebar-accent-foreground: 43 85% 80%;
+    --sidebar-border: 216 50% 20%;
+    --sidebar-ring: 43 85% 50%;
 
-    --chart-1: 239 84% 67%; /* #6366F1 */
-    --chart-2: 38 92% 50%; /* #F59E0B */
-    --chart-3: 160 84% 39%; /* #10B981 */
-    --chart-4: 0 84% 60%; /* #EF4444 */
-    --chart-5: 217 91% 60%; /* #3B82F6 */
+    --chart-1: 216 63% 25%; /* Navy Blue */
+    --chart-2: 43 85% 48%; /* Gold */
+    --chart-3: 160 84% 39%; /* Emerald */
+    --chart-4: 0 84% 60%; /* Red */
+    --chart-5: 215 20% 65%; /* Silver Gray */
   }
 
   .dark {
