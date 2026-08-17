@@ -15,6 +15,7 @@ import {
   ChevronRight,
   TrendingUp,
   Upload,
+  Store,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
@@ -30,6 +31,11 @@ const NAV_ITEMS = [
     to: '/validades',
     label: 'Validades',
     icon: CalendarCheck,
+  },
+  {
+    to: '/lojas',
+    label: 'Lojas',
+    icon: Store,
   },
   {
     to: '/rupturas',

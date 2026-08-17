@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useValidades } from '@/services'
 import type { ValidadeItem, ValidadeDrill, ValidadeDrillLevel, CriticidadeLevel } from '@/types'
 import { DataTable, type Column } from '@/components/ui/data-table'
@@ -55,6 +56,7 @@ const fmtMoney = (v: number) =>
 const fmtInt = (v: number) => v.toLocaleString('pt-BR')
 
 export const ValidadesPage: React.FC = () => {
+  const navigate = useNavigate()
   // Estado de filtros (UI)
   const [filterState, setFilterState] = useState<ValidadesFilterState>(emptyValidadesFilterState)
   const [appliedFilter, setAppliedFilter] =
@@ -388,22 +390,39 @@ export const ValidadesPage: React.FC = () => {
         header: 'Loja',
         className: 'min-w-[160px] text-slate-600',
         sortable: true,
-        render: (row) => (
-          <div className="min-w-0">
-            <p className="truncate">
-              {row.codigoLoja ? (
-                <>
-                  <span className="font-mono font-bold text-indigo-700">{row.codigoLoja}</span>
-                  <span className="text-slate-400"> • </span>
-                </>
-              ) : null}
-              {row.loja}
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {row.cidade}/{row.uf}
-            </p>
-          </div>
-        ),
+        render: (row) => {
+          const codeKey = row.codigoLoja
+            ? `${row.codigoLoja.padStart(3, '0')}-${row.loja}`
+            : row.loja
+          return (
+            <div
+              className="min-w-0 cursor-pointer group"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (codeKey) {
+                  navigate(`/lojas/${encodeURIComponent(codeKey)}`)
+                }
+              }}
+            >
+              <p className="truncate group-hover:text-indigo-600 transition-colors">
+                {row.codigoLoja ? (
+                  <>
+                    <span className="font-mono font-bold text-indigo-700 group-hover:text-indigo-800">
+                      {row.codigoLoja}
+                    </span>
+                    <span className="text-slate-400"> • </span>
+                  </>
+                ) : null}
+                <span className="font-medium text-slate-900 group-hover:text-indigo-600">
+                  {row.loja}
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {row.cidade}/{row.uf}
+              </p>
+            </div>
+          )
+        },
       },
       {
         key: 'product',

@@ -71,9 +71,9 @@ export class ImportDataSource implements IOperationalDataSource {
       const records = await pb.collection('validades_imported').getFullList({
         sort: 'validade',
       })
-      let items: ValidadeItem[] = records.map((r) =>
-        this.toValidadeItem(r as unknown as Record<string, unknown>),
-      )
+      let items: ValidadeItem[] = records
+        .map((r) => this.toValidadeItem(r as unknown as Record<string, unknown>))
+        .filter((i) => i.diasRestantes > 0)
 
       if (filters?.search) {
         const q = filters.search.trim().toLowerCase()

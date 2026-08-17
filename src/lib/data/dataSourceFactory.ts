@@ -83,9 +83,12 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         return this.mockFallback.listValidades(filters)
       }
 
-      let items: ValidadeItem[] = records.map((r) =>
-        this.toValidadeItem(r as unknown as Record<string, unknown>),
-      )
+      let items: ValidadeItem[] = records
+        .map((r) => this.toValidadeItem(r as unknown as Record<string, unknown>))
+        // Regra de Isolamento de Vencidos:
+        // Todas as ocorrências que estão com produtos vencidos (dias <= 0)
+        // deverão ser visualizadas APENAS na aba auditoria e NÃO em Validades Críticas / Listagens Ativas.
+        .filter((i) => i.diasRestantes > 0)
 
       if (filters?.search) {
         const q = filters.search.trim().toLowerCase()
@@ -163,9 +166,9 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         return this.mockFallback.getKpis()
       }
 
-      const items: ValidadeItem[] = records.map((r) =>
-        this.toValidadeItem(r as unknown as Record<string, unknown>),
-      )
+      const items: ValidadeItem[] = records
+        .map((r) => this.toValidadeItem(r as unknown as Record<string, unknown>))
+        .filter((i) => i.diasRestantes > 0) // Isola vencidos
       const kpis = calcularKpis(items)
 
       // Distribuição por categoria (usa categoria padrão Mercearia quando ausente)
@@ -245,15 +248,16 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       for (const rec of records) {
         const r = rec as unknown as Record<string, unknown>
         const status = (r.status_operacional as string) || ''
+        const dias = typeof r.dias_vencimento_atual === 'number' ? r.dias_vencimento_atual : 0
 
-        if (status !== 'Vencido' && status !== 'Crítico') {
+        // Regra de Isolamento de Vencidos: apenas alertas de validades ativas iminentes (dias > 0)
+        if (dias <= 0 || status !== 'Crítico') {
           continue
         }
 
         const produto = (r.produto as string) || 'Produto'
         const quantidade =
           typeof r.quantidade === 'number' ? r.quantidade : Number(r.quantidade) || 0
-        const dias = typeof r.dias_vencimento_atual === 'number' ? r.dias_vencimento_atual : 0
         const sku = (r.cod_produto as string) || (r.cod_barras as string) || ''
         const realizado = (r.realizado as string) || ''
         const updatedAt = (r.updated as string) || ''
@@ -270,7 +274,7 @@ export class TradeProApiAdapter implements IOperationalDataSource {
 
         alertas.push({
           id: `alerta-${r.id}`,
-          title: status === 'Vencido' ? 'Produto Vencido' : 'Validade Iminente',
+          title: 'Validade Iminente',
           message: description,
           severity,
           type: 'Validade',

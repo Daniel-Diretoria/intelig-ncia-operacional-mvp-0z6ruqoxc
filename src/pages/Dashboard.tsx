@@ -55,9 +55,9 @@ export const DashboardPage: React.FC = () => {
     refetchRupturas()
   }
 
-  // Filter preview items
+  // Filter preview items (isolando vencidos, apenas críticas iminentes com diasRestantes > 0)
   const criticalValidades = validades
-    .filter((v) => v.status === 'Crítico' || v.status === 'Vencido')
+    .filter((v) => v.diasRestantes > 0 && v.status === 'Crítico')
     .slice(0, 4)
   const activeRupturas = rupturas.slice(0, 4)
   const recentAlerts = alertas.slice(0, 4)
@@ -433,11 +433,26 @@ export const DashboardPage: React.FC = () => {
             ) : (
               <div className="divide-y divide-slate-100">
                 {criticalValidades.map((v) => (
-                  <div key={v.id} className="py-2.5 flex items-center justify-between text-xs">
+                  <div
+                    key={v.id}
+                    onClick={() => {
+                      if (v.codigoLoja || v.loja) {
+                        const codeKey = v.codigoLoja
+                          ? `${v.codigoLoja.padStart(3, '0')}-${v.loja}`
+                          : v.loja
+                        navigate(`/lojas/${encodeURIComponent(codeKey || '')}`)
+                      } else {
+                        navigate('/validades')
+                      }
+                    }}
+                    className="py-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
+                  >
                     <div>
-                      <p className="font-semibold text-slate-900">{v.product}</p>
+                      <p className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors">
+                        {v.product}
+                      </p>
                       <p className="text-[11px] text-slate-400">
-                        SKU: {v.sku} • Lote: {v.lote}
+                        SKU: {v.sku} • {v.loja ? `Loja: ${v.loja}` : `Lote: ${v.lote}`}
                       </p>
                     </div>
                     <div className="text-right">

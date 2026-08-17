@@ -10,6 +10,8 @@ import { AppLayout } from '@/layouts/AppLayout'
 import { LoginPage } from '@/pages/Login'
 import { DashboardPage } from '@/pages/Dashboard'
 import { ValidadesPage } from '@/pages/Validades'
+import { LojasPage } from '@/pages/Lojas'
+import { StoreDetailPage } from '@/pages/StoreDetailPage'
 import { RupturasPage } from '@/pages/Rupturas'
 import { AlertasPage } from '@/pages/Alertas'
 import { AuditoriaPage } from '@/pages/Auditoria'
@@ -37,6 +39,8 @@ const App = () => (
           >
             <Route path="/" element={<DashboardPage />} />
             <Route path="/validades" element={<ValidadesPage />} />
+            <Route path="/lojas" element={<LojasPage />} />
+            <Route path="/lojas/:storeId" element={<StoreDetailPage />} />
             <Route path="/rupturas" element={<RupturasPage />} />
             <Route path="/alertas" element={<AlertasPage />} />
             <Route path="/auditoria" element={<AuditoriaPage />} />

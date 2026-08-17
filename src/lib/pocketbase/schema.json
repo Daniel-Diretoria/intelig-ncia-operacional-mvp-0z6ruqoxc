@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T15:05:35.579Z",
+  "generatedAt": "2026-08-17T21:40:10.622Z",
   "collections": [
     {
       "name": "users",
@@ -688,6 +688,24 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "codigo_loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rede_nome",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

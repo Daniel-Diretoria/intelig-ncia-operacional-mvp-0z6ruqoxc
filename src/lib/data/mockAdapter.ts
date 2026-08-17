@@ -452,7 +452,8 @@ export class MockOperationalAdapter implements IOperationalDataSource {
     await delay()
     // Camada 02: usa o dataset enriquecido de varejo (mesma forma do dataset
     // original, porém com cliente/indústria/rede/loja/cidade/promotor/supervisor).
-    let items = [...MOCK_VALIDADES_VAREJO]
+    // Isola os itens vencidos (diasRestantes <= 0) para exibição exclusiva na Auditoria.
+    let items = MOCK_VALIDADES_VAREJO.filter((i) => i.diasRestantes > 0)
 
     if (filters?.search) {
       const q = filters.search.trim().toLowerCase()
@@ -734,9 +735,9 @@ export class MockOperationalAdapter implements IOperationalDataSource {
       }
 
       case 'validades-proximas-vencer': {
-        const criticalAndNear = MOCK_VALIDADES.filter((v) => v.status !== 'Normal').sort(
-          (a, b) => a.diasRestantes - b.diasRestantes,
-        )
+        const criticalAndNear = MOCK_VALIDADES.filter(
+          (v) => v.diasRestantes > 0 && v.status !== 'Normal',
+        ).sort((a, b) => a.diasRestantes - b.diasRestantes)
 
         const rows = criticalAndNear.map((v) => ({
           produto: v.product,
