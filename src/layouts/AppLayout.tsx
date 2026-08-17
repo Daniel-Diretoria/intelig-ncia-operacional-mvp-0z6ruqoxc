@@ -5,6 +5,7 @@ import {
   CalendarCheck,
   PackageX,
   Bell,
+  ShieldAlert,
   FileBarChart,
   LogOut,
   Menu,
@@ -39,6 +40,11 @@ const NAV_ITEMS = [
     to: '/alertas',
     label: 'Alertas',
     icon: Bell,
+  },
+  {
+    to: '/auditoria',
+    label: 'Auditoria',
+    icon: ShieldAlert,
   },
   {
     to: '/relatorios',

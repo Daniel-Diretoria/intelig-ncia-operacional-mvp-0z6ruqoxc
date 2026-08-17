@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T15:15:23.565Z",
+  "generatedAt": "2026-08-17T15:05:35.579Z",
   "collections": [
     {
       "name": "users",
@@ -990,6 +990,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "sinalizado_correcao",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_auditoria",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pendente", "corrigido", "confirmado"]
         }
       ],
       "indexes": [
@@ -997,7 +1010,8 @@
         "CREATE INDEX idx_validades_base_validade ON validades_base (validade_efetiva)",
         "CREATE INDEX idx_validades_base_realizado ON validades_base (realizado)",
         "CREATE INDEX idx_validades_base_import ON validades_base (import_id)",
-        "CREATE INDEX idx_validades_base_loja ON validades_base (nome_loja)"
+        "CREATE INDEX idx_validades_base_loja ON validades_base (nome_loja)",
+        "CREATE INDEX `idx_validades_base_auditoria` ON `validades_base` (sinalizado_correcao)"
       ]
     },
     {
@@ -1185,6 +1199,144 @@
       "indexes": [
         "CREATE UNIQUE INDEX idx_network_aliases_alias ON network_aliases (alias)",
         "CREATE INDEX idx_network_aliases_network ON network_aliases (network_id)"
+      ]
+    },
+    {
+      "name": "auditoria_pendencias",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "validade_base_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "validades_base"
+        },
+        {
+          "name": "chave_operacional",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo_loja",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade_efetiva",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_vencido",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_entrada",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "promotor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_sinalizacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sinalizado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sinalizado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_auditoria",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pendente", "corrigido", "confirmado"]
+        },
+        {
+          "name": "import_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "import_history"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_auditoria_status ON auditoria_pendencias (status_auditoria)",
+        "CREATE INDEX idx_auditoria_validade_base ON auditoria_pendencias (validade_base_id)",
+        "CREATE INDEX idx_auditoria_chave ON auditoria_pendencias (chave_operacional)"
       ]
     }
   ]

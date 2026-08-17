@@ -152,6 +152,10 @@ export interface PipelineInput {
 
 export interface PipelineSummary {
   totalBrutos: number
+  /** Registros que passaram na validação (campos obrigatórios + qtd não negativa). */
+  validos: number
+  /** Registros genuinamente rejeitados (campos obrigatórios ausentes / qtd negativa). */
+  rejeitados: number
   filtrados90Dias: number
   consolidados: number
   baseAtual: number
@@ -295,8 +299,14 @@ export function executarPipeline(input: PipelineInput): PipelineResult {
 
   // Passo 5: validar colunas e tipos (filtrar não-operacionais)
   const operacionais = rawRecords.filter((r) => isOperacional(r).ok)
-
-  // Passo 6: Data Importação já gerada acima.
+  // Total de registros que passaram na validação de campos obrigatórios
+  // (antes do filtro de 90 dias). Usado pelo resumo "Válidos".
+  const totalValidos = operacionais.length
+  // Registros rejeitados na validação (campos obrigatórios ausentes / qtd negativa).
+  // São os ÚNICOS genuinamente "ignorados" (não processados) pelo pipeline.
+  const totalRejeitados = rawRecords.length - totalValidos
+  // (totalRejeitados exposto via summary.rejeitados para o resumo de importação)
+  // (Passo 6: Data Importação já gerada acima.)
 
   // Passo 7: filtrar últimos 90 dias pelo Realizado
   const hoje = dataAtualSaoPaulo()
@@ -444,6 +454,8 @@ export function executarPipeline(input: PipelineInput): PipelineResult {
 
   const summary: PipelineSummary = {
     totalBrutos: rawRecords.length,
+    validos: totalValidos,
+    rejeitados: totalRejeitados,
     filtrados90Dias: filtrados90.length,
     consolidados: dedup.gruposEtapa1.length,
     baseAtual: baseAtual.length,

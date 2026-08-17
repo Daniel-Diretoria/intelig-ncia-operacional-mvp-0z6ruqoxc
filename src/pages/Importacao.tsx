@@ -345,6 +345,8 @@ export const ImportacaoPage: React.FC = () => {
         baseAtual: pipeline.baseAtual,
         summary: {
           totalBrutos: pipeline.summary.totalBrutos,
+          validos: pipeline.summary.validos,
+          rejeitados: pipeline.summary.rejeitados,
           filtrados90Dias: pipeline.summary.filtrados90Dias,
           consolidados: pipeline.summary.consolidados,
           baseAtual: pipeline.summary.baseAtual,
@@ -821,14 +823,25 @@ export const ImportacaoPage: React.FC = () => {
               <div className="p-4 border-b border-indigo-100 flex items-center gap-2 bg-indigo-50/40">
                 <Layers className="w-4 h-4 text-indigo-600" />
                 <h4 className="text-sm font-bold text-slate-900">Resumo do processamento</h4>
+                <span className="text-[11px] text-slate-400 font-medium ml-auto hidden sm:inline">
+                  Brutos → Válidos → 90 dias → Dedup → Base Atual
+                </span>
               </div>
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase">
                     <Database className="w-3 h-3" /> Brutos
                   </div>
                   <p className="text-xl font-bold text-slate-900 tabular-nums">
                     {pipelineResult.summary.totalBrutos}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-indigo-200 bg-indigo-50/50">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 uppercase">
+                    <CheckCircle2 className="w-3 h-3" /> Válidos
+                  </div>
+                  <p className="text-xl font-bold text-indigo-700 tabular-nums">
+                    {pipelineResult.summary.validos}
                   </p>
                 </div>
                 <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50">
@@ -841,7 +854,7 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
                 <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50">
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 uppercase">
-                    <GitMerge className="w-3 h-3" /> Consolidados
+                    <GitMerge className="w-3 h-3" /> Dedup
                   </div>
                   <p className="text-xl font-bold text-amber-700 tabular-nums">
                     {pipelineResult.summary.consolidados}
@@ -856,14 +869,24 @@ export const ImportacaoPage: React.FC = () => {
                   </p>
                 </div>
               </div>
-              {pipelineResult.summary.quantidadeZeroRemovidos > 0 && (
-                <div className="px-4 pb-4">
+              <div className="px-4 pb-4 space-y-1">
+                {pipelineResult.summary.rejeitados > 0 && (
+                  <p className="text-[11px] text-red-600 font-medium">
+                    {pipelineResult.summary.rejeitados} registro(s) rejeitado(s) na validação
+                    (campos obrigatórios ausentes / quantidade negativa) — não processados.
+                  </p>
+                )}
+                {pipelineResult.summary.quantidadeZeroRemovidos > 0 && (
                   <p className="text-[11px] text-slate-500">
                     {pipelineResult.summary.quantidadeZeroRemovidos} ocorrência(s) com quantidade
                     zero não exibida(s) na Base Atual (registro bruto preservado).
                   </p>
-                </div>
-              )}
+                )}
+                <p className="text-[11px] text-slate-400">
+                  Consolidados = registros legítimos do pipeline (filtro 90 dias, deduplicação por
+                  Chave Dedup, remoção de quantidade zero). Não são “ignorados”.
+                </p>
+              </div>
             </div>
           )}
 
@@ -872,7 +895,7 @@ export const ImportacaoPage: React.FC = () => {
             <AlertBanner
               type="success"
               title="Processamento concluído"
-              message={`${importResult.imported} ocorrência(s) na Base Atual, ${importResult.skipped} não selecionada(s), ${importResult.errors} com erro.`}
+              message={`${importResult.imported} ocorrência(s) na Base Atual, ${importResult.skipped} rejeitada(s) na validação, ${importResult.errors} com erro.`}
             />
           )}
         </div>
@@ -910,7 +933,7 @@ export const ImportacaoPage: React.FC = () => {
                   <TableHead className="text-xs">Data</TableHead>
                   <TableHead className="text-xs">Arquivo</TableHead>
                   <TableHead className="text-xs text-right">Importados</TableHead>
-                  <TableHead className="text-xs text-right">Ignorados</TableHead>
+                  <TableHead className="text-xs text-right">Consolidados</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1007,9 +1030,7 @@ export const ImportacaoPage: React.FC = () => {
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-center">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase">
-                  Não selecionados
-                </p>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase">Rejeitados</p>
                 <p className="text-lg font-bold text-slate-700 tabular-nums">
                   {importResult.skipped}
                 </p>

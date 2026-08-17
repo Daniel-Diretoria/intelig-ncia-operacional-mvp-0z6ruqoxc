@@ -12,6 +12,7 @@ import { DashboardPage } from '@/pages/Dashboard'
 import { ValidadesPage } from '@/pages/Validades'
 import { RupturasPage } from '@/pages/Rupturas'
 import { AlertasPage } from '@/pages/Alertas'
+import { AuditoriaPage } from '@/pages/Auditoria'
 import { RelatoriosPage } from '@/pages/Relatorios'
 import { ImportacaoPage } from '@/pages/Importacao'
 import NotFound from '@/pages/NotFound'
@@ -38,6 +39,7 @@ const App = () => (
             <Route path="/validades" element={<ValidadesPage />} />
             <Route path="/rupturas" element={<RupturasPage />} />
             <Route path="/alertas" element={<AlertasPage />} />
+            <Route path="/auditoria" element={<AuditoriaPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
             <Route path="/importacao" element={<ImportacaoPage />} />
           </Route>

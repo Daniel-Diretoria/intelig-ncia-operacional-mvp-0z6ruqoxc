@@ -67,6 +67,8 @@ export interface ProcessValidadesPayload {
   baseAtual: Partial<ProcessedValidade>[]
   summary: {
     totalBrutos: number
+    validos?: number
+    rejeitados?: number
     filtrados90Dias: number
     consolidados: number
     baseAtual: number
@@ -83,6 +85,8 @@ export interface ProcessValidadesResult {
   errorRows: number
   summary?: {
     totalBrutos: number
+    validos?: number
+    rejeitados?: number
     filtrados90Dias: number
     consolidados: number
     baseAtual: number
@@ -205,6 +209,32 @@ function errMsg(err: unknown): string {
   return e?.response?.message || e?.message || 'Erro desconhecido'
 }
 
+/** Tamanho do lote de concorrência para persistência (criações/updates paralelos). */
+const PERSIST_CHUNK_SIZE = 25
+
+/**
+ * Executa `fn` sobre todos os itens em lotes concorrentes (Promise.allSettled),
+ * evitando o padrão `await` sequencial dentro de loop — que travava a UI com
+ * 300+ requisições encadeadas. Retorna a lista de falhas ({ index, error }).
+ */
+async function persistConcurrent<T>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<unknown>,
+): Promise<Array<{ index: number; error: string }>> {
+  const failures: Array<{ index: number; error: string }> = []
+  for (let start = 0; start < items.length; start += PERSIST_CHUNK_SIZE) {
+    const end = Math.min(start + PERSIST_CHUNK_SIZE, items.length)
+    const slice = items.slice(start, end)
+    const settled = await Promise.allSettled(slice.map((item, i) => fn(item, start + i)))
+    settled.forEach((res, i) => {
+      if (res.status !== 'fulfilled') {
+        failures.push({ index: start + i, error: errMsg(res.reason) })
+      }
+    })
+  }
+  return failures
+}
+
 export async function submitProcessValidades(
   payload: ProcessValidadesPayload,
 ): Promise<ProcessValidadesResult> {
@@ -289,56 +319,78 @@ export async function submitProcessValidades(
     }
   }
 
-  // --- 2. Persistir dados brutos em validades_raw ---------------------------
+  // --- 2. Persistir dados brutos em validades_raw (lotes concorrentes) ------
   let rawPersisted = 0
-  for (let i = 0; i < rawRecords.length; i++) {
-    try {
-      const data = buildSnake(rawRecords[i] as AnyRec, RAW_FIELDS)
+  {
+    const payloads: AnyRec[] = rawRecords.map((rec) => {
+      const data = buildSnake(rec as AnyRec, RAW_FIELDS)
       data.import_id = importId
-      await pb.collection('validades_raw').create(data)
-      rawPersisted++
-    } catch (err) {
-      errors.push({ stage: 'raw', index: i, error: errMsg(err) })
+      return data
+    })
+    const failures = await persistConcurrent(payloads, (data) =>
+      pb.collection('validades_raw').create(data),
+    )
+    rawPersisted = payloads.length - failures.length
+    for (const f of failures) {
+      errors.push({ stage: 'raw', index: f.index, error: f.error })
     }
   }
 
   // --- 3. Persistir Base Atual em validades_base (upsert por chave) --------
+  // Resolve os IDs existentes (1 consulta paginada por chave) em paralelo,
+  // depois faz create/update em lotes concorrentes.
   let basePersisted = 0
-  for (let i = 0; i < baseAtual.length; i++) {
-    const rec = baseAtual[i] as AnyRec
-    try {
-      const data = buildSnake(rec, BASE_FIELDS)
-      data.import_id = importId
-      const chave = pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined
+  {
+    const records = baseAtual as AnyRec[]
+    const keyed: Array<{ index: number; rec: AnyRec; chave?: string }> = records.map(
+      (rec, index) => ({
+        index,
+        rec,
+        chave: pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined,
+      }),
+    )
 
-      let existingId: string | undefined
-      if (chave) {
-        try {
-          const found = await pb.collection('validades_base').getList(1, 1, {
-            filter: `chave_operacional = "${chave}"`,
-          })
-          if (found.items.length > 0) {
-            existingId = (found.items[0] as unknown as { id: string }).id
-          }
-        } catch {
-          // Ignora falha na busca — tenta criar novo.
+    // Busca IDs existentes por chave em lotes concorrentes.
+    const existingIds = new Map<number, string>()
+    await persistConcurrent(keyed, async (entry) => {
+      if (!entry.chave) return
+      try {
+        const found = await pb.collection('validades_base').getList(1, 1, {
+          filter: `chave_operacional = "${entry.chave}"`,
+        })
+        if (found.items.length > 0) {
+          existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
         }
+      } catch {
+        // Ignora falha na busca — tenta criar novo.
       }
+    })
 
+    // Upsert em lotes concorrentes.
+    const failures = await persistConcurrent(keyed, async (entry) => {
+      const data = buildSnake(entry.rec, BASE_FIELDS)
+      data.import_id = importId
+      const existingId = existingIds.get(entry.index)
       if (existingId) {
         await pb.collection('validades_base').update(existingId, data)
       } else {
         await pb.collection('validades_base').create(data)
       }
-      basePersisted++
-    } catch (err) {
-      errors.push({ stage: 'base', index: i, error: errMsg(err) })
+    })
+    basePersisted = records.length - failures.length
+    for (const f of failures) {
+      errors.push({ stage: 'base', index: f.index, error: f.error })
     }
   }
 
   // --- 5. Atualizar import_history ao final ---------------------------------
   const errorRows = errors.length
-  const skippedRows = Math.max(rawCount - baseCount, 0)
+  // "skippedRows" reflete os registros GENUINAMENTE rejeitados na validação
+  // (campos obrigatórios ausentes / quantidade negativa) — fornecidos pelo
+  // pipeline via summary.rejeitados. Não é a diferença aritmética raw-base
+  // (que inclui consolidações legítimas por dedup/filtro 90 dias/zero).
+  const skippedRows =
+    typeof summary.rejeitados === 'number' ? summary.rejeitados : Math.max(rawCount - baseCount, 0)
   const allFailed = basePersisted === 0 && rawPersisted === 0
   const status: 'completed' | 'failed' = allFailed ? 'failed' : 'completed'
 
