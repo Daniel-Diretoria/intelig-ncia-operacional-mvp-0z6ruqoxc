@@ -2,7 +2,6 @@ import type {
   KpiSummary,
   ValidadeItem,
   ValidadesFilter,
-  ValidadesListResult,
   RupturaItem,
   RupturasFilter,
   AlertaItem,
@@ -19,7 +18,7 @@ export interface IOperationalDataSource {
     categoryDistribution: ChartCategoryData[]
     rupturasOverTime: ChartRupturaPeriodData[]
   }>
-  listValidades(filters?: ValidadesFilter): Promise<ValidadesListResult>
+  listValidades(filters?: ValidadesFilter): Promise<ValidadeItem[]>
   listRupturas(filters?: RupturasFilter): Promise<RupturaItem[]>
   listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]>
   getReportData(reportType: ReportType): Promise<ReportData>

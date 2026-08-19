@@ -345,7 +345,12 @@ export type ReportType =
   | 'validades-proximas-vencer'
 
 export interface ReportData {
-  reportType: ReportType
+  /**
+   * Tipo do relatório. Abarca os valores do union `ReportType` (usados pela UI
+   * de seleção) e os tipos adicionais produzidos pelos builders em
+   * `lib/data/reports` (resumo-validades, validades-por-loja, etc.).
+   */
+  reportType: ReportType | string
   title: string
   description: string
   generatedAt: string

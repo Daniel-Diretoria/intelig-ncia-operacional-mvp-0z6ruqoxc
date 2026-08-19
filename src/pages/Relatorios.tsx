@@ -1,23 +1,22 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useReport } from '@/services'
 import type { ReportType } from '@/types'
-import { Modal } from '@/components/ui/modal'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useToast } from '@/hooks/use-toast'
 import {
   FileBarChart,
   CalendarCheck,
   TrendingDown,
   Clock,
   Download,
-  CheckCircle2,
   BarChart3,
   Layers,
   ArrowRight,
-  Info,
 } from 'lucide-react'
+import { exportarRelatorioValidades } from '@/lib/export/relatoriosExport'
 import {
   BarChart,
   Bar,
@@ -74,9 +73,10 @@ const REPORT_CARDS: ReportCardItem[] = [
 export const RelatoriosPage: React.FC = () => {
   const [selectedReportType, setSelectedReportType] =
     useState<ReportType>('validades-por-categoria')
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const { data: reportData, isLoading, error, refetch } = useReport(selectedReportType)
+  const { toast } = useToast()
 
   // Listen to header refresh
   useEffect(() => {
@@ -84,6 +84,30 @@ export const RelatoriosPage: React.FC = () => {
     window.addEventListener('diretoria:refresh', handleGlobalRefresh)
     return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
   }, [refetch])
+
+  // Exportação real: carrega validades_base com os mesmos filtros da tela de
+  // Validades e gera/baixa um .xlsx no clique. Sem modais intermediários.
+  const handleExport = useCallback(async () => {
+    setIsExporting(true)
+    try {
+      const count = await exportarRelatorioValidades()
+      toast({
+        title: 'Exportação concluída',
+        description:
+          count > 0
+            ? `${count} ocorrência(s) exportada(s) para Excel.`
+            : 'Arquivo gerado com cabeçalhos (sem ocorrências para os filtros ativos).',
+      })
+    } catch (err) {
+      toast({
+        title: 'Falha ao exportar',
+        description: err instanceof Error ? err.message : 'Erro inesperado na exportação.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }, [toast])
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-fade-in pb-12">
@@ -178,12 +202,13 @@ export const RelatoriosPage: React.FC = () => {
 
             {/* Export Action Button */}
             <Button
-              onClick={() => setIsExportModalOpen(true)}
+              onClick={handleExport}
+              disabled={isExporting}
               size="default"
-              className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm"
+              className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Download className="w-4 h-4" />
-              <span>Exportar Dados</span>
+              <span>{isExporting ? 'Exportando...' : 'Exportar Dados'}</span>
             </Button>
           </div>
 
@@ -349,38 +374,6 @@ export const RelatoriosPage: React.FC = () => {
           )}
         </div>
       )}
-
-      {/* Export Info Modal */}
-      <Modal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        title="Exportação de Relatórios"
-        description="Recurso em homologação operacional"
-        footer={
-          <Button
-            onClick={() => setIsExportModalOpen(false)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-4"
-          >
-            Entendido
-          </Button>
-        }
-      >
-        <div className="flex items-start gap-3 py-2">
-          <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-            <Info className="w-5 h-5" />
-          </div>
-          <div className="space-y-2">
-            <p className="font-semibold text-slate-900 text-sm">
-              Exportação será disponibilizada em breve.
-            </p>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Os módulos de exportação direta nos formatos <strong>PDF Executivo</strong>,{' '}
-              <strong>Planilha Excel (.xlsx)</strong> e <strong>CSV</strong> estão integrados à
-              próxima fase do cronograma de inteligência de dados.
-            </p>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
