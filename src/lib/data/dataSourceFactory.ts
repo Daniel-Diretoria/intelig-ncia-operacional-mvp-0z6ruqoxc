@@ -8,10 +8,18 @@ import type {
   KpiSummary,
   ChartCategoryData,
   ChartRupturaPeriodData,
+  RupturasKpis,
 } from '@/types'
 import { classificarCriticidade } from './criticidade'
 import { calcularDiasRestantes, deriveStatus } from '@/lib/import/excelMapper'
 import { calcularKpis } from './validadesCompute'
+import {
+  toRuptura,
+  computeRupturasKpis,
+  computeRupturasOverTime,
+  applyRupturasFilters,
+} from '@/lib/pipeline/rupturasPipeline'
+import type { Ruptura } from '@/types'
 
 // Future adapter stubs - ready for toggle via VITE_DATA_SOURCE without touching any UI component
 
@@ -35,6 +43,66 @@ export class ExcelOperationalAdapter extends MockOperationalAdapter {
  */
 export class TradeProApiAdapter implements IOperationalDataSource {
   private mockFallback = new MockOperationalAdapter()
+
+  /**
+   * Carrega a Base Atual de Rupturas (is_base_atual=true) da collection
+   * `rupturas_base` e converte para o modelo de domínio `Ruptura`.
+   * Retorna array vazio quando a collection não existe ou está vazia.
+   */
+  private async fetchRupturasBase(): Promise<Ruptura[]> {
+    try {
+      const records = await pb.collection('rupturas_base').getFullList({
+        filter: 'is_base_atual = true',
+        sort: '-data_visita',
+      })
+      return records.map((r) => toRuptura(r as unknown as Record<string, unknown>))
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao listar rupturas_base:', err)
+      return []
+    }
+  }
+
+  /**
+   * Converte um `Ruptura` (modelo de domínio enriquecido) em `RupturaItem`
+   * (compatível com a UI existente de Rupturas).
+   *
+   * Mapeamento de motivo/situação → status da UI:
+   *   - Ativo + Ruptura Total      → 'Em Ruptura'
+   *   - Ativo + Sem Estoque Mínimo  → 'Crítico'
+   *   - Ativo + Estoque Virtual     → 'Reposição Prevista'
+   *   - Resolvido                   → 'Reposição Prevista'
+   * `diasSemEstoque` é derivado de data_entrada (primeira aparição) até hoje.
+   */
+  private toRupturaItem(r: Ruptura): import('@/types').RupturaItem {
+    const hoje = new Date()
+    const entrada = r.data_entrada ? new Date(r.data_entrada + 'T00:00:00Z') : null
+    const diasSemEstoque = entrada
+      ? Math.max(0, Math.floor((hoje.getTime() - entrada.getTime()) / 86400000))
+      : 0
+
+    let status: import('@/types').RupturaStatus
+    if (r.situacao_atual === 'Resolvido') {
+      status = 'Reposição Prevista'
+    } else if (r.motivo === 'Ruptura Total') {
+      status = 'Em Ruptura'
+    } else if (r.motivo === 'Sem Estoque Mínimo') {
+      status = 'Crítico'
+    } else {
+      status = 'Reposição Prevista'
+    }
+
+    return {
+      id: r.id,
+      product: r.produto,
+      sku: r.codigo_cliente || r.codigo_loja,
+      category: 'Mercearia',
+      diasSemEstoque,
+      status,
+      reposicaoPrevista: null,
+      supplier: r.cliente,
+      unidade: 'UN',
+    }
+  }
 
   /** Converte um registro de validades_base em ValidadeItem (compatível com a UI). */
   private toValidadeItem(rec: Record<string, unknown>): ValidadeItem {
@@ -195,9 +263,19 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         (i) => i.diasRestantes > 0 && STATUS_ALERTAVEIS_KPI.has(i.status),
       ).length
 
-      // TradePro não exporta rupturas. O KPI e o gráfico de rupturas ficam
-      // indisponíveis até existir uma fonte de dados de rupturas.
-      const RUPTURAS_MENSAGEM = 'Módulo em desenvolvimento — aguardando fonte de dados de rupturas'
+      // KPIs de Rupturas — lê a Base Atual de rupturas_base (collection 0007).
+      // Quando vazia/indisponível, sinaliza "sem fonte" para o Dashboard não
+      // exibir zeros enganosos.
+      const rupturasBase = await this.fetchRupturasBase()
+      const rupturasKpis = computeRupturasKpis(rupturasBase)
+      const rupturasOverTime = computeRupturasOverTime(rupturasBase)
+
+      const rupturasSemFonte = rupturasBase.length === 0
+      const RUPTURAS_SEM_FONTE =
+        'Sem importações de Rupturas — importe um arquivo para ver os dados'
+      const emRupturaCount = rupturasKpis.porMotivo['Ruptura Total']
+      const ruptCriticosCount = rupturasKpis.porMotivo['Sem Estoque Mínimo']
+      const reposicaoCount = rupturasKpis.porMotivo['Estoque Virtual']
 
       const summary: KpiSummary = {
         validadesCriticas: {
@@ -206,8 +284,8 @@ export class TradeProApiAdapter implements IOperationalDataSource {
           trend: 'neutral',
         },
         rupturasAtivas: {
-          count: 0,
-          delta: RUPTURAS_MENSAGEM,
+          count: rupturasKpis.totalAtivas,
+          delta: rupturasSemFonte ? RUPTURAS_SEM_FONTE : `${rupturasKpis.totalAtivas} ativas`,
           trend: 'neutral',
         },
         alertasAbertos: {
@@ -225,14 +303,17 @@ export class TradeProApiAdapter implements IOperationalDataSource {
           proximo: kpis.atencao + kpis.moderado,
           ok: kpis.ok,
         },
-        rupturasStatusCounts: { emRuptura: 0, critico: 0, reposicaoPrevista: 0 },
+        rupturasStatusCounts: {
+          emRuptura: emRupturaCount,
+          critico: ruptCriticosCount,
+          reposicaoPrevista: reposicaoCount,
+        },
       }
 
       return {
         summary,
         categoryDistribution,
-        // Sem histórico de rupturas no TradePro; retorna vazio
-        rupturasOverTime: [],
+        rupturasOverTime,
       }
     } catch (err) {
       console.error('[TradeProApiAdapter] Falha ao calcular KPIs:', err)
@@ -243,7 +324,43 @@ export class TradeProApiAdapter implements IOperationalDataSource {
   async listRupturas(
     filters?: import('@/types').RupturasFilter,
   ): Promise<import('@/types').RupturaItem[]> {
-    return this.mockFallback.listRupturas(filters)
+    try {
+      const base = await this.fetchRupturasBase()
+      if (base.length === 0) {
+        // Sem rupturas importadas → fallback mock (mantém a UI populada)
+        return this.mockFallback.listRupturas(filters)
+      }
+
+      const items = base.map((r) => this.toRupturaItem(r))
+
+      // Filtros compatíveis com a UI de Rupturas (search/category/status)
+      let filtered = items
+      if (filters?.search) {
+        const q = filters.search.trim().toLowerCase()
+        filtered = filtered.filter(
+          (i) =>
+            i.product.toLowerCase().includes(q) ||
+            i.sku.toLowerCase().includes(q) ||
+            (i.supplier ?? '').toLowerCase().includes(q),
+        )
+      }
+      if (filters?.category && filters.category !== 'Todos') {
+        filtered = filtered.filter((i) => i.category === filters.category)
+      }
+      if (filters?.status && filters.status !== 'Todos') {
+        filtered = filtered.filter((i) => i.status === filters.status)
+      }
+
+      return filtered
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao listar rupturas:', err)
+      return this.mockFallback.listRupturas(filters)
+    }
+  }
+
+  async getRupturasKpis(): Promise<RupturasKpis> {
+    const base = await this.fetchRupturasBase()
+    return computeRupturasKpis(base)
   }
 
   async listAlertas(
