@@ -354,6 +354,53 @@ export function applyRupturasFilters(rows: Ruptura[], filters?: RupturasFilters)
 // Cálculo de KPIs (puro) — usado pelo adapter
 // ---------------------------------------------------------------------------
 
+/**
+ * Calcula a tendência semana-a-semana contando eventos por data_visita:
+ *   - atual: eventos nos últimos 7 dias (hoje-6 .. hoje)
+ *   - anterior: eventos nos 7 dias anteriores (hoje-13 .. hoje-7)
+ *   - variacao: percentual (atual-anterior)/anterior, com convenção de sinais
+ *     (-100 quando anterior=0 e atual>0 → up; ambos 0 → stable).
+ *
+ * Usa a janela America/Sao_Paulo para consistência com o resto do pipeline.
+ */
+export function computeRupturasTendencia(records: Ruptura[]): RupturasKpis['tendencia'] {
+  const hoje = dataAtualSaoPaulo()
+  const hojeTs = new Date(hoje + 'T00:00:00Z').getTime()
+  const DIA = 86400000
+
+  let atual = 0
+  let anterior = 0
+  for (const r of records) {
+    if (!r.data_visita) continue
+    const t = new Date(r.data_visita + 'T00:00:00Z').getTime()
+    if (isNaN(t)) continue
+    const diff = hojeTs - t
+    if (diff < 0) continue // futuro — ignora
+    const dias = Math.floor(diff / DIA)
+    if (dias <= 6) atual++
+    else if (dias <= 13) anterior++
+  }
+
+  let variacao = 0
+  let direcao: 'up' | 'down' | 'stable' = 'stable'
+  if (anterior === 0) {
+    if (atual > 0) {
+      variacao = 100
+      direcao = 'up'
+    } else {
+      variacao = 0
+      direcao = 'stable'
+    }
+  } else {
+    variacao = Math.round(((atual - anterior) / anterior) * 100)
+    if (variacao > 0) direcao = 'up'
+    else if (variacao < 0) direcao = 'down'
+    else direcao = 'stable'
+  }
+
+  return { direcao, variacao, atual, anterior }
+}
+
 export function computeRupturasKpis(records: Ruptura[]): RupturasKpis {
   const ativas = records.filter((r) => r.situacao_atual === 'Ativo')
 
@@ -393,11 +440,27 @@ export function computeRupturasKpis(records: Ruptura[]): RupturasKpis {
     .sort((a, b) => b.total - a.total)
     .slice(0, 5)
 
+  // Top 5 clientes/fornecedores
+  const cliMap = new Map<string, number>()
+  for (const r of ativas) {
+    const key = r.cliente || '—'
+    cliMap.set(key, (cliMap.get(key) ?? 0) + 1)
+  }
+  const topClientes = [...cliMap.entries()]
+    .map(([cliente, total]) => ({ cliente, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5)
+
+  // Tendência semana-a-semana (eventos por data_visita)
+  const tendencia = computeRupturasTendencia(records)
+
   return {
     totalAtivas: ativas.length,
     porMotivo,
     topLojas,
     topProdutos,
+    topClientes,
+    tendencia,
   }
 }
 

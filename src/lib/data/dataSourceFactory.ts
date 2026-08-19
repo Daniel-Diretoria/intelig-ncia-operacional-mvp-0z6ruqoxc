@@ -17,7 +17,6 @@ import {
   toRuptura,
   computeRupturasKpis,
   computeRupturasOverTime,
-  applyRupturasFilters,
 } from '@/lib/pipeline/rupturasPipeline'
 import type { Ruptura } from '@/types'
 

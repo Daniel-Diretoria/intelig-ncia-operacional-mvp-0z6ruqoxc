@@ -12,6 +12,7 @@ import type {
   KpiSummary,
   ChartCategoryData,
   ChartRupturaPeriodData,
+  RupturasKpis,
 } from '@/types'
 import { classificarCriticidade } from './criticidade'
 import { calcularDiasRestantes, deriveStatus } from '@/lib/import/excelMapper'
@@ -147,6 +148,10 @@ export class ImportDataSource implements IOperationalDataSource {
 
   async listRupturas(filters?: RupturasFilter): Promise<RupturaItem[]> {
     return this.mockFallback.listRupturas(filters)
+  }
+
+  async getRupturasKpis(): Promise<RupturasKpis> {
+    return this.mockFallback.getRupturasKpis()
   }
 
   async listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]> {

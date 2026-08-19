@@ -67,6 +67,17 @@ export interface RupturasFilters {
   dataFim?: string
 }
 
+export interface RupturasTendencia {
+  /** Direção da variação semana-a-semana. */
+  direcao: 'up' | 'down' | 'stable'
+  /** Variação percentual entre a semana atual e a anterior (-100 a +inf). */
+  variacao: number
+  /** Total de eventos (data_visita) na semana atual (últimos 7 dias). */
+  atual: number
+  /** Total de eventos (data_visita) na semana anterior (7-14 dias atrás). */
+  anterior: number
+}
+
 export interface RupturasKpis {
   /** Total de rupturas ativas (is_base_atual = true, situacao_atual = 'Ativo'). */
   totalAtivas: number
@@ -80,6 +91,10 @@ export interface RupturasKpis {
   topLojas: Array<{ codigo_loja: string; nome_loja: string; total: number }>
   /** Top 5 produtos mais em ruptura. */
   topProdutos: Array<{ produto: string; total: number }>
+  /** Top 5 clientes/fornecedores com mais rupturas ativas. */
+  topClientes: Array<{ cliente: string; total: number }>
+  /** Tendência semana-a-semana (eventos por data_visita). */
+  tendencia: RupturasTendencia
 }
 
 /**
