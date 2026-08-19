@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { useReport } from '@/services'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useReport, useValidades } from '@/services'
 import type { ReportType } from '@/types'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -29,6 +29,12 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts'
+import {
+  ValidadesFilters,
+  emptyValidadesFilterState,
+  buildValidadesFilter,
+  type ValidadesFilterState,
+} from '@/components/validades/ValidadesFilters'
 
 interface ReportCardItem {
   type: ReportType
@@ -78,7 +84,20 @@ export const RelatoriosPage: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
 
+  // Estado de filtros compartilhados (mesma estrutura da tela de Validades).
+  // Os filtros aplicados aqui são repassados às exportações PDF/XLSX para que
+  // os dados exportados respeitem exatamente o que o usuário visualizou.
+  const [filterState, setFilterState] = useState<ValidadesFilterState>(emptyValidadesFilterState)
+  const [appliedFilter, setAppliedFilter] =
+    useState<ValidadesFilterState>(emptyValidadesFilterState)
+
+  const effectiveFilter = useMemo(() => buildValidadesFilter(appliedFilter), [appliedFilter])
+
   const { data: reportData, isLoading, error, refetch } = useReport(selectedReportType)
+  // Carrega as validades com o filtro efetivo para:
+  //  1. popular as opções dos selects de filtro (lojas, clientes, etc.)
+  //  2. exibir a contagem de ocorrências que serão exportadas com os filtros ativos
+  const { data: validades } = useValidades(effectiveFilter)
   const { toast } = useToast()
 
   // Listen to header refresh
@@ -88,12 +107,47 @@ export const RelatoriosPage: React.FC = () => {
     return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
   }, [refetch])
 
-  // Exportação real: carrega validades_base com os mesmos filtros da tela de
-  // Validades e gera/baixa um .xlsx no clique. Sem modais intermediários.
+  const handleApplyFilters = useCallback(() => {
+    setAppliedFilter(filterState)
+  }, [filterState])
+
+  const handleClearFilters = useCallback(() => {
+    setFilterState(emptyValidadesFilterState)
+    setAppliedFilter(emptyValidadesFilterState)
+  }, [])
+
+  // Opções de filtro derivadas dos dados reais (mesmo padrão da tela de Validades)
+  const uniqueSorted = (vals: Array<string | undefined | null>) =>
+    [...new Set(vals.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const toOptions = (arr: string[]) => arr.map((v) => ({ label: v, value: v }))
+  const filterOptions = useMemo(
+    () => ({
+      clientes: toOptions(uniqueSorted(validades.map((v) => v.cliente))),
+      industrias: toOptions(uniqueSorted(validades.map((v) => v.industria))),
+      redes: toOptions(uniqueSorted(validades.map((v) => v.rede))),
+      lojas: toOptions(uniqueSorted(validades.map((v) => v.loja))),
+      cidades: toOptions(uniqueSorted(validades.map((v) => v.cidade))),
+      produtos: toOptions(uniqueSorted(validades.map((v) => v.product))),
+      promotores: toOptions(uniqueSorted(validades.map((v) => v.promotor))),
+      supervisores: toOptions(uniqueSorted(validades.map((v) => v.supervisor))),
+      categorias: [
+        { label: 'Mercearia', value: 'Mercearia' },
+        { label: 'Laticínios', value: 'Laticínios' },
+        { label: 'Bebidas', value: 'Bebidas' },
+        { label: 'Limpeza', value: 'Limpeza' },
+        { label: 'Higiene', value: 'Higiene' },
+      ],
+    }),
+    [validades],
+  )
+
+  // Exportação real: carrega validades_base com os mesmos filtros ativos na tela
+  // e gera/baixa um .xlsx no clique. Os filtros aplicados são repassados para
+  // garantir que apenas as ocorrências filtradas sejam exportadas.
   const handleExport = useCallback(async () => {
     setIsExporting(true)
     try {
-      const count = await exportarRelatorioValidades()
+      const count = await exportarRelatorioValidades(effectiveFilter)
       toast({
         title: 'Exportação concluída',
         description:
@@ -110,14 +164,15 @@ export const RelatoriosPage: React.FC = () => {
     } finally {
       setIsExporting(false)
     }
-  }, [toast])
+  }, [effectiveFilter, toast])
 
   // Exportação PDF (layout Massas D'Itália): capa com KPIs + top 12 críticos,
   // páginas por loja ordenadas por nº de críticos, rodapé em todas as páginas.
+  // Os filtros ativos são repassados para que o PDF reflita a visão filtrada.
   const handleExportPdf = useCallback(async () => {
     setIsExportingPdf(true)
     try {
-      const count = await exportarRelatorioPdf()
+      const count = await exportarRelatorioPdf(effectiveFilter)
       toast({
         title: 'PDF gerado',
         description:
@@ -134,7 +189,7 @@ export const RelatoriosPage: React.FC = () => {
     } finally {
       setIsExportingPdf(false)
     }
-  }, [toast])
+  }, [effectiveFilter, toast])
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-fade-in pb-12">
@@ -200,6 +255,17 @@ export const RelatoriosPage: React.FC = () => {
         })}
       </div>
 
+      {/* Filtros compartilhados (busca, loja, criticidade, período) — os mesmos
+          da tela de Validades. Os filtros aplicados são repassados às exportações
+          PDF/XLSX para que os dados exportados respeitem a visão filtrada. */}
+      <ValidadesFilters
+        state={filterState}
+        onChange={setFilterState}
+        onApply={handleApplyFilters}
+        onClear={handleClearFilters}
+        options={filterOptions}
+      />
+
       {/* Error state */}
       {error && (
         <AlertBanner
@@ -225,6 +291,10 @@ export const RelatoriosPage: React.FC = () => {
               <p className="text-xs sm:text-sm text-slate-500">
                 {reportData?.description || 'Carregando parâmetros do relatório...'}
               </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {validades.length} ocorrência(s) para os filtros ativos serão consideradas nas
+                exportações.
+              </p>
             </div>
 
             {/* Export Action Buttons */}
@@ -246,7 +316,7 @@ export const RelatoriosPage: React.FC = () => {
                 className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
-                <span>{isExporting ? 'Exportando...' : 'Exportar Dados'}</span>
+                <span>{isExporting ? 'Exportando...' : 'Exportar XLSX'}</span>
               </Button>
             </div>
           </div>

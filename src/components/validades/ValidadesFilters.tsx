@@ -204,108 +204,110 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
 
       {/* Filtros avançados */}
       {showAdvanced && (
-        <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-fade-in">
-          <SelectField
-            label="Cliente"
-            value={state.cliente}
-            onChange={(v) => update('cliente', v)}
-            options={options.clientes}
-            placeholder="Todos os clientes"
-          />
-          <SelectField
-            label="Indústria"
-            value={state.industria}
-            onChange={(v) => update('industria', v)}
-            options={options.industrias}
-            placeholder="Todas as indústrias"
-          />
-          <SelectField
-            label="Rede"
-            value={state.rede}
-            onChange={(v) => update('rede', v)}
-            options={options.redes}
-            placeholder="Todas as redes"
-          />
-          <SelectField
-            label="Loja"
-            value={state.loja}
-            onChange={(v) => update('loja', v)}
-            options={options.lojas}
-            placeholder="Todas as lojas"
-          />
-          <SelectField
-            label="Cidade"
-            value={state.cidade}
-            onChange={(v) => update('cidade', v)}
-            options={options.cidades}
-            placeholder="Todas as cidades"
-          />
-          <SelectField
-            label="Produto"
-            value={state.produto}
-            onChange={(v) => update('produto', v)}
-            options={options.produtos}
-            placeholder="Todos os produtos"
-          />
-          <SelectField
-            label="Promotor"
-            value={state.promotor}
-            onChange={(v) => update('promotor', v)}
-            options={options.promotores}
-            placeholder="Todos os promotores"
-          />
-          <SelectField
-            label="Supervisor"
-            value={state.supervisor}
-            onChange={(v) => update('supervisor', v)}
-            options={options.supervisores}
-            placeholder="Todos os supervisores"
-          />
-          <SelectField
-            label="Categoria"
-            value={state.category}
-            onChange={(v) => update('category', v)}
-            options={options.categorias}
-            placeholder="Todas as categorias"
-          />
+        <div className="pt-3 border-t border-slate-100 space-y-3 animate-fade-in">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <SelectField
+              label="Cliente"
+              value={state.cliente}
+              onChange={(v) => update('cliente', v)}
+              options={options.clientes}
+              placeholder="Todos os clientes"
+            />
+            <SelectField
+              label="Indústria"
+              value={state.industria}
+              onChange={(v) => update('industria', v)}
+              options={options.industrias}
+              placeholder="Todas as indústrias"
+            />
+            <SelectField
+              label="Rede"
+              value={state.rede}
+              onChange={(v) => update('rede', v)}
+              options={options.redes}
+              placeholder="Todas as redes"
+            />
+            <SelectField
+              label="Loja"
+              value={state.loja}
+              onChange={(v) => update('loja', v)}
+              options={options.lojas}
+              placeholder="Todas as lojas"
+            />
+            <SelectField
+              label="Cidade"
+              value={state.cidade}
+              onChange={(v) => update('cidade', v)}
+              options={options.cidades}
+              placeholder="Todas as cidades"
+            />
+            <SelectField
+              label="Produto"
+              value={state.produto}
+              onChange={(v) => update('produto', v)}
+              options={options.produtos}
+              placeholder="Todos os produtos"
+            />
+            <SelectField
+              label="Promotor"
+              value={state.promotor}
+              onChange={(v) => update('promotor', v)}
+              options={options.promotores}
+              placeholder="Todos os promotores"
+            />
+            <SelectField
+              label="Supervisor"
+              value={state.supervisor}
+              onChange={(v) => update('supervisor', v)}
+              options={options.supervisores}
+              placeholder="Todos os supervisores"
+            />
+            <SelectField
+              label="Categoria"
+              value={state.category}
+              onChange={(v) => update('category', v)}
+              options={options.categorias}
+              placeholder="Todas as categorias"
+            />
 
-          {/* Período */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Período (validade)
-            </label>
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex-1">
-                <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                <Input
-                  type="date"
-                  value={state.dataInicio}
-                  onChange={(e) => update('dataInicio', e.target.value)}
-                  className="h-10 pl-8 text-sm rounded-lg border-slate-300"
-                />
-              </div>
-              <span className="text-slate-400 text-xs">até</span>
-              <div className="relative flex-1">
-                <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                <Input
-                  type="date"
-                  value={state.dataFim}
-                  onChange={(e) => update('dataFim', e.target.value)}
-                  className="h-10 pl-8 text-sm rounded-lg border-slate-300"
-                />
+            {/* Período (ocupa 1 coluna; o campo de criticidade ocupa a 4ª) */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                Período (validade)
+              </label>
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <Input
+                    type="date"
+                    value={state.dataInicio}
+                    onChange={(e) => update('dataInicio', e.target.value)}
+                    className="h-10 pl-8 text-sm rounded-lg border-slate-300"
+                  />
+                </div>
+                <span className="text-slate-400 text-xs">até</span>
+                <div className="relative flex-1">
+                  <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <Input
+                    type="date"
+                    value={state.dataFim}
+                    onChange={(e) => update('dataFim', e.target.value)}
+                    className="h-10 pl-8 text-sm rounded-lg border-slate-300"
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Criticidade multiselect */}
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Criticidade
-            </label>
-            <CriticidadeMultiSelect
-              value={state.criticidades}
-              onChange={(v) => update('criticidades', v)}
-            />
+            {/* Criticidade multiselect */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                Criticidade
+              </label>
+              <CriticidadeMultiSelect
+                value={state.criticidades}
+                onChange={(v) => update('criticidades', v)}
+              />
+            </div>
           </div>
         </div>
       )}

@@ -44,7 +44,7 @@ export const CriticidadeMultiSelect: React.FC<CriticidadeMultiSelectProps> = ({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full sm:w-[260px] h-10 justify-between font-normal text-sm border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
+          className="w-full h-10 justify-between font-normal text-sm border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
         >
           <span className="flex items-center gap-2 truncate">
             <FilterIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />

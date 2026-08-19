@@ -187,9 +187,17 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         return { category: cat, critico: c, proximo: p, ok: o, total: catItems.length }
       })
 
-      // Alertas reais = Crítico + Atenção + Moderado (validades_base ativas, dias > 0 e <= 35).
-      // TradePro não exporta rupturas, então rupturasAtivas fica como indisponível (0).
-      const alertasCount = kpis.criticos + kpis.atencao + kpis.moderado
+      // Contagem real de alertas: mesmos critérios de `listAlertas` — validades
+      // ativas (dias > 0) com status_operacional em {Crítico, Atenção, Moderado}.
+      // Garante paridade entre o KPI "Alertas Abertos" e a Central de Alertas.
+      const STATUS_ALERTAVEIS_KPI = new Set(['Crítico', 'Atenção', 'Moderado'])
+      const alertasCount = items.filter(
+        (i) => i.diasRestantes > 0 && STATUS_ALERTAVEIS_KPI.has(i.status),
+      ).length
+
+      // TradePro não exporta rupturas. O KPI e o gráfico de rupturas ficam
+      // indisponíveis até existir uma fonte de dados de rupturas.
+      const RUPTURAS_MENSAGEM = 'Módulo em desenvolvimento — aguardando fonte de dados de rupturas'
 
       const summary: KpiSummary = {
         validadesCriticas: {
@@ -199,7 +207,7 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         },
         rupturasAtivas: {
           count: 0,
-          delta: 'Fonte indisponível',
+          delta: RUPTURAS_MENSAGEM,
           trend: 'neutral',
         },
         alertasAbertos: {
@@ -249,13 +257,23 @@ export class TradeProApiAdapter implements IOperationalDataSource {
 
       const alertas: import('@/types').AlertaItem[] = []
 
+      // Status operacionais que geram alertas de validade iminente.
+      // Conforme faixas centralizadas em criticidade.ts:
+      //   - Crítico  (1-15 dias)
+      //   - Atenção  (16-25 dias)
+      //   - Moderado (26-35 dias)
+      // Vencidos (dias <= 0) e Normais (dias > 35) NÃO geram alertas aqui
+      // (vencidos ficam isolados na Auditoria; normais estão fora de risco).
+      const STATUS_ALERTAVEIS = new Set(['Crítico', 'Atenção', 'Moderado'])
+
       for (const rec of records) {
         const r = rec as unknown as Record<string, unknown>
         const status = (r.status_operacional as string) || ''
         const dias = typeof r.dias_vencimento_atual === 'number' ? r.dias_vencimento_atual : 0
 
-        // Regra de Isolamento de Vencidos: apenas alertas de validades ativas iminentes (dias > 0)
-        if (dias <= 0 || status !== 'Crítico') {
+        // Regra de Isolamento de Vencidos: apenas alertas de validades ativas
+        // iminentes (dias > 0). Gera alerta para os três status alertáveis.
+        if (dias <= 0 || !STATUS_ALERTAVEIS.has(status)) {
           continue
         }
 
@@ -267,18 +285,27 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         const updatedAt = (r.updated as string) || ''
         const timestamp = updatedAt || realizado || new Date().toISOString()
 
-        const severity: 'Crítico' | 'Alto' | 'Médio' = 'Crítico'
+        // Severidade mapeia a faixa de criticidade:
+        //   Crítico  -> 'Crítico'
+        //   Atenção  -> 'Alto'
+        //   Moderado -> 'Médio'
+        const severity: 'Crítico' | 'Alto' | 'Médio' =
+          status === 'Crítico' ? 'Crítico' : status === 'Atenção' ? 'Alto' : 'Médio'
 
-        let diasTexto = `${dias} dias`
-        if (dias <= 0) {
-          diasTexto = `${Math.abs(dias)} dias atrás`
-        }
+        // Título varia conforme a faixa para diferenciar os alertas.
+        const title =
+          status === 'Crítico'
+            ? 'Validade Iminente'
+            : status === 'Atenção'
+              ? 'Validade Próxima'
+              : 'Validade Moderada'
 
+        const diasTexto = `${dias} dias`
         const description = `${produto} possui ${quantidade} unidades vencendo em ${diasTexto}.`
 
         alertas.push({
           id: `alerta-${r.id}`,
-          title: 'Validade Iminente',
+          title,
           message: description,
           severity,
           type: 'Validade',
