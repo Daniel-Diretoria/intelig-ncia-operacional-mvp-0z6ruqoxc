@@ -59,7 +59,7 @@ interface ValidadesBaseRec {
 }
 
 /** Item já normalizado (espelha o `toValidadeItem` do TradeProApiAdapter). */
-interface NormItem {
+export interface NormItem {
   id: string
   product: string
   sku: string

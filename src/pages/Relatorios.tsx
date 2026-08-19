@@ -12,11 +12,13 @@ import {
   TrendingDown,
   Clock,
   Download,
+  FileText,
   BarChart3,
   Layers,
   ArrowRight,
 } from 'lucide-react'
 import { exportarRelatorioValidades } from '@/lib/export/relatoriosExport'
+import { exportarRelatorioPdf } from '@/lib/export/relatoriosPdfExport'
 import {
   BarChart,
   Bar,
@@ -74,6 +76,7 @@ export const RelatoriosPage: React.FC = () => {
   const [selectedReportType, setSelectedReportType] =
     useState<ReportType>('validades-por-categoria')
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
 
   const { data: reportData, isLoading, error, refetch } = useReport(selectedReportType)
   const { toast } = useToast()
@@ -106,6 +109,30 @@ export const RelatoriosPage: React.FC = () => {
       })
     } finally {
       setIsExporting(false)
+    }
+  }, [toast])
+
+  // Exportação PDF (layout Massas D'Itália): capa com KPIs + top 12 críticos,
+  // páginas por loja ordenadas por nº de críticos, rodapé em todas as páginas.
+  const handleExportPdf = useCallback(async () => {
+    setIsExportingPdf(true)
+    try {
+      const count = await exportarRelatorioPdf()
+      toast({
+        title: 'PDF gerado',
+        description:
+          count > 0
+            ? `${count} ocorrência(s) exportada(s) para PDF.`
+            : 'PDF gerado com estrutura (sem ocorrências para os filtros ativos).',
+      })
+    } catch (err) {
+      toast({
+        title: 'Falha ao gerar PDF',
+        description: err instanceof Error ? err.message : 'Erro inesperado na geração do PDF.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExportingPdf(false)
     }
   }, [toast])
 
@@ -200,16 +227,28 @@ export const RelatoriosPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Export Action Button */}
-            <Button
-              onClick={handleExport}
-              disabled={isExporting}
-              size="default"
-              className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              <span>{isExporting ? 'Exportando...' : 'Exportar Dados'}</span>
-            </Button>
+            {/* Export Action Buttons */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                onClick={handleExportPdf}
+                disabled={isExportingPdf || isExporting}
+                size="default"
+                variant="outline"
+                className="h-10 px-4 gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <FileText className="w-4 h-4" />
+                <span>{isExportingPdf ? 'Gerando PDF...' : 'Exportar PDF'}</span>
+              </Button>
+              <Button
+                onClick={handleExport}
+                disabled={isExporting || isExportingPdf}
+                size="default"
+                className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isExporting ? 'Exportando...' : 'Exportar Dados'}</span>
+              </Button>
+            </div>
           </div>
 
           {/* Loading Skeleton */}

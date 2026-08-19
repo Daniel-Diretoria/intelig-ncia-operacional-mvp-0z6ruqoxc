@@ -187,6 +187,10 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         return { category: cat, critico: c, proximo: p, ok: o, total: catItems.length }
       })
 
+      // Alertas reais = Crítico + Atenção + Moderado (validades_base ativas, dias > 0 e <= 35).
+      // TradePro não exporta rupturas, então rupturasAtivas fica como indisponível (0).
+      const alertasCount = kpis.criticos + kpis.atencao + kpis.moderado
+
       const summary: KpiSummary = {
         validadesCriticas: {
           count: kpis.criticos,
@@ -195,12 +199,12 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         },
         rupturasAtivas: {
           count: 0,
-          delta: 'Sem rupturas',
+          delta: 'Fonte indisponível',
           trend: 'neutral',
         },
         alertasAbertos: {
-          count: kpis.criticos,
-          delta: `${kpis.criticos} críticos`,
+          count: alertasCount,
+          delta: `${alertasCount} alertas`,
           trend: 'neutral',
         },
         produtosEmRisco: {

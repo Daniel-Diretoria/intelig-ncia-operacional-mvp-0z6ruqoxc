@@ -8,19 +8,21 @@ import {
   ArrowRight,
   ShieldAlert,
   Clock,
-  TrendingDown,
 } from 'lucide-react'
 import {
+  PieChart,
+  Pie,
+  Cell,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
-  AreaChart,
-  Area,
 } from 'recharts'
 import { useKpis, useAlertas, useValidades, useRupturas } from '@/services'
 import { KpiCard } from '@/components/ui/kpi-card'
@@ -28,6 +30,13 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { Info } from 'lucide-react'
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate()
