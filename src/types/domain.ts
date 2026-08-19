@@ -175,7 +175,7 @@ export type ProductCategory = 'Mercearia' | 'Laticínios' | 'Bebidas' | 'Limpeza
 
 export type ValidadeStatus = StatusOperacional
 export type RupturaStatus = 'Em Ruptura' | 'Crítico' | 'Reposição Prevista'
-export type AlertaSeverity = 'Crítico' | 'Alto' | 'Médio'
+export type AlertaSeverity = 'Crítico' | 'Alerta' | 'Informativo' | 'Alto' | 'Médio'
 export type AlertaType = 'Validade' | 'Ruptura'
 
 /**

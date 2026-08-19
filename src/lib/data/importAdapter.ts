@@ -154,6 +154,240 @@ export class ImportDataSource implements IOperationalDataSource {
   }
 
   async getReportData(reportType: ReportType): Promise<ReportData> {
-    return this.mockFallback.getReportData(reportType)
+    const emptyReport: ReportData = {
+      reportType,
+      title: '',
+      description: '',
+      generatedAt: new Date().toISOString(),
+      chartData: [],
+      tableColumns: [],
+      tableRows: [],
+    }
+
+    try {
+      const records = await pb.collection('validades_base').getFullList({
+        filter: 'is_base_atual=true',
+      })
+
+      if (records.length === 0) {
+        return emptyReport
+      }
+
+      const rows = records.map((r) => r as unknown as Record<string, unknown>)
+      const str = (v: unknown) => (typeof v === 'string' ? v : '')
+      const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
+      const nowISO = new Date().toISOString()
+
+      switch (reportType) {
+        case 'validades-por-categoria': {
+          // validades_base não possui campo "categoria"; agrupa por status_operacional.
+          const groups = new Map<string, { total: number; criticos: number; quantidade: number }>()
+          for (const r of rows) {
+            const key = str(r.status_operacional) || 'Normal'
+            const cur = groups.get(key) ?? { total: 0, criticos: 0, quantidade: 0 }
+            cur.total++
+            if (key === 'Crítico' || key === 'Vencido') cur.criticos++
+            cur.quantidade += num(r.quantidade)
+            groups.set(key, cur)
+          }
+          const data = [...groups.entries()].map(([status, v]) => ({
+            categoria: status,
+            criticos: v.criticos,
+            totalItens: v.total,
+            volumeEstoque: v.quantidade,
+          }))
+          return {
+            reportType,
+            title: 'Validades por Categoria',
+            description:
+              'Distribuição das ocorrências da Base Atual agrupadas por status operacional.',
+            generatedAt: nowISO,
+            chartData: data.map((d) => ({
+              name: d.categoria,
+              Ocorrências: d.totalItens,
+              Críticos: d.criticos,
+            })),
+            tableColumns: [
+              { key: 'categoria', label: 'Status' },
+              { key: 'criticos', label: 'Críticos' },
+              { key: 'totalItens', label: 'Total de Ocorrências' },
+              { key: 'volumeEstoque', label: 'Volume em Estoque' },
+            ],
+            tableRows: data,
+            summaryCards: [
+              { label: 'Status distintos', value: data.length },
+              {
+                label: 'Ocorrências críticas',
+                value: data
+                  .filter((d) => d.categoria === 'Crítico' || d.categoria === 'Vencido')
+                  .reduce((s, d) => s + d.criticos, 0),
+                accent: 'danger',
+              },
+              {
+                label: 'Ocorrências totais',
+                value: data.reduce((s, d) => s + d.totalItens, 0),
+              },
+            ],
+          }
+        }
+
+        case 'rupturas-por-periodo': {
+          // validades_base não possui dados de ruptura; agrupa por data de realização.
+          const groups = new Map<string, { total: number; criticos: number }>()
+          for (const r of rows) {
+            const raw = str(r.realizado)
+            const key = raw ? raw.slice(0, 10) : 'Sem data'
+            const cur = groups.get(key) ?? { total: 0, criticos: 0 }
+            cur.total++
+            if (str(r.status_operacional) === 'Crítico') cur.criticos++
+            groups.set(key, cur)
+          }
+          const data = [...groups.entries()]
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([periodo, v]) => ({
+              periodo,
+              rupturas: v.total,
+              criticos: v.criticos,
+            }))
+          return {
+            reportType,
+            title: 'Ocorrências por Período',
+            description: 'Ocorrências da Base Atual agrupadas pela data de realização (período).',
+            generatedAt: nowISO,
+            chartData: data.map((d) => ({
+              name: d.periodo,
+              'Total Ocorrências': d.rupturas,
+              Críticos: d.criticos,
+            })),
+            tableColumns: [
+              { key: 'periodo', label: 'Período' },
+              { key: 'rupturas', label: 'Ocorrências' },
+              { key: 'criticos', label: 'Críticos' },
+            ],
+            tableRows: data,
+            summaryCards: [
+              { label: 'Períodos', value: data.length },
+              {
+                label: 'Ocorrências totais',
+                value: data.reduce((s, d) => s + d.rupturas, 0),
+              },
+              {
+                label: 'Críticos',
+                value: data.reduce((s, d) => s + d.criticos, 0),
+                accent: 'danger',
+              },
+            ],
+          }
+        }
+
+        case 'top-rupturas-por-produto': {
+          // Ranking por dias_vencimento_atual ascendente (mais próximo do vencimento).
+          const data = rows
+            .map((r) => ({
+              produto: str(r.produto),
+              sku: str(r.cod_produto) || str(r.cod_barras),
+              fornecedor: str(r.fornecedor),
+              dias: num(r.dias_vencimento_atual),
+              status: str(r.status_operacional) || 'Normal',
+            }))
+            .filter((d) => d.produto)
+            .sort((a, b) => a.dias - b.dias)
+            .slice(0, 15)
+          return {
+            reportType,
+            title: 'Top Ocorrências por Produto',
+            description: 'Ranking dos produtos com menor prazo de vencimento (Base Atual).',
+            generatedAt: nowISO,
+            chartData: data.map((d) => ({
+              name: d.produto.slice(0, 18),
+              'Dias Restantes': d.dias,
+            })),
+            tableColumns: [
+              { key: 'produto', label: 'Produto' },
+              { key: 'sku', label: 'SKU' },
+              { key: 'fornecedor', label: 'Fornecedor' },
+              { key: 'dias', label: 'Dias Restantes' },
+              { key: 'status', label: 'Status' },
+            ],
+            tableRows: data.map((d) => ({ ...d, dias: `${d.dias} dias` })),
+            summaryCards: [
+              { label: 'Produtos no ranking', value: data.length },
+              {
+                label: 'Menor prazo',
+                value: data[0] ? `${data[0].dias} dias` : '—',
+                accent: 'danger',
+              },
+              {
+                label: 'Críticos',
+                value: data.filter((d) => d.status === 'Crítico').length,
+                accent: 'warning',
+              },
+            ],
+          }
+        }
+
+        case 'validades-proximas-vencer': {
+          const data = rows
+            .map((r) => ({
+              produto: str(r.produto),
+              sku: str(r.cod_produto) || str(r.cod_barras),
+              lote: str(r.numero_lote),
+              validade: str(r.validade_efetiva),
+              dias: num(r.dias_vencimento_atual),
+              status: str(r.status_operacional) || 'Normal',
+              estoque: num(r.quantidade),
+              loja: str(r.nome_loja),
+            }))
+            .filter((d) => d.dias > 0 && d.dias <= 30)
+            .sort((a, b) => a.dias - b.dias)
+          return {
+            reportType,
+            title: 'Validades Próximas a Vencer',
+            description: 'Ocorrências ativas com vencimento em até 30 dias (Base Atual).',
+            generatedAt: nowISO,
+            chartData: data.map((d) => ({
+              name: d.produto.slice(0, 16),
+              'Dias Restantes': d.dias,
+              Estoque: d.estoque,
+            })),
+            tableColumns: [
+              { key: 'produto', label: 'Produto' },
+              { key: 'sku', label: 'SKU' },
+              { key: 'lote', label: 'Lote' },
+              { key: 'validade', label: 'Vencimento' },
+              { key: 'dias', label: 'Dias Restantes' },
+              { key: 'status', label: 'Status' },
+              { key: 'estoque', label: 'Quantidade' },
+              { key: 'loja', label: 'Loja' },
+            ],
+            tableRows: data.map((d) => ({
+              ...d,
+              validade: d.validade
+                ? new Date(d.validade + 'T00:00:00').toLocaleDateString('pt-BR')
+                : '—',
+              dias: `${d.dias} dias`,
+            })),
+            summaryCards: [
+              { label: 'SKUs em risco', value: data.length, accent: 'danger' },
+              {
+                label: 'Menor prazo',
+                value: data[0] ? `${data[0].dias} dias` : '—',
+                accent: 'danger',
+              },
+              {
+                label: 'Volume em risco',
+                value: data.reduce((s, d) => s + d.estoque, 0),
+              },
+            ],
+          }
+        }
+
+        default:
+          return emptyReport
+      }
+    } catch (err) {
+      console.error('[ImportDataSource] Falha ao gerar relatório:', err)
+      return emptyReport
+    }
   }
 }
