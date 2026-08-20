@@ -9,15 +9,16 @@ interface RupturasKpisProps {
 }
 
 export const RupturasKpisCards: React.FC<RupturasKpisProps> = ({ kpis, isLoading }) => {
-  const totalAtivas = kpis?.total_ativas ?? 0
-  const novas = kpis?.novas_no_periodo ?? 0
+  const totalAtivas = kpis?.totalAtivas ?? kpis?.total_ativas ?? 0
+  const novas = kpis?.novasNoPeriodo ?? kpis?.novas_no_periodo ?? 0
   const resolvidas = kpis?.resolvidas ?? 0
-  const totalGeral = kpis?.total_geral ?? 0
-  const porMotivo = kpis?.por_motivo ?? {
-    'Ruptura Total': 0,
-    'Sem Estoque Mínimo': 0,
-    'Estoque Virtual': 0,
-  }
+  const totalGeral = kpis?.totalGeral ?? kpis?.total_geral ?? 0
+  const porMotivo = kpis?.porMotivo ??
+    kpis?.por_motivo ?? {
+      'Ruptura Total': 0,
+      'Sem Estoque Mínimo': 0,
+      'Estoque Virtual': 0,
+    }
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

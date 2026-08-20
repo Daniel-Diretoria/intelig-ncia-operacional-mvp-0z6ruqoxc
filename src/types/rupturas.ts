@@ -85,17 +85,23 @@ export interface RupturasTendencia {
 export interface RupturasKpis {
   /** Total de rupturas ativas (is_base_atual = true, situacao_atual = 'Ativo'). */
   totalAtivas: number
-  total_ativas?: number
-  novas_no_periodo?: number
-  resolvidas?: number
-  total_geral?: number
-  por_motivo?: {
+  /** Registros com data_entrada ou data_visita nos últimos 7 dias. */
+  novasNoPeriodo: number
+  /** Total de registros com situacao_atual = 'Resolvido'. */
+  resolvidas: number
+  /** Total de todos os registros analisados. */
+  totalGeral: number
+  /** Contagem por motivo padronizado. */
+  porMotivo: {
     'Ruptura Total': number
     'Sem Estoque Mínimo': number
     'Estoque Virtual': number
   }
-  /** Contagem por motivo padronizado. */
-  porMotivo: {
+  /** Aliases legados para compatibilidade */
+  total_ativas?: number
+  novas_no_periodo?: number
+  total_geral?: number
+  por_motivo?: {
     'Ruptura Total': number
     'Sem Estoque Mínimo': number
     'Estoque Virtual': number

@@ -409,6 +409,25 @@ export function computeRupturasTendencia(records: Ruptura[]): RupturasKpis['tend
 
 export function computeRupturasKpis(records: Ruptura[]): RupturasKpis {
   const ativas = records.filter((r) => r.situacao_atual === 'Ativo')
+  const resolvidasCount = records.filter((r) => r.situacao_atual === 'Resolvido').length
+
+  // Novas no período: registros com data_entrada (ou data_visita) nos últimos 7 dias
+  const hoje = dataAtualSaoPaulo()
+  const hojeTs = new Date(hoje + 'T00:00:00Z').getTime()
+  const SETE_DIAS_MS = 7 * 86400000
+
+  let novasNoPeriodo = 0
+  for (const r of records) {
+    const dataRef = r.data_entrada || r.data_visita
+    if (!dataRef) continue
+    const t = new Date(dataRef + 'T00:00:00Z').getTime()
+    if (isNaN(t)) continue
+    const diff = hojeTs - t
+    // Se a data é futura ou ocorreu nos últimos 7 dias (0 a 7 dias)
+    if (diff <= SETE_DIAS_MS) {
+      novasNoPeriodo++
+    }
+  }
 
   const porMotivo = {
     'Ruptura Total': 0,
@@ -462,7 +481,15 @@ export function computeRupturasKpis(records: Ruptura[]): RupturasKpis {
 
   return {
     totalAtivas: ativas.length,
+    novasNoPeriodo,
+    resolvidas: resolvidasCount,
+    totalGeral: records.length,
     porMotivo,
+    // Aliases legados
+    total_ativas: ativas.length,
+    novas_no_periodo: novasNoPeriodo,
+    total_geral: records.length,
+    por_motivo: porMotivo,
     topLojas,
     topProdutos,
     topClientes,
