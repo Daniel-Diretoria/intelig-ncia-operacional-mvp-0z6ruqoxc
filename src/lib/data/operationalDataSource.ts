@@ -28,4 +28,7 @@ export interface IOperationalDataSource {
   getRupturasKpis(): Promise<RupturasKpis>
   listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]>
   getReportData(reportType: ReportType): Promise<ReportData>
+  /** Métodos opcionais de sincronização direta via API */
+  syncNow?(type?: 'validades' | 'rupturas' | 'all'): Promise<unknown>
+  getSyncHistory?(): Promise<unknown[]>
 }

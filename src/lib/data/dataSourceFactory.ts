@@ -511,6 +511,24 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       return this.mockFallback.getReportData(reportType)
     }
   }
+
+  /**
+   * Aciona a sincronização com a API TradePro diretamente pelo adapter.
+   */
+  async syncNow(type: 'validades' | 'rupturas' | 'all' = 'all') {
+    const { syncValidades, syncRupturas, syncAll } = await import('@/lib/api/syncService')
+    if (type === 'validades') return syncValidades()
+    if (type === 'rupturas') return syncRupturas()
+    return syncAll()
+  }
+
+  /**
+   * Obtém histórico de logs de sincronizações gravados em sync_logs.
+   */
+  async getSyncHistory() {
+    const { getSyncHistory } = await import('@/lib/api/syncService')
+    return getSyncHistory()
+  }
 }
 
 export class SkipCloudOperationalAdapter extends MockOperationalAdapter {
@@ -537,10 +555,18 @@ export class DataSourceFactory {
       case 'excel':
         activeInstance = new ExcelOperationalAdapter()
         break
+      case 'tradepro-api':
       case 'tradepro':
-      case 'api':
-        activeInstance = new TradeProApiAdapter()
+      case 'api': {
+        const apiUrl = (import.meta.env.VITE_TRADEPRO_API_URL || '').trim()
+        // Se VITE_TRADEPRO_API_URL não estiver configurada no caso tradepro-api, faz fallback para mock
+        if (dataSourceType === 'tradepro-api' && !apiUrl) {
+          activeInstance = new MockOperationalAdapter()
+        } else {
+          activeInstance = new TradeProApiAdapter()
+        }
         break
+      }
       case 'import':
         activeInstance = new ImportDataSource()
         break

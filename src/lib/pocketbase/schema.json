@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T20:15:49.885Z",
+  "generatedAt": "2026-08-20T21:03:07.875Z",
   "collections": [
     {
       "name": "users",
@@ -1755,6 +1755,88 @@
         "CREATE INDEX idx_rupturas_historico_base ON rupturas_historico (ruptura_base_id)",
         "CREATE INDEX idx_rupturas_historico_evento ON rupturas_historico (evento)",
         "CREATE INDEX idx_rupturas_historico_import ON rupturas_historico (source_import_id)"
+      ]
+    },
+    {
+      "name": "sync_logs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "tipo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["success", "partial", "error"]
+        },
+        {
+          "name": "total_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "updated_rows",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "errors",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duration_ms",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_sync_logs_tipo ON sync_logs (tipo)",
+        "CREATE INDEX idx_sync_logs_status ON sync_logs (status)",
+        "CREATE INDEX idx_sync_logs_created ON sync_logs (created DESC)"
       ]
     }
   ]
