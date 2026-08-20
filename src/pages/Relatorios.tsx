@@ -15,6 +15,7 @@ import {
   FileText,
   BarChart3,
   Layers,
+  Store,
   ArrowRight,
 } from 'lucide-react'
 import { exportarRelatorioValidades } from '@/lib/export/relatoriosExport'

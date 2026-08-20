@@ -26,11 +26,11 @@ export interface ParsedSheet {
 /** Abas consideradas de Validades no formato TradePro. */
 const VALIDADE_SHEET_HINTS = ['pesquisa validade', 'validade', 'validades']
 
-/** Abas consideradas de Rupturas (para recusa no importador de Validades). */
+/** Abas consideradas de Rupturas. */
 const RUPTURA_SHEET_HINTS = ['ruptura', 'rupturas']
 
 /** Normaliza um nome de aba para comparação tolerante. */
-function normalizeSheetName(name: string): string {
+export function normalizeSheetName(name: string): string {
   return name
     .toString()
     .trim()
@@ -42,7 +42,7 @@ function normalizeSheetName(name: string): string {
 
 /**
  * Extrai a Data Arquivo (ISO YYYY-MM-DD) do nome do arquivo.
- * Padrão esperado: `Validade_YYYY_MM_DD.xlsx` -> `YYYY-MM-DD`.
+ * Padrão esperado: `Validade_YYYY_MM_DD.xlsx` ou `Rupturas_YYYY_MM_DD.xlsx` -> `YYYY-MM-DD`.
  */
 export function extractDataArquivo(fileName: string): string | undefined {
   const base = fileName.split(/[\\/]/).pop() || fileName
@@ -55,28 +55,33 @@ export function extractDataArquivo(fileName: string): string | undefined {
 }
 
 /**
- * Seleciona a aba de Validades dentro do workbook.
- * Prioridade: "Pesquisa Validade" -> qualquer aba com "validade" -> primeira aba.
- * Retorna undefined se a primeira aba encontrada for de Rupturas.
+ * Seleciona a melhor aba do workbook conforme o tipo ou formato detectado.
+ * Prioridades:
+ * 1. "Pesquisa Validade"
+ * 2. Qualquer aba contendo "validade"
+ * 3. Qualquer aba contendo "ruptura"
+ * 4. Primeira aba do arquivo
  */
-function selectValidadeSheet(workbook: XLSX.WorkBook): { sheetName: string; isRuptura: boolean } {
+export function selectBestSheet(workbook: XLSX.WorkBook): {
+  sheetName: string
+  isRuptura: boolean
+} {
   const names = workbook.SheetNames.map((n) => ({ raw: n, norm: normalizeSheetName(n) }))
 
-  // 1. aba "Pesquisa Validade" exata (normalizada)
-  const exact = names.find((n) => n.norm === 'pesquisa validade')
-  if (exact) return { sheetName: exact.raw, isRuptura: false }
+  // 1. aba "Pesquisa Validade" exata
+  const exactValidade = names.find((n) => n.norm === 'pesquisa validade')
+  if (exactValidade) return { sheetName: exactValidade.raw, isRuptura: false }
 
   // 2. qualquer aba com "validade"
   const anyValidade = names.find((n) => VALIDADE_SHEET_HINTS.some((h) => n.norm.includes(h)))
   if (anyValidade) return { sheetName: anyValidade.raw, isRuptura: false }
 
-  // 3. primeira aba — verifica se é de Rupturas
-  const first = names[0]
-  if (first && RUPTURA_SHEET_HINTS.some((h) => first.norm.includes(h))) {
-    return { sheetName: first.raw, isRuptura: true }
-  }
+  // 3. qualquer aba com "ruptura"
+  const anyRuptura = names.find((n) => RUPTURA_SHEET_HINTS.some((h) => n.norm.includes(h)))
+  if (anyRuptura) return { sheetName: anyRuptura.raw, isRuptura: true }
 
   // 4. fallback: primeira aba
+  const first = names[0]
   return { sheetName: first?.raw ?? '', isRuptura: false }
 }
 
@@ -151,12 +156,14 @@ function coerceTextIds(
   })
 }
 
-export async function parseExcelFile(file: File): Promise<ParsedSheet> {
+export async function parseExcelFile(
+  file: File,
+): Promise<ParsedSheet & { isRupturaSheet?: boolean }> {
   const buffer = await file.arrayBuffer()
   // cellDates: true para interpretar datas reais como objetos Date
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
 
-  const { sheetName } = selectValidadeSheet(workbook)
+  const { sheetName, isRuptura } = selectBestSheet(workbook)
   if (!sheetName) {
     throw new Error('Nenhuma planilha encontrada no arquivo.')
   }
@@ -196,5 +203,6 @@ export async function parseExcelFile(file: File): Promise<ParsedSheet> {
     rows,
     sheetName,
     dataArquivo,
+    isRupturaSheet: isRuptura,
   }
 }

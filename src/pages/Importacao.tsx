@@ -136,16 +136,35 @@ const statusLabel = (status: string): string => {
   }
 }
 
-// Etapas do pipeline visual (30 passos resumidos em 7 fases)
-const PIPELINE_FASES = [
+// Etapas do pipeline visual — adaptável para Validades e Rupturas
+const getPipelineFases = (importType: ImportType, sheetName?: string) => [
   { id: 'identificar', label: 'Identificar arquivo', icon: FileUp },
-  { id: 'ler', label: 'Ler aba Pesquisa Validade', icon: Table2 },
+  {
+    id: 'ler',
+    label:
+      importType === 'rupturas'
+        ? `Ler aba ${sheetName || 'Rupturas'}`
+        : `Ler aba ${sheetName || 'Pesquisa Validade'}`,
+    icon: Table2,
+  },
   { id: 'validar', label: 'Validar colunas e tipos', icon: CheckCircle2 },
-  { id: 'corrigir', label: 'Aplicar correções', icon: ShieldAlert },
-  { id: 'deduplicar', label: 'Deduplicação 2 etapas', icon: GitMerge },
-  { id: 'status', label: 'Status e datas', icon: Layers },
+  {
+    id: 'corrigir',
+    label: importType === 'rupturas' ? 'Padronizar motivos' : 'Aplicar correções',
+    icon: ShieldAlert,
+  },
+  {
+    id: 'deduplicar',
+    label: importType === 'rupturas' ? 'Dedup (maior data visita)' : 'Deduplicação 2 etapas',
+    icon: GitMerge,
+  },
+  {
+    id: 'status',
+    label: importType === 'rupturas' ? 'Filtrar 90 dias' : 'Status e datas',
+    icon: Layers,
+  },
   { id: 'persistir', label: 'Persistir Base Atual', icon: Database },
-] as const
+]
 
 export const ImportacaoPage: React.FC = () => {
   const { toast } = useToast()
@@ -238,12 +257,19 @@ export const ImportacaoPage: React.FC = () => {
         let isRup = isRupByName
 
         if (isRupByName) {
+          try {
+            parsed = await parseExcelFile(file)
+          } catch {
+            // fallback se parse padrão falhar
+          }
           rupRows = await parseRupturasExcel(file)
           isRup = true
         } else {
           try {
             parsed = await parseExcelFile(file)
-            isRup = detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
+            isRup =
+              parsed.isRupturaSheet ||
+              detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
             if (isRup) {
               rupRows = await parseRupturasExcel(file)
             }
@@ -411,7 +437,7 @@ export const ImportacaoPage: React.FC = () => {
       if (importType === 'rupturas') {
         // Pipeline de Rupturas
         if (!selectedFile) throw new Error('Arquivo não encontrado para processar rupturas.')
-        const rupRes = await processRupturasImport(selectedFile, 'tenant-default')
+        const rupRes = await processRupturasImport(selectedFile, 'tenant-default', forceReprocess)
         clearInterval(tick)
         setImportProgress(100)
         setRupturasResult(rupRes)
@@ -574,7 +600,7 @@ export const ImportacaoPage: React.FC = () => {
 
       {/* Pipeline visual — 7 fases */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500 flex-wrap">
-        {PIPELINE_FASES.map((f, i, arr) => {
+        {getPipelineFases(importType, sheetName).map((f, i, arr) => {
           const active =
             stage === 'done'
               ? true
@@ -592,14 +618,20 @@ export const ImportacaoPage: React.FC = () => {
                 className={cn(
                   'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border',
                   active
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    ? importType === 'rupturas'
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                     : 'bg-white text-slate-400 border-slate-200',
                 )}
               >
                 <span
                   className={cn(
                     'w-4 h-4 rounded-full flex items-center justify-center',
-                    active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500',
+                    active
+                      ? importType === 'rupturas'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-indigo-600 text-white'
+                      : 'bg-slate-200 text-slate-500',
                   )}
                 >
                   {active ? <Check className="w-2.5 h-2.5" /> : <Icon className="w-2.5 h-2.5" />}
@@ -1127,20 +1159,76 @@ export const ImportacaoPage: React.FC = () => {
         )}
       </div>
 
+      {/* Resumo pós-processamento de Rupturas */}
+      {importType === 'rupturas' && rupturasResult && stage === 'done' && (
+        <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+          <div className="p-4 border-b border-amber-100 flex items-center gap-2 bg-amber-50/40">
+            <Layers className="w-4 h-4 text-amber-600" />
+            <h4 className="text-sm font-bold text-slate-900">
+              Resumo do processamento de Rupturas
+            </h4>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto hidden sm:inline">
+              Lidos → Válidos → Dedup (Data Visita) → Base Atual
+            </span>
+          </div>
+          <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase">
+                <Database className="w-3 h-3" /> Lidos
+              </div>
+              <p className="text-xl font-bold text-slate-900 tabular-nums">
+                {rupturasResult.total_rows_read}
+              </p>
+            </div>
+            <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 uppercase">
+                <CheckCircle2 className="w-3 h-3" /> Válidos
+              </div>
+              <p className="text-xl font-bold text-amber-700 tabular-nums">
+                {rupturasResult.total_rows_valid}
+              </p>
+            </div>
+            <div className="p-3 rounded-lg border border-red-200 bg-red-50/50">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-red-600 uppercase">
+                <AlertCircle className="w-3 h-3" /> Inválidos
+              </div>
+              <p className="text-xl font-bold text-red-700 tabular-nums">
+                {rupturasResult.total_rows_invalid}
+              </p>
+            </div>
+            <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 uppercase">
+                <CheckCircle2 className="w-3 h-3" /> Base Atual
+              </div>
+              <p className="text-xl font-bold text-emerald-700 tabular-nums">
+                {rupturasResult.total_occurrences_generated}
+              </p>
+            </div>
+          </div>
+          <div className="px-4 pb-4 text-xs text-slate-500">
+            {rupturasResult.total_occurrences_generated} ruptura(s) persistida(s) na coleção{' '}
+            <code className="text-amber-700 font-medium">rupturas_base</code> e registradas no
+            histórico.
+          </div>
+        </div>
+      )}
+
       {/* Nota informativa TradePro */}
       <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50">
         <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
           <Info className="w-4 h-4" />
         </div>
         <div className="text-xs text-slate-700 leading-relaxed">
-          <p className="font-semibold text-slate-900 mb-0.5">Pipeline TradePro (30 passos)</p>
+          <p className="font-semibold text-slate-900 mb-0.5">
+            Pipeline TradePro (Validades &amp; Rupturas)
+          </p>
           <p>
-            O sistema identifica o arquivo, confirma que é Validades (recusa Rupturas), lê a aba
-            “Pesquisa Validade”, preserva os dados brutos, valida os 7 campos obrigatórios, filtra
-            últimos 90 dias, aplica correções de validade, deduplica em duas etapas (somar por Chave
-            Dedup → selecionar maior Realizado por Chave Operacional), remove quantidade zero,
-            calcula Status Operacional e Situação Atual, reconhece loja/rede e persiste a Base
-            Atual.
+            O importador identifica automaticamente o tipo de arquivo TradePro: para{' '}
+            <strong>Validades</strong> (aba “Pesquisa Validade”), valida os 7 campos obrigatórios,
+            filtra 90 dias, aplica correções e deduplicação em 2 etapas; para{' '}
+            <strong>Rupturas</strong> (aba “Rupturas” ou exportação correspondente), padroniza os
+            motivos, valida as informações da visita/produto e atualiza a Base Atual de Rupturas com
+            histórico completo.
           </p>
         </div>
       </div>

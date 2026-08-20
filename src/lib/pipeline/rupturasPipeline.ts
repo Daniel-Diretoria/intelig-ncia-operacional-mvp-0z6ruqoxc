@@ -139,7 +139,11 @@ export async function parseRupturasExcel(file: File): Promise<ParsedRupturaRow[]
   })
 
   return jsonRows.map((row, i) => ({
-    data_visita: parseDate(resolveField(row, 'data_visita')),
+    data_visita:
+      parseDate(resolveField(row, 'data_visita')) ||
+      (typeof resolveField(row, 'data_visita') === 'string'
+        ? String(resolveField(row, 'data_visita')).slice(0, 10)
+        : null),
     produto: parseString(resolveField(row, 'produto')),
     motivo: parseString(resolveField(row, 'motivo')),
     nome_loja: parseString(resolveField(row, 'nome_loja')),
@@ -265,7 +269,9 @@ export function filterLast90Days<T extends { data_visita: string | null }>(rows:
  * Agrupa por `dedup_key` (codigo_loja|produto|cliente) e seleciona, em cada
  * grupo, a linha com a MAIOR `data_visita`. As demais são descartadas.
  */
-export function dedupRupturas<T extends { nome_loja: string; produto: string; cliente: string; data_visita: string | null }>(rows: T[]): T[] {
+export function dedupRupturas<
+  T extends { nome_loja: string; produto: string; cliente: string; data_visita: string | null },
+>(rows: T[]): T[] {
   const grupos = new Map<string, T[]>()
 
   for (const row of rows) {
@@ -534,7 +540,8 @@ const BATCH_SIZE = 25
  */
 export async function processRupturasImport(
   file: File,
-  tenantId: string,
+  tenantId: string = 'tenant-default',
+  forceReprocess: boolean = false,
 ): Promise<RupturasImportResult> {
   const file_hash = await calcularHashArquivo(file)
   const file_name = file.name
@@ -563,8 +570,8 @@ export async function processRupturasImport(
   try {
     const existing = await pb
       .collection('rupturas_imports')
-      .getFirstListItem(`file_hash="${file_hash}"`)
-    if (existing) {
+      .getFirstListItem(`file_hash="${file_hash}" && status ~ "Concluída"`)
+    if (existing && !forceReprocess) {
       return fail('Cancelada', 'Arquivo já importado anteriormente (hash duplicado).')
     }
   } catch {

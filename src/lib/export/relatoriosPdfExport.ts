@@ -15,6 +15,7 @@
  */
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import pb from '@/lib/pocketbase/client'
 import { fetchValidadesForExport, type NormItem } from './relatoriosExport'
 import { classificarStatusOperacional } from '@/lib/data/criticidade'
 import type { ValidadesFilter } from '@/types'
