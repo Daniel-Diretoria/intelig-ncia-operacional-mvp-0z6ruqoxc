@@ -156,14 +156,9 @@ export async function parseExcelFile(file: File): Promise<ParsedSheet> {
   // cellDates: true para interpretar datas reais como objetos Date
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
 
-  const { sheetName, isRuptura } = selectValidadeSheet(workbook)
+  const { sheetName } = selectValidadeSheet(workbook)
   if (!sheetName) {
     throw new Error('Nenhuma planilha encontrada no arquivo.')
-  }
-  if (isRuptura) {
-    throw new Error(
-      'Este arquivo foi identificado como uma exportação de Rupturas. Utilize o importador correspondente.',
-    )
   }
 
   const worksheet = workbook.Sheets[sheetName]

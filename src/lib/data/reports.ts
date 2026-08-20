@@ -1,4 +1,5 @@
-import type { ReportData, ValidadeItem } from '@/types'
+import type { ReportData, ValidadeItem, Ruptura } from '@/types'
+import { formatStoreDisplay } from './storeRecognition'
 
 /**
  * Construtores puros de relatórios operacionais.
@@ -248,6 +249,140 @@ export function buildAuditoriaResumoReport(counts: AuditoriaCounts): ReportData 
       { label: 'Total de pendências', value: counts.total },
       { label: 'Pendentes', value: counts.pendente, accent: 'warning' },
       { label: 'Confirmados', value: counts.confirmado, accent: 'success' },
+    ],
+  }
+}
+
+/** Relatório: Rupturas por Loja */
+export function buildRupturasPorLojaReport(rupturas: Ruptura[]): ReportData {
+  const map = new Map<
+    string,
+    {
+      loja: string
+      codigo: string
+      total: number
+      ativas: number
+      resolvidas: number
+      totalDias: number
+    }
+  >()
+
+  for (const r of rupturas) {
+    const codigo = r.codigo_loja || ''
+    const nome = r.nome_loja || '—'
+    const key = codigo ? `${codigo}-${nome}` : nome
+    const cur = map.get(key) ?? {
+      loja: nome,
+      codigo,
+      total: 0,
+      ativas: 0,
+      resolvidas: 0,
+      totalDias: 0,
+    }
+    cur.total++
+    if (r.situacao_atual === 'Ativo') {
+      cur.ativas++
+      cur.totalDias += r.dias_em_ruptura
+    } else {
+      cur.resolvidas++
+    }
+    map.set(key, cur)
+  }
+
+  const rows = [...map.values()]
+    .sort((a, b) => b.ativas - a.ativas || b.total - a.total)
+    .map((r) => ({
+      loja: formatStoreDisplay(r.codigo, r.loja),
+      codigo: r.codigo || '—',
+      total: r.total,
+      ativas: r.ativas,
+      resolvidas: r.resolvidas,
+      mediaDias: r.ativas > 0 ? `${(r.totalDias / r.ativas).toFixed(1)} dias` : '0 dias',
+    }))
+
+  const top = rows.slice(0, 10)
+  const totalAtivas = rows.reduce((s, r) => s + r.ativas, 0)
+
+  return {
+    reportType: 'rupturas-por-loja',
+    title: 'Relatório: Rupturas por Loja',
+    description: 'Consolidação de desabastecimento e rupturas ativas por ponto de venda.',
+    generatedAt: nowISO(),
+    chartData: top.map((r) => ({
+      name: r.loja.slice(0, 20),
+      'Rupturas Ativas': r.ativas,
+      Resolvidas: r.resolvidas,
+    })),
+    tableColumns: [
+      { key: 'loja', label: 'Loja' },
+      { key: 'codigo', label: 'Código' },
+      { key: 'ativas', label: 'Rupturas Ativas' },
+      { key: 'resolvidas', label: 'Resolvidas' },
+      { key: 'total', label: 'Total Histórico' },
+      { key: 'mediaDias', label: 'Média de Dias em Ruptura' },
+    ],
+    tableRows: rows,
+    summaryCards: [
+      { label: 'Lojas Monitoradas', value: rows.length },
+      { label: 'Rupturas Ativas Totais', value: totalAtivas, accent: 'danger' },
+      {
+        label: 'Loja Mais Crítica',
+        value: rows[0]?.loja.slice(0, 24) ?? '—',
+        accent: 'warning',
+      },
+    ],
+  }
+}
+
+/** Relatório: Rupturas por Motivo */
+export function buildRupturasPorMotivoReport(rupturas: Ruptura[]): ReportData {
+  const motivos = ['Ruptura Total', 'Sem Estoque Mínimo', 'Estoque Virtual']
+  const total = rupturas.length
+
+  const rows = motivos.map((motivo) => {
+    const group = rupturas.filter((r) => r.motivo === motivo)
+    const ativas = group.filter((r) => r.situacao_atual === 'Ativo').length
+    const resolvidas = group.filter((r) => r.situacao_atual === 'Resolvido').length
+    return {
+      motivo,
+      total: group.length,
+      ativas,
+      resolvidas,
+      percentual: `${pct(group.length, total)}%`,
+    }
+  })
+
+  return {
+    reportType: 'rupturas-por-motivo',
+    title: 'Relatório: Rupturas por Motivo',
+    description:
+      'Distribuição dos desabastecimentos entre Ruptura Total, Sem Estoque Mínimo e Estoque Virtual.',
+    generatedAt: nowISO(),
+    chartData: rows.map((r) => ({
+      name: r.motivo,
+      Ativas: r.ativas,
+      Resolvidas: r.resolvidas,
+    })),
+    tableColumns: [
+      { key: 'motivo', label: 'Motivo da Ruptura' },
+      { key: 'ativas', label: 'Ocorrências Ativas' },
+      { key: 'resolvidas', label: 'Resolvidas' },
+      { key: 'total', label: 'Total de Ocorrências' },
+      { key: 'percentual', label: '% do Total' },
+    ],
+    tableRows: rows,
+    summaryCards: [
+      { label: 'Total de Ocorrências', value: total },
+      {
+        label: 'Ruptura Total (Gôndola Vazia)',
+        value: rows.find((r) => r.motivo === 'Ruptura Total')?.ativas ?? 0,
+        accent: 'danger',
+      },
+      {
+        label: 'Estoque Virtual (Divergência)',
+        value: rows.find((r) => r.motivo === 'Estoque Virtual')?.ativas ?? 0,
+        accent: 'warning',
+      },
     ],
   }
 }

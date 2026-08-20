@@ -149,3 +149,16 @@ export function normalizeIdentifier(value: unknown): string {
   // Remove espaços das pontas, mas preserva zeros à esquerda e conteúdo.
   return String(value).trim()
 }
+
+/** Formata loja como '085 • FORT ATACADISTA JARAGUÁ DO SUL' com zeros à esquerda preservados */
+export function formatStoreDisplay(codigo?: string, nome?: string): string {
+  let cod = (codigo ?? '').trim()
+  const n = (nome ?? '').trim()
+  if (cod && !isNaN(Number(cod))) {
+    cod = cod.padStart(3, '0')
+  }
+  if (cod && n) return `${cod} • ${n}`
+  if (n) return n
+  if (cod) return cod
+  return 'Loja não identificada'
+}

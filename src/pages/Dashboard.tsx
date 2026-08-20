@@ -71,15 +71,10 @@ export const DashboardPage: React.FC = () => {
   const activeRupturas = rupturas.slice(0, 4)
   const recentAlerts = alertas.slice(0, 4)
 
-  // O TradePro não exporta rupturas. O adapter sinaliza essa indisponibilidade
-  // com delta "Módulo em desenvolvimento — aguardando fonte de dados de rupturas"
-  // e rupturasOverTime vazio. Nesse caso, desabilitamos o KPI e o gráfico de
-  // rupturas com a mensagem clara (em vez de exibir valor 0 / gráfico vazio).
-  const RUPTURAS_MENSAGEM = 'Módulo em desenvolvimento — aguardando fonte de dados de rupturas'
-  const rupturasIndisponivel =
-    !!kpiData &&
-    (kpiData.summary.rupturasAtivas.delta === RUPTURAS_MENSAGEM ||
-      (kpiData.rupturasOverTime.length === 0 && kpiData.summary.rupturasAtivas.count === 0))
+  const rupturasVazia =
+    !kpiLoading &&
+    kpiData?.summary.rupturasAtivas.count === 0 &&
+    (!kpiData?.rupturasOverTime || kpiData.rupturasOverTime.length === 0)
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-fade-in pb-10">
@@ -106,37 +101,16 @@ export const DashboardPage: React.FC = () => {
             isLoading={kpiLoading}
             onClick={() => navigate('/validades')}
           />
-          // TradePro não exporta rupturas: desabilita o KPI com mensagem clara.
-          {rupturasIndisponivel ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between opacity-90">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-[13px] font-medium text-slate-500 tracking-tight">
-                    Rupturas Ativas
-                  </p>
-                  <p className="mt-1 text-base font-semibold text-slate-400 tracking-tight">—</p>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0 bg-slate-100 text-slate-400">
-                  <PackageX className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 flex items-start text-xs text-slate-500 font-medium gap-1.5">
-                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                <span>{RUPTURAS_MENSAGEM}</span>
-              </div>
-            </div>
-          ) : (
-            <KpiCard
-              label="Rupturas Ativas"
-              value={kpiData?.summary.rupturasAtivas.count ?? 0}
-              icon={PackageX}
-              accent="warning"
-              delta={kpiData?.summary.rupturasAtivas.delta}
-              trend={kpiData?.summary.rupturasAtivas.trend}
-              isLoading={kpiLoading}
-              onClick={() => navigate('/rupturas')}
-            />
-          )}
+          <KpiCard
+            label="Rupturas Ativas"
+            value={kpiData?.summary.rupturasAtivas.count ?? 0}
+            icon={PackageX}
+            accent="warning"
+            delta={kpiData?.summary.rupturasAtivas.delta}
+            trend={kpiData?.summary.rupturasAtivas.trend}
+            isLoading={kpiLoading}
+            onClick={() => navigate('/rupturas')}
+          />
           <KpiCard
             label="Alertas Abertos"
             value={kpiData?.summary.alertasAbertos.count ?? 0}
@@ -268,12 +242,6 @@ export const DashboardPage: React.FC = () => {
               <div className="h-full w-full flex items-center justify-center bg-slate-50 rounded-lg animate-pulse text-xs text-slate-400">
                 Carregando gráfico...
               </div>
-            ) : rupturasIndisponivel ? (
-              <div className="h-full w-full flex flex-col items-center justify-center bg-slate-50 rounded-lg text-center px-6 gap-2">
-                <Info className="w-6 h-6 text-slate-400" />
-                <p className="text-sm font-semibold text-slate-600">Módulo em desenvolvimento</p>
-                <p className="text-xs text-slate-500 max-w-xs">{RUPTURAS_MENSAGEM}</p>
-              </div>
             ) : kpiData?.rupturasOverTime && kpiData.rupturasOverTime.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
@@ -337,7 +305,11 @@ export const DashboardPage: React.FC = () => {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <EmptyState title="Sem histórico recente" className="h-full" />
+              <EmptyState
+                title="Nenhuma ruptura registrada"
+                description="Importe um arquivo de Rupturas para começar."
+                className="h-full"
+              />
             )}
           </div>
         </div>
@@ -544,38 +516,40 @@ export const DashboardPage: React.FC = () => {
                   <div key={i} className="h-10 bg-slate-50 rounded animate-pulse" />
                 ))}
               </div>
-            ) : rupturasIndisponivel ? (
-              <div className="flex flex-col items-center justify-center text-center py-8 gap-2">
-                <Info className="w-6 h-6 text-slate-400" />
-                <p className="text-sm font-semibold text-slate-600">Módulo em desenvolvimento</p>
-                <p className="text-xs text-slate-500 max-w-xs">{RUPTURAS_MENSAGEM}</p>
-              </div>
             ) : activeRupturas.length === 0 ? (
-              <EmptyState title="Nenhuma ruptura ativa" className="py-6" />
+              <EmptyState
+                title="Nenhuma ruptura registrada"
+                description="Importe um arquivo para começar"
+                className="py-6"
+              />
             ) : (
               <div className="divide-y divide-slate-100">
                 {activeRupturas.map((r) => (
-                  <div key={r.id} className="py-2.5 flex items-center justify-between text-xs">
+                  <div
+                    key={r.id || r.operational_key}
+                    onClick={() => navigate('/rupturas')}
+                    className="py-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
+                  >
                     <div>
-                      <p className="font-semibold text-slate-900">{r.product}</p>
+                      <p className="font-semibold text-slate-900">{r.produto}</p>
                       <p className="text-[11px] text-slate-400">
-                        {r.category} • Fornec: {r.supplier || '—'}
+                        {r.nome_loja ? `Loja: ${r.nome_loja}` : r.categoria} • {r.motivo}
                       </p>
                     </div>
                     <div className="text-right">
                       <StatusBadge
                         variant={
-                          r.status === 'Crítico'
-                            ? 'critico'
-                            : r.status === 'Em Ruptura'
-                              ? 'em-ruptura'
-                              : 'reposicao-prevista'
+                          r.situacao_atual === 'Ativo'
+                            ? r.dias_em_ruptura > 5
+                              ? 'critico'
+                              : 'em-ruptura'
+                            : 'reposicao-prevista'
                         }
                       >
-                        {r.status}
+                        {r.situacao_atual}
                       </StatusBadge>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Sem estoque: {r.diasSemEstoque}d
+                        {r.dias_em_ruptura} {r.dias_em_ruptura === 1 ? 'dia' : 'dias'} em ruptura
                       </p>
                     </div>
                   </div>

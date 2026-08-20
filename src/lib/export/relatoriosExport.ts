@@ -244,6 +244,73 @@ export function relatorioFileName(): string {
  * @param filters  mesmos filtros ativos na tela de Validades (opcional)
  * @returns número de linhas exportadas (para feedback no toast)
  */
+export const RUPTURAS_COLUMNS = [
+  'LOJA',
+  'PRODUTO',
+  'MOTIVO',
+  'CLIENTE',
+  'DATA VISITA',
+  'DIAS EM RUPTURA',
+  'STATUS',
+  'COLABORADOR',
+] as const
+
+export async function exportarRelatorioRupturas(
+  filters?: import('@/types').RupturasFilters,
+): Promise<number> {
+  let records: import('@/types').Ruptura[] = []
+  try {
+    const raw = await pb.collection('rupturas_base').getFullList({
+      sort: '-data_visita',
+      filter: 'is_base_atual = true',
+    })
+    const { toRuptura, applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+    const mapped = raw.map((r) => toRuptura(r as unknown as Record<string, unknown>))
+    records = applyRupturasFilters(mapped, filters)
+  } catch (err) {
+    console.error('[relatoriosExport] Falha ao carregar rupturas_base:', err)
+  }
+
+  const rows: Array<Record<string, string | number>> = records.map((it) => {
+    const lojaStr =
+      it.codigo_loja && it.nome_loja
+        ? `${it.codigo_loja} • ${it.nome_loja}`
+        : it.nome_loja || it.codigo_loja || '—'
+    return {
+      LOJA: lojaStr,
+      PRODUTO: it.produto,
+      MOTIVO: it.motivo,
+      CLIENTE: it.cliente || it.nome_loja || '—',
+      'DATA VISITA': fmtDate(it.data_visita),
+      'DIAS EM RUPTURA': it.dias_em_ruptura,
+      STATUS: it.situacao_atual,
+      COLABORADOR: it.colaborador || '—',
+    }
+  })
+
+  const aoa: (string | number)[][] = [RUPTURAS_COLUMNS.slice()]
+  for (const row of rows) {
+    aoa.push(RUPTURAS_COLUMNS.map((col) => row[col] as string | number))
+  }
+
+  const worksheet = XLSX.utils.aoa_to_sheet(aoa)
+  worksheet['!cols'] = RUPTURAS_COLUMNS.map((col) => {
+    const maxLen = Math.max(col.length, ...rows.map((r) => String(r[col] ?? '').length))
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 60) }
+  })
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rupturas')
+
+  const now = new Date()
+  const dd = String(now.getDate()).padStart(2, '0')
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const yyyy = now.getFullYear()
+  XLSX.writeFile(workbook, `Relatório_Rupturas_${dd}-${mm}-${yyyy}.xlsx`)
+
+  return rows.length
+}
+
 export async function exportarRelatorioValidades(filters?: ValidadesFilter): Promise<number> {
   const items = await fetchValidadesForExport(filters)
 

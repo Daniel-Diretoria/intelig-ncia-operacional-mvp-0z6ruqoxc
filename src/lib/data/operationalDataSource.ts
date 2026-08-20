@@ -13,6 +13,8 @@ import type {
   RupturasKpis,
 } from '@/types'
 
+import type { Ruptura, RupturasFilters } from '@/types'
+
 export interface IOperationalDataSource {
   getKpis(): Promise<{
     summary: KpiSummary
@@ -21,6 +23,7 @@ export interface IOperationalDataSource {
   }>
   listValidades(filters?: ValidadesFilter): Promise<ValidadeItem[]>
   listRupturas(filters?: RupturasFilter): Promise<RupturaItem[]>
+  listRupturasDomain?(filters?: RupturasFilters): Promise<Ruptura[]>
   /** KPIs consolidados do módulo de Rupturas (total ativas, por motivo, tops). */
   getRupturasKpis(): Promise<RupturasKpis>
   listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]>

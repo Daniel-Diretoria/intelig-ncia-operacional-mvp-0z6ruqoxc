@@ -39,6 +39,10 @@ export interface Ruptura {
   data_entrada: string
   /** ISO YYYY-MM-DD — data da última aparição da ocorrência. */
   ultima_aparicao: string
+  /** ISO YYYY-MM-DD — data da resolução/encerramento da ruptura (se resolvido). */
+  data_resolucao?: string
+  /** Dias calculados desde data_entrada/data_visita até hoje. */
+  dias_em_ruptura?: number
   situacao_atual: RupturaSituacao
   /** Chave: codigo_loja|produto|data_visita. */
   operational_key: string
@@ -81,6 +85,15 @@ export interface RupturasTendencia {
 export interface RupturasKpis {
   /** Total de rupturas ativas (is_base_atual = true, situacao_atual = 'Ativo'). */
   totalAtivas: number
+  total_ativas?: number
+  novas_no_periodo?: number
+  resolvidas?: number
+  total_geral?: number
+  por_motivo?: {
+    'Ruptura Total': number
+    'Sem Estoque Mínimo': number
+    'Estoque Virtual': number
+  }
   /** Contagem por motivo padronizado. */
   porMotivo: {
     'Ruptura Total': number

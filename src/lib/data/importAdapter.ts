@@ -147,11 +147,21 @@ export class ImportDataSource implements IOperationalDataSource {
   }
 
   async listRupturas(filters?: RupturasFilter): Promise<RupturaItem[]> {
-    return this.mockFallback.listRupturas(filters)
+    return DataSourceFactory.getProvider().listRupturas(filters)
+  }
+
+  async listRupturasDomain(
+    filters?: import('@/types').RupturasFilters,
+  ): Promise<import('@/types').Ruptura[]> {
+    const provider = DataSourceFactory.getProvider()
+    if (provider.listRupturasDomain) {
+      return provider.listRupturasDomain(filters)
+    }
+    return []
   }
 
   async getRupturasKpis(): Promise<RupturasKpis> {
-    return this.mockFallback.getRupturasKpis()
+    return DataSourceFactory.getProvider().getRupturasKpis()
   }
 
   async listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]> {
@@ -385,6 +395,12 @@ export class ImportDataSource implements IOperationalDataSource {
               },
             ],
           }
+        }
+
+        case 'rupturas-por-loja':
+        case 'rupturas-por-motivo': {
+          const provider = DataSourceFactory.getProvider()
+          return provider.getReportData(reportType)
         }
 
         default:

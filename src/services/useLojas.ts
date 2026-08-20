@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import pb from '@/lib/pocketbase/client'
-import type { StatusOperacional, ValidadeItem } from '@/types'
+import type { StatusOperacional, ValidadeItem, Ruptura } from '@/types'
 import { classificarCriticidade } from '@/lib/data/criticidade'
+import { toRuptura } from '@/lib/pipeline/rupturasPipeline'
 
 export interface StoreEntity {
   storeId: string
@@ -20,6 +21,9 @@ export interface StoreEntity {
   totalProdutos: number
   totalQuantidade: number
   statusMaisCritico: StatusOperacional | 'Normal'
+  // Rupturas da loja
+  totalRupturasAtivas: number
+  rupturas: Ruptura[]
   // Itens em risco da loja (dias > 0)
   itemsAtivos: ValidadeItem[]
   // Itens em auditoria da loja (dias <= 0)
@@ -53,11 +57,20 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
     setIsLoading(true)
     setError(null)
     try {
-      // Busca todas as ocorrências de validades_base (Base Atual)
-      const records = await pb.collection('validades_base').getFullList({
-        filter: 'is_base_atual = true',
-        sort: 'validade_efetiva',
-      })
+      // Busca todas as ocorrências de validades_base e rupturas_base (Base Atual)
+      const [records, rupturasRecords] = await Promise.all([
+        pb.collection('validades_base').getFullList({
+          filter: 'is_base_atual = true',
+          sort: 'validade_efetiva',
+        }),
+        pb
+          .collection('rupturas_base')
+          .getFullList({
+            filter: 'is_base_atual = true',
+            sort: '-data_visita',
+          })
+          .catch(() => []),
+      ])
 
       // Agrupa por Loja (usando codigo_loja e/ou nome_loja)
       const storeMap = new Map<
@@ -75,6 +88,7 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
           totalQtd: number
           itemsAtivos: ValidadeItem[]
           itemsAuditoria: ValidadeItem[]
+          rupturas: Ruptura[]
         }
       >()
 
@@ -119,6 +133,7 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
             totalQtd: 0,
             itemsAtivos: [],
             itemsAuditoria: [],
+            rupturas: [],
           })
         }
 
@@ -163,6 +178,40 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         }
       }
 
+      // Adiciona rupturas às lojas
+      for (const rec of rupturasRecords) {
+        const r = rec as unknown as Record<string, unknown>
+        let storeCode = ((r.codigo_loja as string) || '').trim()
+        let storeName = ((r.nome_loja as string) || '').trim()
+        if (storeCode && !isNaN(Number(storeCode))) {
+          storeCode = storeCode.padStart(3, '0')
+        }
+        const key = storeCode ? `${storeCode}-${storeName}` : storeName
+        if (!key) continue
+
+        if (!storeMap.has(key)) {
+          storeMap.set(key, {
+            storeCode: storeCode || '000',
+            storeName: storeName || 'LOJA DESCONHECIDA',
+            networkName: 'Grupo Pereira',
+            razaoSocial: storeName,
+            city: ((r.cidade as string) || '').trim(),
+            state: ((r.estado as string) || '').trim(),
+            cnpj: ((r.cnpj_loja as string) || '').trim(),
+            clientes: new Set(),
+            produtosAtivos: new Set(),
+            totalQtd: 0,
+            itemsAtivos: [],
+            itemsAuditoria: [],
+            rupturas: [],
+          })
+        }
+
+        const group = storeMap.get(key)!
+        const rup = toRuptura(r)
+        group.rupturas.push(rup)
+      }
+
       // Converte mapa para StoreEntity[]
       const list: StoreEntity[] = Array.from(storeMap.entries()).map(([key, g]) => {
         // Calcula status mais crítico dos itens ATIVOS (Vencidos não contam no status operacional da loja)
@@ -200,6 +249,8 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
           totalProdutos: g.produtosAtivos.size,
           totalQuantidade: g.totalQtd,
           statusMaisCritico,
+          totalRupturasAtivas: g.rupturas.filter((r) => r.situacao_atual === 'Ativo').length,
+          rupturas: g.rupturas,
           itemsAtivos: g.itemsAtivos.sort((a, b) => a.diasRestantes - b.diasRestantes),
           itemsAuditoria: g.itemsAuditoria.sort((a, b) => a.diasRestantes - b.diasRestantes),
         }

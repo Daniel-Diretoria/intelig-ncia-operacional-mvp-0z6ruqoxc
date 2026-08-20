@@ -326,13 +326,11 @@ export class TradeProApiAdapter implements IOperationalDataSource {
     try {
       const base = await this.fetchRupturasBase()
       if (base.length === 0) {
-        // Sem rupturas importadas → fallback mock (mantém a UI populada)
-        return this.mockFallback.listRupturas(filters)
+        return []
       }
 
       const items = base.map((r) => this.toRupturaItem(r))
 
-      // Filtros compatíveis com a UI de Rupturas (search/category/status)
       let filtered = items
       if (filters?.search) {
         const q = filters.search.trim().toLowerCase()
@@ -353,7 +351,22 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       return filtered
     } catch (err) {
       console.error('[TradeProApiAdapter] Falha ao listar rupturas:', err)
-      return this.mockFallback.listRupturas(filters)
+      return []
+    }
+  }
+
+  /**
+   * Retorna os registros brutos do modelo de domínio Ruptura da Base Atual,
+   * aplicando filtros de Rupturas.
+   */
+  async listRupturasDomain(filters?: import('@/types').RupturasFilters): Promise<Ruptura[]> {
+    try {
+      const base = await this.fetchRupturasBase()
+      const { applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+      return applyRupturasFilters(base, filters)
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao listar rupturas de domínio:', err)
+      return []
     }
   }
 
@@ -464,7 +477,35 @@ export class TradeProApiAdapter implements IOperationalDataSource {
   async getReportData(
     reportType: import('@/types').ReportType,
   ): Promise<import('@/types').ReportData> {
-    return this.mockFallback.getReportData(reportType)
+    try {
+      const items = await this.listValidades()
+      const rupturas = await this.listRupturasDomain()
+      const {
+        buildResumoValidadesReport,
+        buildValidadesPorLojaReport,
+        buildTendenciaVencimentoReport,
+        buildRupturasPorLojaReport,
+        buildRupturasPorMotivoReport,
+      } = await import('./reports')
+
+      switch (reportType) {
+        case 'validades-por-categoria':
+          return buildResumoValidadesReport(items)
+        case 'validades-proximas-vencer':
+          return buildTendenciaVencimentoReport(items)
+        case 'rupturas-por-loja':
+        case 'top-rupturas-por-produto':
+          return buildRupturasPorLojaReport(rupturas)
+        case 'rupturas-por-motivo':
+        case 'rupturas-por-periodo':
+          return buildRupturasPorMotivoReport(rupturas)
+        default:
+          return buildValidadesPorLojaReport(items)
+      }
+    } catch (err) {
+      console.error('[TradeProApiAdapter] Falha ao gerar relatório:', err)
+      return this.mockFallback.getReportData(reportType)
+    }
   }
 }
 

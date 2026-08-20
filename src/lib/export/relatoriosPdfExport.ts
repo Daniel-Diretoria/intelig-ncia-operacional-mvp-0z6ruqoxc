@@ -422,6 +422,167 @@ export function relatorioPdfFileName(): string {
  * seguindo o layout da Massas D'Itália.
  * @returns número de ocorrências incluídas no PDF.
  */
+export async function exportarRelatorioRupturasPdf(
+  filters?: import('@/types').RupturasFilters,
+): Promise<number> {
+  let records: import('@/types').Ruptura[] = []
+  try {
+    const raw = await pb.collection('rupturas_base').getFullList({
+      sort: '-data_visita',
+      filter: 'is_base_atual = true',
+    })
+    const { toRuptura, applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+    const mapped = raw.map((r) => toRuptura(r as unknown as Record<string, unknown>))
+    records = applyRupturasFilters(mapped, filters)
+  } catch (err) {
+    console.error('[relatoriosPdfExport] Falha ao carregar rupturas_base:', err)
+  }
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+
+  // Cabeçalho
+  doc.setFillColor(COLOR_PRIMARY[0], COLOR_PRIMARY[1], COLOR_PRIMARY[2])
+  doc.rect(0, 0, pageWidth, 30, 'F')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(20)
+  doc.setTextColor(255, 255, 255)
+  doc.text('RELATÓRIO DE RUPTURAS', pageWidth / 2, 15, { align: 'center' })
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(224, 231, 255)
+  doc.text('Controle de Desabastecimento no PDV · Diretoria Promoções', pageWidth / 2, 23, {
+    align: 'center',
+  })
+
+  const hoje = new Date().toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(COLOR_SLATE_500[0], COLOR_SLATE_500[1], COLOR_SLATE_500[2])
+  doc.text(`Gerado em ${hoje}`, pageWidth - 14, 38, { align: 'right' })
+
+  const totalAtivas = records.filter((r) => r.situacao_atual === 'Ativo').length
+  const totalResolvidas = records.filter((r) => r.situacao_atual === 'Resolvido').length
+  const totalRupturaTotal = records.filter((r) => r.motivo === 'Ruptura Total').length
+  const totalVirtual = records.filter((r) => r.motivo === 'Estoque Virtual').length
+
+  const cardY = 44
+  const cardH = 18
+  const cardGap = 3
+  const cardW = (pageWidth - 28 - cardGap * 3) / 4
+
+  drawKpiCard(doc, 14, cardY, cardW, cardH, 'Rupturas Ativas', totalAtivas, COLOR_RED)
+  drawKpiCard(
+    doc,
+    14 + (cardW + cardGap),
+    cardY,
+    cardW,
+    cardH,
+    'Ruptura Total',
+    totalRupturaTotal,
+    COLOR_ORANGE,
+  )
+  drawKpiCard(
+    doc,
+    14 + (cardW + cardGap) * 2,
+    cardY,
+    cardW,
+    cardH,
+    'Estoque Virtual',
+    totalVirtual,
+    COLOR_AMBER,
+  )
+  drawKpiCard(
+    doc,
+    14 + (cardW + cardGap) * 3,
+    cardY,
+    cardW,
+    cardH,
+    'Resolvidas',
+    totalResolvidas,
+    COLOR_GREEN,
+  )
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(COLOR_SLATE_900[0], COLOR_SLATE_900[1], COLOR_SLATE_900[2])
+  doc.text('OCORRÊNCIAS DE RUPTURA', 14, cardY + cardH + 8)
+
+  const body = records.map((it) => {
+    const lojaStr =
+      it.codigo_loja && it.nome_loja
+        ? `${it.codigo_loja} • ${it.nome_loja}`
+        : it.nome_loja || it.codigo_loja || '—'
+    return [
+      it.produto,
+      lojaStr,
+      it.motivo,
+      fmtDate(it.data_visita),
+      `${it.dias_em_ruptura}d`,
+      it.situacao_atual,
+    ]
+  })
+
+  autoTable(doc, {
+    startY: cardY + cardH + 10,
+    head: [['PRODUTO', 'LOJA', 'MOTIVO', 'DATA VISITA', 'DIAS', 'STATUS']],
+    body,
+    theme: 'grid',
+    margin: { left: 14, right: 14 },
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.5,
+      cellPadding: 2,
+      lineColor: COLOR_SLATE_200,
+      lineWidth: 0.2,
+      textColor: COLOR_SLATE_700,
+    },
+    headStyles: {
+      fillColor: COLOR_SLATE_900,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+    },
+    columnStyles: {
+      0: { cellWidth: 56 },
+      1: { cellWidth: 52 },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 18, halign: 'center' },
+      4: { cellWidth: 12, halign: 'center' },
+      5: { cellWidth: 18, halign: 'center' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 5 && data.cell.text[0]) {
+        const isAtivo = data.cell.text[0] === 'Ativo'
+        data.cell.styles.fillColor = isAtivo ? COLOR_RED_BG : COLOR_GREEN_BG
+        data.cell.styles.textColor = isAtivo ? COLOR_RED : COLOR_GREEN
+        data.cell.styles.fontStyle = 'bold'
+      }
+    },
+  })
+
+  const pageCount = doc.internal.pages.length - 1
+  drawFooter(doc, pageWidth, pageHeight, pageCount)
+
+  const dd = String(new Date().getDate()).padStart(2, '0')
+  const mm = String(new Date().getMonth() + 1).padStart(2, '0')
+  const yyyy = new Date().getFullYear()
+  doc.save(`Relatório_Rupturas_${dd}-${mm}-${yyyy}.pdf`)
+
+  return records.length
+}
+
+export async function exportarRelatorioValidadesPdf(filters?: ValidadesFilter): Promise<number> {
+  return exportarRelatorioPdf(filters)
+}
+
 export async function exportarRelatorioPdf(filters?: ValidadesFilter): Promise<number> {
   const items = await fetchValidadesForExport(filters)
   const kpis = computeKpis(items)

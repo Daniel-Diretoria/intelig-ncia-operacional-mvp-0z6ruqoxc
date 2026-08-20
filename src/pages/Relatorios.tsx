@@ -54,27 +54,28 @@ const REPORT_CARDS: ReportCardItem[] = [
     badge: 'Validades',
   },
   {
-    type: 'rupturas-por-periodo',
-    title: 'Rupturas por Período',
-    description: 'Evolução cronológica de desabastecimento, reposições e tempo médio sem estoque.',
-    icon: TrendingDown,
-    badge: 'Rupturas',
-  },
-  {
-    type: 'top-rupturas-por-produto',
-    title: 'Top Rupturas por Produto',
-    description:
-      'Ranking de itens com maior número de dias sem estoque e avaliação de impacto por fornecedor.',
-    icon: Layers,
-    badge: 'Rupturas',
-  },
-  {
     type: 'validades-proximas-vencer',
     title: 'Validades Próximas a Vencer',
     description:
       'Lista prioritária de SKUs com validade inferior a 30 dias para ações promocionais imediatas.',
     icon: Clock,
     badge: 'Validades',
+  },
+  {
+    type: 'rupturas-por-loja',
+    title: 'Rupturas por Loja',
+    description:
+      'Consolidação das ocorrências de desabastecimento ativas e resolvidas por ponto de venda.',
+    icon: Store,
+    badge: 'Rupturas',
+  },
+  {
+    type: 'rupturas-por-motivo',
+    title: 'Rupturas por Motivo',
+    description:
+      'Distribuição dos desabastecimentos entre Ruptura Total, Sem Estoque Mínimo e Estoque Virtual.',
+    icon: Layers,
+    badge: 'Rupturas',
   },
 ]
 
@@ -144,17 +145,29 @@ export const RelatoriosPage: React.FC = () => {
   // Exportação real: carrega validades_base com os mesmos filtros ativos na tela
   // e gera/baixa um .xlsx no clique. Os filtros aplicados são repassados para
   // garantir que apenas as ocorrências filtradas sejam exportadas.
+  const isRupturasReport =
+    selectedReportType === 'rupturas-por-loja' || selectedReportType === 'rupturas-por-motivo'
+
   const handleExport = useCallback(async () => {
     setIsExporting(true)
     try {
-      const count = await exportarRelatorioValidades(effectiveFilter)
-      toast({
-        title: 'Exportação concluída',
-        description:
-          count > 0
-            ? `${count} ocorrência(s) exportada(s) para Excel.`
-            : 'Arquivo gerado com cabeçalhos (sem ocorrências para os filtros ativos).',
-      })
+      if (isRupturasReport) {
+        const { exportarRelatorioRupturas } = await import('@/lib/export/relatoriosExport')
+        const count = await exportarRelatorioRupturas()
+        toast({
+          title: 'Exportação de Rupturas concluída',
+          description: `${count} registro(s) de ruptura exportado(s) para Excel.`,
+        })
+      } else {
+        const count = await exportarRelatorioValidades(effectiveFilter)
+        toast({
+          title: 'Exportação concluída',
+          description:
+            count > 0
+              ? `${count} ocorrência(s) exportada(s) para Excel.`
+              : 'Arquivo gerado com cabeçalhos (sem ocorrências para os filtros ativos).',
+        })
+      }
     } catch (err) {
       toast({
         title: 'Falha ao exportar',
@@ -164,22 +177,28 @@ export const RelatoriosPage: React.FC = () => {
     } finally {
       setIsExporting(false)
     }
-  }, [effectiveFilter, toast])
+  }, [isRupturasReport, effectiveFilter, toast])
 
-  // Exportação PDF (layout Massas D'Itália): capa com KPIs + top 12 críticos,
-  // páginas por loja ordenadas por nº de críticos, rodapé em todas as páginas.
-  // Os filtros ativos são repassados para que o PDF reflita a visão filtrada.
   const handleExportPdf = useCallback(async () => {
     setIsExportingPdf(true)
     try {
-      const count = await exportarRelatorioPdf(effectiveFilter)
-      toast({
-        title: 'PDF gerado',
-        description:
-          count > 0
-            ? `${count} ocorrência(s) exportada(s) para PDF.`
-            : 'PDF gerado com estrutura (sem ocorrências para os filtros ativos).',
-      })
+      if (isRupturasReport) {
+        const { exportarRelatorioRupturasPdf } = await import('@/lib/export/relatoriosPdfExport')
+        const count = await exportarRelatorioRupturasPdf()
+        toast({
+          title: 'PDF de Rupturas gerado',
+          description: `${count} registro(s) de ruptura exportado(s) para PDF.`,
+        })
+      } else {
+        const count = await exportarRelatorioPdf(effectiveFilter)
+        toast({
+          title: 'PDF gerado',
+          description:
+            count > 0
+              ? `${count} ocorrência(s) exportada(s) para PDF.`
+              : 'PDF gerado com estrutura (sem ocorrências para os filtros ativos).',
+        })
+      }
     } catch (err) {
       toast({
         title: 'Falha ao gerar PDF',
@@ -189,7 +208,7 @@ export const RelatoriosPage: React.FC = () => {
     } finally {
       setIsExportingPdf(false)
     }
-  }, [effectiveFilter, toast])
+  }, [isRupturasReport, effectiveFilter, toast])
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-fade-in pb-12">

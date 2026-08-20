@@ -256,7 +256,8 @@ export const LojasPage: React.FC = () => {
                   <th className="py-3 px-4">Rede / Grupo</th>
                   <th className="py-3 px-4">Cidade / UF</th>
                   <th className="py-3 px-4 text-center">Clientes</th>
-                  <th className="py-3 px-4 text-center">Ocorrências Ativas</th>
+                  <th className="py-3 px-4 text-center">Validades Ativas</th>
+                  <th className="py-3 px-4 text-center">Rupturas Ativas</th>
                   <th className="py-3 px-4 text-center">Produtos</th>
                   <th className="py-3 px-4 text-right">Qtd Total</th>
                   <th className="py-3 px-4 text-center">Status Crítico</th>
@@ -313,6 +314,19 @@ export const LojasPage: React.FC = () => {
                           }
                         >
                           {store.totalOcorrenciasAtivas}
+                        </Badge>
+                      </td>
+
+                      <td className="py-3 px-4 text-center">
+                        <Badge
+                          variant="outline"
+                          className={
+                            store.totalRupturasAtivas > 0
+                              ? 'bg-red-50 text-red-700 border-red-200 font-bold'
+                              : 'bg-slate-50 text-slate-500 border-slate-200 font-medium'
+                          }
+                        >
+                          {store.totalRupturasAtivas}
                         </Badge>
                       </td>
 

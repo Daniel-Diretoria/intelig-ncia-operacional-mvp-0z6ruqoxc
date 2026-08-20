@@ -248,7 +248,7 @@ export function buildRupturaDedupKey(
 
 const JANELA_RUPTURAS_DIAS = 90
 
-export function filterLast90Days(rows: ParsedRupturaRow[]): ParsedRupturaRow[] {
+export function filterLast90Days<T extends { data_visita: string | null }>(rows: T[]): T[] {
   const hoje = dataAtualSaoPaulo()
   const limite = new Date(hoje + 'T00:00:00Z')
   limite.setUTCDate(limite.getUTCDate() - JANELA_RUPTURAS_DIAS)
@@ -265,8 +265,8 @@ export function filterLast90Days(rows: ParsedRupturaRow[]): ParsedRupturaRow[] {
  * Agrupa por `dedup_key` (codigo_loja|produto|cliente) e seleciona, em cada
  * grupo, a linha com a MAIOR `data_visita`. As demais são descartadas.
  */
-export function dedupRupturas(rows: ParsedRupturaRow[]): ParsedRupturaRow[] {
-  const grupos = new Map<string, ParsedRupturaRow[]>()
+export function dedupRupturas<T extends { nome_loja: string; produto: string; cliente: string; data_visita: string | null }>(rows: T[]): T[] {
+  const grupos = new Map<string, T[]>()
 
   for (const row of rows) {
     const codigo_loja = extractStoreCode(row.nome_loja)
@@ -276,7 +276,7 @@ export function dedupRupturas(rows: ParsedRupturaRow[]): ParsedRupturaRow[] {
     else grupos.set(dedup_key, [row])
   }
 
-  const selecionados: ParsedRupturaRow[] = []
+  const selecionados: T[] = []
   for (const regs of grupos.values()) {
     const ordenados = [...regs].sort((a, b) => {
       const da = a.data_visita ?? ''

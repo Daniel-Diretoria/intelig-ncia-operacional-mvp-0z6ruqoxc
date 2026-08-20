@@ -25,8 +25,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
 import { EmptyState } from '@/components/ui/empty-state'
-import type { ValidadeItem } from '@/types'
+import type { ValidadeItem, Ruptura } from '@/types'
 import { OccurrenceDetailModal } from '@/components/validades/OccurrenceDetailModal'
+import { RupturaDetailModal } from '@/components/rupturas/RupturaDetailModal'
 
 export const StoreDetailPage: React.FC = () => {
   const { storeId } = useParams<{ storeId: string }>()
@@ -35,6 +36,8 @@ export const StoreDetailPage: React.FC = () => {
 
   const [selectedOccurrence, setSelectedOccurrence] = useState<ValidadeItem | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [selectedRuptura, setSelectedRuptura] = useState<Ruptura | null>(null)
+  const [isRupturaModalOpen, setIsRupturaModalOpen] = useState(false)
 
   const store = getStoreById(storeId || '')
 
@@ -134,7 +137,7 @@ export const StoreDetailPage: React.FC = () => {
         </div>
 
         {/* Mini Métricas da Loja */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-100 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-4 border-t border-slate-100 text-xs">
           <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">Clientes Atendidos</span>
             <span className="text-base font-bold text-slate-900 mt-0.5 block">
@@ -143,14 +146,23 @@ export const StoreDetailPage: React.FC = () => {
           </div>
 
           <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
-            <span className="text-slate-500 font-medium text-[11px] block">Ocorrências Ativas</span>
+            <span className="text-slate-500 font-medium text-[11px] block">Validades Ativas</span>
             <span className="text-base font-bold text-amber-700 mt-0.5 block">
               {store.totalOcorrenciasAtivas}
             </span>
           </div>
 
           <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
-            <span className="text-slate-500 font-medium text-[11px] block">Produtos em Risco</span>
+            <span className="text-slate-500 font-medium text-[11px] block">Rupturas Ativas</span>
+            <span className="text-base font-bold text-red-700 mt-0.5 block">
+              {store.totalRupturasAtivas}
+            </span>
+          </div>
+
+          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+            <span className="text-slate-500 font-medium text-[11px] block">
+              Produtos Monitorados
+            </span>
             <span className="text-base font-bold text-slate-900 mt-0.5 block">
               {store.totalProdutos}
             </span>
@@ -167,10 +179,14 @@ export const StoreDetailPage: React.FC = () => {
 
       {/* Navegação por Abas Internas da Loja */}
       <Tabs defaultValue="validades" className="w-full">
-        <TabsList className="bg-white border border-slate-200 p-1 rounded-xl shadow-2xs mb-4 flex gap-1">
+        <TabsList className="bg-white border border-slate-200 p-1 rounded-xl shadow-2xs mb-4 flex gap-1 flex-wrap">
           <TabsTrigger value="validades" className="gap-2 text-xs font-semibold py-2 px-4">
             <CalendarCheck className="w-4 h-4 text-indigo-600" />
-            <span>Resumo e Produtos em Risco ({store.itemsAtivos.length})</span>
+            <span>Validades em Risco ({store.itemsAtivos.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="rupturas" className="gap-2 text-xs font-semibold py-2 px-4">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>Rupturas ({store.rupturas.length})</span>
           </TabsTrigger>
           <TabsTrigger value="auditoria" className="gap-2 text-xs font-semibold py-2 px-4">
             <ShieldAlert className="w-4 h-4 text-red-600" />
@@ -272,7 +288,111 @@ export const StoreDetailPage: React.FC = () => {
           </div>
         </TabsContent>
 
-        {/* ABA 2: Auditoria de Vencidos (Isolamento completo: dias <= 0) */}
+        {/* ABA 2: Rupturas da Loja */}
+        <TabsContent value="rupturas" className="space-y-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900">
+                Ocorrências de Ruptura registradas nesta loja ({store.rupturas.length})
+              </h3>
+              <span className="text-xs text-slate-500">
+                {store.totalRupturasAtivas} ativas •{' '}
+                {store.rupturas.length - store.totalRupturasAtivas} resolvidas
+              </span>
+            </div>
+
+            {store.rupturas.length === 0 ? (
+              <EmptyState
+                title="Nenhuma ruptura registrada nesta loja"
+                description="Não há registros de desabastecimento para este PDV."
+                className="py-8"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-3">Produto</th>
+                      <th className="py-2.5 px-3">Motivo</th>
+                      <th className="py-2.5 px-3">Cliente / Razão</th>
+                      <th className="py-2.5 px-3">Data Visita</th>
+                      <th className="py-2.5 px-3 text-center">Dias em Ruptura</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Colaborador</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {store.rupturas.map((rup) => {
+                      const isAtivo = rup.situacao_atual === 'Ativo'
+                      return (
+                        <tr
+                          key={rup.id || rup.operational_key}
+                          onClick={() => {
+                            setSelectedRuptura(rup)
+                            setIsRupturaModalOpen(true)
+                          }}
+                          className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                        >
+                          <td className="py-3 px-3 font-semibold text-slate-900">{rup.produto}</td>
+                          <td className="py-3 px-3">
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] font-medium bg-slate-100 text-slate-700"
+                            >
+                              {rup.motivo}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600">
+                            {rup.cliente || rup.nome_loja}
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 tabular-nums">
+                            {rup.data_visita
+                              ? new Date(
+                                  rup.data_visita.includes('T')
+                                    ? rup.data_visita
+                                    : rup.data_visita + 'T00:00:00',
+                                ).toLocaleDateString('pt-BR')
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-center font-bold">
+                            <span
+                              className={
+                                rup.dias_em_ruptura > 5
+                                  ? 'text-red-600 font-extrabold'
+                                  : rup.dias_em_ruptura > 2
+                                    ? 'text-amber-600'
+                                    : 'text-slate-700'
+                              }
+                            >
+                              {rup.dias_em_ruptura} {rup.dias_em_ruptura === 1 ? 'dia' : 'dias'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <Badge
+                              variant="outline"
+                              className={
+                                isAtivo
+                                  ? 'bg-red-50 text-red-700 border-red-200 font-semibold text-[11px]'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-[11px]'
+                              }
+                            >
+                              {isAtivo ? 'Ativo' : 'Resolvido'}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 text-[11px]">
+                            {rup.colaborador || '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ABA 3: Auditoria de Vencidos (Isolamento completo: dias <= 0) */}
         <TabsContent value="auditoria" className="space-y-4">
           <div className="bg-red-50/40 p-4 rounded-xl border border-red-200/80 flex items-start gap-3 text-xs">
             <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
@@ -425,6 +545,18 @@ export const StoreDetailPage: React.FC = () => {
           onClose={() => {
             setIsDetailModalOpen(false)
             setSelectedOccurrence(null)
+          }}
+        />
+      )}
+
+      {/* Modal de Detalhe da Ruptura */}
+      {selectedRuptura && (
+        <RupturaDetailModal
+          item={selectedRuptura}
+          isOpen={isRupturaModalOpen}
+          onClose={() => {
+            setIsRupturaModalOpen(false)
+            setSelectedRuptura(null)
           }}
         />
       )}

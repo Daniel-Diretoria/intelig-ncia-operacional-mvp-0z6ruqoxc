@@ -343,6 +343,8 @@ export type ReportType =
   | 'rupturas-por-periodo'
   | 'top-rupturas-por-produto'
   | 'validades-proximas-vencer'
+  | 'rupturas-por-loja'
+  | 'rupturas-por-motivo'
 
 export interface ReportData {
   /**

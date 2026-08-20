@@ -65,8 +65,15 @@ import {
   type PipelineResult,
   toRawRecord,
 } from '@/lib/data/tradeProPipeline'
+import {
+  parseRupturasExcel,
+  validateRupturasRows,
+  processRupturasImport,
+  type ParsedRupturaRow,
+} from '@/lib/pipeline/rupturasPipeline'
 import { useImportHistory } from '@/services'
-import type { ValidadeItem } from '@/types'
+import type { ValidadeItem, RupturasImportResult } from '@/types'
+import pb from '@/lib/pocketbase/client'
 
 interface FileInfo {
   name: string
@@ -75,6 +82,7 @@ interface FileInfo {
   hash?: string
 }
 
+type ImportType = 'validades' | 'rupturas'
 type Stage = 'idle' | 'parsed' | 'validated' | 'importing' | 'done'
 
 const fmtBytes = (bytes: number): string => {
@@ -143,17 +151,22 @@ export const ImportacaoPage: React.FC = () => {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [importType, setImportType] = useState<ImportType>('validades')
   const [stage, setStage] = useState<Stage>('idle')
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
-  const [rupturaDetected, setRupturaDetected] = useState(false)
 
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([])
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([])
   const [sheetName, setSheetName] = useState<string>('')
   const [dataArquivo, setDataArquivo] = useState<string | undefined>(undefined)
   const [mapping, setMapping] = useState<ColumnMapping>({})
+
+  // Rupturas
+  const [rupturasRows, setRupturasRows] = useState<ParsedRupturaRow[]>([])
+  const [rupturasResult, setRupturasResult] = useState<RupturasImportResult | null>(null)
 
   const [validationReport, setValidationReport] = useState<DatasetValidationReport | null>(null)
   const [mappedItems, setMappedItems] = useState<ValidadeItem[]>([])
@@ -188,14 +201,17 @@ export const ImportacaoPage: React.FC = () => {
 
   const reset = useCallback(() => {
     setStage('idle')
+    setSelectedFile(null)
+    setImportType('validades')
     setFileInfo(null)
     setParseError(null)
-    setRupturaDetected(false)
     setDetectedHeaders([])
     setRawRows([])
     setSheetName('')
     setDataArquivo(undefined)
     setMapping({})
+    setRupturasRows([])
+    setRupturasResult(null)
     setValidationReport(null)
     setMappedItems([])
     setImportProgress(0)
@@ -210,30 +226,38 @@ export const ImportacaoPage: React.FC = () => {
     async (file: File) => {
       setIsParsing(true)
       setParseError(null)
-      setRupturaDetected(false)
       setDuplicateHash(null)
       setForceReprocess(false)
+      setSelectedFile(file)
       try {
-        const parsed = await parseExcelFile(file)
+        const hash = await calcularHashArquivo(file)
+        const isRupByName = file.name.toLowerCase().includes('ruptura')
 
-        // Passo 1-2: identificar tipo do arquivo e confirmar Validades
-        const isRup = detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
-        if (isRup) {
-          setRupturaDetected(true)
-          setParseError(
-            'Este arquivo foi identificado como uma exportação de Rupturas. Utilize o importador correspondente.',
-          )
-          setStage('idle')
-          return
+        let parsed: Awaited<ReturnType<typeof parseExcelFile>> | null = null
+        let rupRows: ParsedRupturaRow[] | null = null
+        let isRup = isRupByName
+
+        if (isRupByName) {
+          rupRows = await parseRupturasExcel(file)
+          isRup = true
+        } else {
+          try {
+            parsed = await parseExcelFile(file)
+            isRup = detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
+            if (isRup) {
+              rupRows = await parseRupturasExcel(file)
+            }
+          } catch (err) {
+            // Se falhar ao ler como Validades, tenta ler como Rupturas
+            try {
+              rupRows = await parseRupturasExcel(file)
+              isRup = true
+            } catch {
+              throw err
+            }
+          }
         }
 
-        setDetectedHeaders(parsed.headers)
-        setRawRows(parsed.rows)
-        setSheetName(parsed.sheetName)
-        setDataArquivo(parsed.dataArquivo)
-
-        // Calcula hash para proteção contra reenvio
-        const hash = await calcularHashArquivo(file)
         setFileInfo({
           name: file.name,
           size: file.size,
@@ -241,27 +265,92 @@ export const ImportacaoPage: React.FC = () => {
           hash,
         })
 
-        // Verifica reenvio
-        const dupCheck = await checkFileHash(hash)
-        if (dupCheck.duplicate) {
-          setDuplicateHash({
-            hash,
-            importId: dupCheck.importId,
-            created: dupCheck.created,
+        if (isRup && rupRows) {
+          // Processamento como Rupturas
+          setImportType('rupturas')
+          setRupturasRows(rupRows)
+          const headersList = [
+            'Data Visita',
+            'Atividade',
+            'Motivo',
+            'Razão Social',
+            'CNPJ',
+            'Cidade',
+            'Estado',
+            'Cód. Cliente',
+            'Cliente',
+            'Categoria',
+            'Observação',
+            'Colaborador',
+          ]
+          setDetectedHeaders(parsed?.headers || headersList)
+          setSheetName(parsed?.sheetName || 'Rupturas')
+          setRawRows(parsed?.rows || (rupRows as unknown as Record<string, unknown>[]))
+
+          // Verifica duplicação no PocketBase para rupturas
+          try {
+            const existing = await pb
+              .collection('rupturas_imports')
+              .getFirstListItem(`file_hash="${hash}"`)
+            if (existing) {
+              setDuplicateHash({
+                hash,
+                importId: existing.id,
+                created: (existing.created as string) || (existing.created_at as string) || '',
+              })
+            }
+          } catch {
+            // sem duplicação
+          }
+
+          const { valid, invalid } = validateRupturasRows(rupRows)
+          const report: DatasetValidationReport = {
+            totalRows: rupRows.length,
+            validRows: valid.length,
+            invalidRows: invalid.length,
+            warningRows: 0,
+            issues: invalid.map((inv) => ({
+              rowIndex: inv.row.source_row - 2,
+              severity: 'error',
+              message: inv.motivo,
+            })),
+            duplicates: [],
+          }
+          setValidationReport(report)
+          setStage('validated')
+          toast({
+            title: 'Arquivo de Rupturas detectado',
+            description: `${rupRows.length} linhas lidas da aba "${parsed?.sheetName || 'Rupturas'}".`,
+          })
+        } else if (parsed) {
+          // Processamento como Validades
+          setImportType('validades')
+          setDetectedHeaders(parsed.headers)
+          setRawRows(parsed.rows)
+          setSheetName(parsed.sheetName)
+          setDataArquivo(parsed.dataArquivo)
+
+          const dupCheck = await checkFileHash(hash)
+          if (dupCheck.duplicate) {
+            setDuplicateHash({
+              hash,
+              importId: dupCheck.importId,
+              created: dupCheck.created,
+            })
+          }
+
+          const suggested = suggestMapping(parsed.headers)
+          setMapping(suggested)
+          setStage('parsed')
+          setValidationReport(null)
+          setMappedItems([])
+          toast({
+            title: 'Arquivo de Validades carregado',
+            description: `${parsed.rows.length} linhas detectadas em "${parsed.sheetName}"${
+              parsed.dataArquivo ? ` • Data Arquivo: ${parsed.dataArquivo}` : ''
+            }.`,
           })
         }
-
-        const suggested = suggestMapping(parsed.headers)
-        setMapping(suggested)
-        setStage('parsed')
-        setValidationReport(null)
-        setMappedItems([])
-        toast({
-          title: 'Arquivo carregado',
-          description: `${parsed.rows.length} linhas detectadas em "${parsed.sheetName}"${
-            parsed.dataArquivo ? ` • Data Arquivo: ${parsed.dataArquivo}` : ''
-          }.`,
-        })
       } catch (err) {
         setParseError(err instanceof Error ? err.message : 'Falha ao ler o arquivo.')
         setStage('idle')
@@ -312,8 +401,6 @@ export const ImportacaoPage: React.FC = () => {
     setStage('importing')
     setImportProgress(5)
 
-    const { valid } = filterValidItems(mappedItems, validationReport)
-
     // progresso simulado em etapas para feedback visual
     setImportProgress(20)
     const tick = setInterval(() => {
@@ -321,86 +408,121 @@ export const ImportacaoPage: React.FC = () => {
     }, 250)
 
     try {
-      // Executa o pipeline TradePro completo (30 passos)
-      const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
-      const pipeline = executarPipeline({
-        rawRecords: rawRows,
-        mapping,
-        fileName: fileInfo.name,
-        dataArquivo,
-        importId: undefined,
-      })
-      setPipelineResult(pipeline)
-      setImportProgress(70)
+      if (importType === 'rupturas') {
+        // Pipeline de Rupturas
+        if (!selectedFile) throw new Error('Arquivo não encontrado para processar rupturas.')
+        const rupRes = await processRupturasImport(selectedFile, 'tenant-default')
+        clearInterval(tick)
+        setImportProgress(100)
+        setRupturasResult(rupRes)
 
-      // Envia para o backend persistir (validades_raw + validades_base + import_history)
-      const result = await submitProcessValidades({
-        fileName: fileInfo.name,
-        fileSize: fileInfo.size,
-        fileHash: fileInfo.hash || '',
-        arquivoTipo: 'validades',
-        dataArquivo,
-        force: forceReprocess,
-        rawRecords: rawTradePro,
-        baseAtual: pipeline.baseAtual,
-        summary: {
-          totalBrutos: pipeline.summary.totalBrutos,
-          validos: pipeline.summary.validos,
-          rejeitados: pipeline.summary.rejeitados,
-          filtrados90Dias: pipeline.summary.filtrados90Dias,
-          consolidados: pipeline.summary.consolidados,
-          baseAtual: pipeline.summary.baseAtual,
-          maiorDataArquivo: pipeline.summary.maiorDataArquivo,
-        },
-      })
-
-      clearInterval(tick)
-      setImportProgress(100)
-
-      if (result.success) {
-        setImportResult({
-          imported: result.importedRows,
-          skipped: result.skippedRows,
-          errors: result.errorRows,
-        })
-        setStage('done')
-        setResultModalOpen(true)
-        refetchHistory()
-        // Importante: resetar o provider (cache de instância) para que a próxima
-        // leitura (Validades, KPIs, etc.) busque dados frescos do backend já com
-        // os registros recém-persistidos. Um pequeno atraso garante que a
-        // transação do backend tenha commitado antes do refetch global.
-        import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
-          DataSourceFactory.reset()
-          window.dispatchEvent(new Event('diretoria:refresh'))
-          // Segundo disparo após 600ms para garantir que componentes remontados
-          // (ao navegar entre abas) também recebam o refresh.
-          setTimeout(() => {
+        if (rupRes.status === 'Concluída' || rupRes.status === 'Concluída com rejeições') {
+          setImportResult({
+            imported: rupRes.total_occurrences_generated,
+            skipped: rupRes.total_rows_read - rupRes.total_occurrences_generated,
+            errors: rupRes.total_rows_invalid,
+          })
+          setStage('done')
+          setResultModalOpen(true)
+          refetchHistory()
+          import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
             DataSourceFactory.reset()
             window.dispatchEvent(new Event('diretoria:refresh'))
-          }, 600)
-        })
-      } else if (result.duplicate) {
-        toast({
-          title: 'Arquivo já importado',
-          description:
-            result.message ||
-            'Este arquivo já foi processado anteriormente. Marque "Reprocessar" para substituir.',
-          variant: 'destructive',
-        })
-        setDuplicateHash({
-          hash: fileInfo.hash || '',
-          importId: result.previousImportId,
-          created: result.previousDate,
-        })
-        setStage('validated')
+            setTimeout(() => {
+              DataSourceFactory.reset()
+              window.dispatchEvent(new Event('diretoria:refresh'))
+            }, 600)
+          })
+        } else if (rupRes.status === 'Cancelada') {
+          toast({
+            title: 'Arquivo já importado',
+            description: rupRes.error_message || 'Arquivo duplicado detectado.',
+            variant: 'destructive',
+          })
+          setStage('validated')
+        } else {
+          toast({
+            title: 'Falha no processamento de Rupturas',
+            description: rupRes.error_message || 'Erro ao processar arquivo de Rupturas.',
+            variant: 'destructive',
+          })
+          setStage('validated')
+        }
       } else {
-        toast({
-          title: 'Falha no processamento',
-          description: result.error || 'Não foi possível concluir o processamento.',
-          variant: 'destructive',
+        // Pipeline de Validades (TradePro)
+        const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
+        const pipeline = executarPipeline({
+          rawRecords: rawRows,
+          mapping,
+          fileName: fileInfo.name,
+          dataArquivo,
+          importId: undefined,
         })
-        setStage('validated')
+        setPipelineResult(pipeline)
+        setImportProgress(70)
+
+        const result = await submitProcessValidades({
+          fileName: fileInfo.name,
+          fileSize: fileInfo.size,
+          fileHash: fileInfo.hash || '',
+          arquivoTipo: 'validades',
+          dataArquivo,
+          force: forceReprocess,
+          rawRecords: rawTradePro,
+          baseAtual: pipeline.baseAtual,
+          summary: {
+            totalBrutos: pipeline.summary.totalBrutos,
+            validos: pipeline.summary.validos,
+            rejeitados: pipeline.summary.rejeitados,
+            filtrados90Dias: pipeline.summary.filtrados90Dias,
+            consolidados: pipeline.summary.consolidados,
+            baseAtual: pipeline.summary.baseAtual,
+            maiorDataArquivo: pipeline.summary.maiorDataArquivo,
+          },
+        })
+
+        clearInterval(tick)
+        setImportProgress(100)
+
+        if (result.success) {
+          setImportResult({
+            imported: result.importedRows,
+            skipped: result.skippedRows,
+            errors: result.errorRows,
+          })
+          setStage('done')
+          setResultModalOpen(true)
+          refetchHistory()
+          import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
+            DataSourceFactory.reset()
+            window.dispatchEvent(new Event('diretoria:refresh'))
+            setTimeout(() => {
+              DataSourceFactory.reset()
+              window.dispatchEvent(new Event('diretoria:refresh'))
+            }, 600)
+          })
+        } else if (result.duplicate) {
+          toast({
+            title: 'Arquivo já importado',
+            description:
+              result.message ||
+              'Este arquivo já foi processado anteriormente. Marque "Reprocessar" para substituir.',
+            variant: 'destructive',
+          })
+          setDuplicateHash({
+            hash: fileInfo.hash || '',
+            importId: result.previousImportId,
+            created: result.previousDate,
+          })
+          setStage('validated')
+        } else {
+          toast({
+            title: 'Falha no processamento',
+            description: result.error || 'Não foi possível concluir o processamento.',
+            variant: 'destructive',
+          })
+          setStage('validated')
+        }
       }
     } catch (err) {
       clearInterval(tick)
@@ -414,7 +536,8 @@ export const ImportacaoPage: React.FC = () => {
   }, [
     validationReport,
     fileInfo,
-    mappedItems,
+    importType,
+    selectedFile,
     rawRows,
     mapping,
     dataArquivo,
@@ -423,12 +546,13 @@ export const ImportacaoPage: React.FC = () => {
     refetchHistory,
   ])
 
-  const canValidate = structure.isStructureValid && stage === 'parsed' && !rupturaDetected
+  const canValidate =
+    (importType === 'validades' && structure.isStructureValid && stage === 'parsed') ||
+    (importType === 'rupturas' && stage === 'validated')
   const canImport =
     (stage === 'validated' || stage === 'importing') &&
     !!validationReport &&
-    validationReport.validRows > 0 &&
-    !rupturaDetected
+    validationReport.validRows > 0
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -437,8 +561,7 @@ export const ImportacaoPage: React.FC = () => {
         <div>
           <h3 className="text-xl font-bold text-slate-900 tracking-tight">Importação de Dados</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Carregue a exportação do TradePro (aba “Pesquisa Validade”) para alimentar o módulo de
-            Validades.
+            Carregue a exportação do TradePro (Validades ou Rupturas) para alimentar a Base Atual.
           </p>
         </div>
         {stage !== 'idle' && (
@@ -489,13 +612,11 @@ export const ImportacaoPage: React.FC = () => {
         })}
       </div>
 
-      {/* Erro de leitura / Ruptura detectada */}
+      {/* Erro de leitura */}
       {parseError && (
         <AlertBanner
-          type={rupturaDetected ? 'error' : 'error'}
-          title={
-            rupturaDetected ? 'Arquivo de Rupturas detectado' : 'Não foi possível ler o arquivo'
-          }
+          type="error"
+          title="Não foi possível ler o arquivo"
           message={parseError}
           onRetry={reset}
           retryLabel="Tentar outro arquivo"
@@ -553,11 +674,14 @@ export const ImportacaoPage: React.FC = () => {
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-900">
-                {isParsing ? 'Lendo arquivo...' : 'Arraste um arquivo Excel do TradePro aqui'}
+                {isParsing
+                  ? 'Lendo arquivo...'
+                  : 'Arraste um arquivo Excel do TradePro (Validades ou Rupturas) aqui'}
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                Padrão: <code className="text-indigo-600">Validade_YYYY_MM_DD.xlsx</code> • aba
-                “Pesquisa Validade”
+                Suporta exportações de <code className="text-indigo-600">Validades</code> (aba
+                “Pesquisa Validade”) ou <code className="text-amber-600">Rupturas</code> (aba
+                “Rupturas”).
               </p>
             </div>
             <Button
@@ -623,82 +747,100 @@ export const ImportacaoPage: React.FC = () => {
             />
           )}
 
-          {/* Mapeamento de colunas */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Table2 className="w-4 h-4 text-indigo-600" />
-                <h4 className="text-sm font-bold text-slate-900">
-                  Mapeamento de colunas (TradePro)
-                </h4>
-              </div>
-              <span className="text-xs text-slate-400">
-                {EXPECTED_COLUMNS.length} campos • {REQUIRED_COLUMNS.length} obrigatórios
-              </span>
-            </div>
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto">
-              {EXPECTED_COLUMNS.map((col) => {
-                const value = mapping[col.key as string]
-                const isRequired = col.required
-                const isMissing = isRequired && !value
-                return (
-                  <div
-                    key={col.key as string}
-                    className={cn(
-                      'flex flex-col gap-1.5 p-2.5 rounded-lg border',
-                      isMissing
-                        ? 'border-amber-200 bg-amber-50/40'
-                        : 'border-slate-200 bg-slate-50/40',
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-xs font-semibold text-slate-700">
-                        {col.label}
-                        {isRequired && <span className="text-red-500 ml-0.5">*</span>}
-                      </label>
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        {col.type}
-                      </span>
-                    </div>
-                    <Select
-                      value={value ?? '__none__'}
-                      onValueChange={(v) => handleMappingChange(col.key as string, v)}
-                    >
-                      <SelectTrigger className="h-8 text-xs bg-white">
-                        <SelectValue placeholder="— não mapeado —" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">— não mapeado —</SelectItem>
-                        {detectedHeaders.map((h) => (
-                          <SelectItem key={h} value={h}>
-                            {h}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50/60">
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                <Info className="w-3.5 h-3.5" />
-                <span>
-                  Identificadores (Cód., CPF/CNPJ) são tratados como texto, preservando zeros à
-                  esquerda.
+          {/* Mapeamento de colunas (apenas para Validades) */}
+          {importType === 'validades' && (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Table2 className="w-4 h-4 text-indigo-600" />
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Mapeamento de colunas (TradePro - Validades)
+                  </h4>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {EXPECTED_COLUMNS.length} campos • {REQUIRED_COLUMNS.length} obrigatórios
                 </span>
               </div>
-              <Button
-                size="sm"
-                onClick={runValidation}
-                disabled={!canValidate}
-                className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                Validar dados
-              </Button>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto">
+                {EXPECTED_COLUMNS.map((col) => {
+                  const value = mapping[col.key as string]
+                  const isRequired = col.required
+                  const isMissing = isRequired && !value
+                  return (
+                    <div
+                      key={col.key as string}
+                      className={cn(
+                        'flex flex-col gap-1.5 p-2.5 rounded-lg border',
+                        isMissing
+                          ? 'border-amber-200 bg-amber-50/40'
+                          : 'border-slate-200 bg-slate-50/40',
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-semibold text-slate-700">
+                          {col.label}
+                          {isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                        </label>
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">
+                          {col.type}
+                        </span>
+                      </div>
+                      <Select
+                        value={value ?? '__none__'}
+                        onValueChange={(v) => handleMappingChange(col.key as string, v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs bg-white">
+                          <SelectValue placeholder="— não mapeado —" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">— não mapeado —</SelectItem>
+                          {detectedHeaders.map((h) => (
+                            <SelectItem key={h} value={h}>
+                              {h}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50/60">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <Info className="w-3.5 h-3.5" />
+                  <span>
+                    Identificadores (Cód., CPF/CNPJ) são tratados como texto, preservando zeros à
+                    esquerda.
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={runValidation}
+                  disabled={!canValidate}
+                  className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Validar dados
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
+
+          {importType === 'rupturas' && (
+            <div className="bg-amber-50/60 rounded-xl border border-amber-200 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                <h4 className="text-sm font-bold text-amber-900">
+                  Pipeline de Rupturas (TradePro)
+                </h4>
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                As colunas de Rupturas foram mapeadas e validadas automaticamente: Data Visita,
+                Atividade (Produto), Motivo, Razão Social, CNPJ, Cidade, Estado, Cód. Cliente,
+                Cliente, Categoria, Observação e Colaborador.
+              </p>
+            </div>
+          )}
 
           {/* Resumo da validação de dados */}
           {validationReport && (
@@ -931,6 +1073,7 @@ export const ImportacaoPage: React.FC = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-xs">Data</TableHead>
+                  <TableHead className="text-xs">Tipo</TableHead>
                   <TableHead className="text-xs">Arquivo</TableHead>
                   <TableHead className="text-xs text-right">Importados</TableHead>
                   <TableHead className="text-xs text-right">Consolidados</TableHead>
@@ -942,6 +1085,19 @@ export const ImportacaoPage: React.FC = () => {
                   <TableRow key={h.id}>
                     <TableCell className="text-xs text-slate-600 whitespace-nowrap tabular-nums">
                       {fmtDate(h.created)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'text-[10px] font-bold uppercase',
+                          h.tipo === 'rupturas'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                        )}
+                      >
+                        {h.tipo === 'rupturas' ? 'Rupturas' : 'Validades'}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-xs font-medium text-slate-900">
                       <div className="flex items-center gap-2 min-w-0">
@@ -1017,7 +1173,8 @@ export const ImportacaoPage: React.FC = () => {
                 Base Atual atualizada com sucesso
               </p>
               <p className="text-xs text-slate-500">
-                As ocorrências processadas já alimentam o módulo de Validades.
+                As ocorrências processadas já alimentam o módulo de{' '}
+                {importType === 'rupturas' ? 'Rupturas' : 'Validades'}.
               </p>
             </div>
           </div>
