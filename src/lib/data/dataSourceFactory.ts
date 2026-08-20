@@ -128,7 +128,9 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       industria: (rec.fornecedor as string) || undefined,
       rede: (rec.rede as string) || undefined,
       codigoLoja: (rec.codigo_loja as string) || undefined,
-      loja: (rec.nome_loja as string) || (rec.razao_social as string) || undefined,
+      loja: rec.codigo_loja
+        ? `${String(rec.codigo_loja).padStart(3, '0')} • ${(rec.nome_loja as string) || (rec.razao_social as string) || ''}`
+        : (rec.nome_loja as string) || (rec.razao_social as string) || undefined,
       cidade: (rec.cidade as string) || undefined,
       uf: (rec.estado as string) || undefined,
       promotor: (rec.colaborador as string) || undefined,
