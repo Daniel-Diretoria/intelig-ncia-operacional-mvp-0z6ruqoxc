@@ -366,7 +366,9 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       return applyRupturasFilters(base, filters)
     } catch (err) {
       console.error('[TradeProApiAdapter] Falha ao listar rupturas de domínio:', err)
-      return []
+      return this.mockFallback.listRupturasDomain
+        ? this.mockFallback.listRupturasDomain(filters)
+        : []
     }
   }
 

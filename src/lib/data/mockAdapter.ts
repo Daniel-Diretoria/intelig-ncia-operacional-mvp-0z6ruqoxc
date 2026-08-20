@@ -12,6 +12,7 @@ import type {
   ChartCategoryData,
   ChartRupturaPeriodData,
   RupturasKpis,
+  Ruptura,
 } from '@/types'
 import { toRuptura, computeRupturasKpis } from '@/lib/pipeline/rupturasPipeline'
 import pb from '@/lib/pocketbase/client'
@@ -591,6 +592,56 @@ export class MockOperationalAdapter implements IOperationalDataSource {
       }),
     )
     return computeRupturasKpis(mockRupturas)
+  }
+
+  async listRupturasDomain(filters?: import('@/types').RupturasFilters): Promise<Ruptura[]> {
+    await delay()
+    try {
+      const records = await pb.collection('rupturas_base').getFullList({
+        filter: 'is_base_atual = true',
+        sort: '-data_visita',
+      })
+      if (records.length > 0) {
+        const { applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+        const rupturas = records.map((r) => toRuptura(r as unknown as Record<string, unknown>))
+        return applyRupturasFilters(rupturas, filters)
+      }
+    } catch {
+      // fallback to mock
+    }
+
+    const { applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+    const mockRupturas = MOCK_RUPTURAS.map((r, i) =>
+      toRuptura({
+        id: r.id,
+        produto: r.product,
+        motivo:
+          r.status === 'Em Ruptura'
+            ? 'Ruptura Total'
+            : r.status === 'Crítico'
+              ? 'Sem Estoque Mínimo'
+              : 'Estoque Virtual',
+        codigo_loja: '',
+        nome_loja: r.supplier || '',
+        cnpj_loja: '',
+        cidade: '',
+        estado: '',
+        codigo_cliente: r.sku,
+        cliente: r.supplier || '',
+        colaborador: '',
+        categoria: r.category,
+        observacao: '',
+        data_visita: new Date(Date.now() - r.diasSemEstoque * 86400000).toISOString().slice(0, 10),
+        data_entrada: new Date(Date.now() - r.diasSemEstoque * 86400000).toISOString().slice(0, 10),
+        ultima_aparicao: new Date().toISOString().slice(0, 10),
+        situacao_atual: 'Ativo' as const,
+        operational_key: `mock|${r.product}|${i}`,
+        dedup_key: `mock|${r.product}|${r.supplier || ''}`,
+        source_import_id: '',
+        source_row: i + 1,
+      }),
+    )
+    return applyRupturasFilters(mockRupturas, filters)
   }
 
   async listAlertas(filters?: AlertasFilter): Promise<AlertaItem[]> {

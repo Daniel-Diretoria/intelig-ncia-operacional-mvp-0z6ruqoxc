@@ -92,6 +92,55 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         }
       >()
 
+      // Helper para indexar/buscar grupo por código da loja numérico padronizado ou nome
+      const getOrCreateGroup = (
+        storeCode: string,
+        storeName: string,
+        networkName: string,
+        razaoSocial: string,
+        city: string,
+        state: string,
+        cnpj: string,
+      ) => {
+        let normalizedCode = storeCode.trim()
+        if (normalizedCode && !isNaN(Number(normalizedCode))) {
+          normalizedCode = String(Number(normalizedCode)).padStart(3, '0')
+        }
+
+        // Tentar encontrar grupo existente por código numérico se disponível
+        if (normalizedCode) {
+          for (const [existingKey, existingGroup] of storeMap.entries()) {
+            let existingNormCode = existingGroup.storeCode.trim()
+            if (existingNormCode && !isNaN(Number(existingNormCode))) {
+              existingNormCode = String(Number(existingNormCode)).padStart(3, '0')
+            }
+            if (existingNormCode && existingNormCode === normalizedCode) {
+              return existingGroup
+            }
+          }
+        }
+
+        const key = normalizedCode ? `${normalizedCode}-${storeName}` : storeName
+        if (!storeMap.has(key)) {
+          storeMap.set(key, {
+            storeCode: normalizedCode || '000',
+            storeName: storeName || 'LOJA DESCONHECIDA',
+            networkName: networkName || 'Grupo Pereira',
+            razaoSocial: razaoSocial || storeName,
+            city,
+            state,
+            cnpj,
+            clientes: new Set(),
+            produtosAtivos: new Set(),
+            totalQtd: 0,
+            itemsAtivos: [],
+            itemsAuditoria: [],
+            rupturas: [],
+          })
+        }
+        return storeMap.get(key)!
+      }
+
       for (const rec of records) {
         const r = rec as unknown as Record<string, unknown>
 
@@ -111,33 +160,15 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         const quantidade =
           typeof r.quantidade === 'number' ? r.quantidade : Number(r.quantidade) || 0
 
-        // Se storeCode não tiver zeros à esquerda, preserva/formata
-        if (storeCode && !isNaN(Number(storeCode))) {
-          storeCode = storeCode.padStart(3, '0')
-        }
-
-        const key = storeCode ? `${storeCode}-${storeName}` : storeName
-        if (!key) continue
-
-        if (!storeMap.has(key)) {
-          storeMap.set(key, {
-            storeCode: storeCode || '000',
-            storeName: storeName || 'LOJA DESCONHECIDA',
-            networkName,
-            razaoSocial,
-            city,
-            state,
-            cnpj,
-            clientes: new Set(),
-            produtosAtivos: new Set(),
-            totalQtd: 0,
-            itemsAtivos: [],
-            itemsAuditoria: [],
-            rupturas: [],
-          })
-        }
-
-        const group = storeMap.get(key)!
+        const group = getOrCreateGroup(
+          storeCode,
+          storeName,
+          networkName,
+          razaoSocial,
+          city,
+          state,
+          cnpj,
+        )
         if (cliente) group.clientes.add(cliente)
 
         const item: ValidadeItem = {
@@ -181,33 +212,21 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
       // Adiciona rupturas às lojas
       for (const rec of rupturasRecords) {
         const r = rec as unknown as Record<string, unknown>
-        let storeCode = ((r.codigo_loja as string) || '').trim()
-        let storeName = ((r.nome_loja as string) || '').trim()
-        if (storeCode && !isNaN(Number(storeCode))) {
-          storeCode = storeCode.padStart(3, '0')
-        }
-        const key = storeCode ? `${storeCode}-${storeName}` : storeName
-        if (!key) continue
+        const storeCode = ((r.codigo_loja as string) || '').trim()
+        const storeName = ((r.nome_loja as string) || '').trim()
+        const city = ((r.cidade as string) || '').trim()
+        const state = ((r.estado as string) || '').trim()
+        const cnpj = ((r.cnpj_loja as string) || '').trim()
 
-        if (!storeMap.has(key)) {
-          storeMap.set(key, {
-            storeCode: storeCode || '000',
-            storeName: storeName || 'LOJA DESCONHECIDA',
-            networkName: 'Grupo Pereira',
-            razaoSocial: storeName,
-            city: ((r.cidade as string) || '').trim(),
-            state: ((r.estado as string) || '').trim(),
-            cnpj: ((r.cnpj_loja as string) || '').trim(),
-            clientes: new Set(),
-            produtosAtivos: new Set(),
-            totalQtd: 0,
-            itemsAtivos: [],
-            itemsAuditoria: [],
-            rupturas: [],
-          })
-        }
-
-        const group = storeMap.get(key)!
+        const group = getOrCreateGroup(
+          storeCode,
+          storeName,
+          'Grupo Pereira',
+          storeName,
+          city,
+          state,
+          cnpj,
+        )
         const rup = toRuptura(r)
         group.rupturas.push(rup)
       }
@@ -315,7 +334,21 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
   })
 
   const getStoreById = (storeId: string) => {
-    return stores.find((s) => s.storeId === storeId || encodeURIComponent(s.storeId) === storeId)
+    const decoded = decodeURIComponent(storeId)
+    return stores.find((s) => {
+      if (s.storeId === storeId || s.storeId === decoded) return true
+      if (encodeURIComponent(s.storeId) === storeId) return true
+      if (s.storeCode && (s.storeCode === storeId || s.storeCode === decoded)) return true
+      // Comparação numérica (ex: "85" == "085")
+      if (
+        !isNaN(Number(s.storeCode)) &&
+        !isNaN(Number(storeId)) &&
+        Number(s.storeCode) === Number(storeId)
+      ) {
+        return true
+      }
+      return false
+    })
   }
 
   return {
