@@ -720,46 +720,48 @@ export const ImportacaoPage: React.FC = () => {
         {/* ========================================================================= */}
         <TabsContent value="api" className="space-y-6 mt-4">
           {!isApiConfigured ? (
-            /* Card informativo: API não configurada */
+            /* Card informativo: API TradePro Segura e Desativada */
             <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                    <Server className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                    <Cloud className="w-6 h-6" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="text-base font-bold text-slate-900">
-                        API TradePro não configurada
+                        API TradePro — aguardando credencial
                       </h4>
-                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[11px] font-semibold">
-                        Em breve
+                      <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[11px] font-semibold">
+                        Desativada por padrão
                       </Badge>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                      A integração direta via API permite puxar Validades e Rupturas automaticamente
-                      com um clique.
+                      Autenticação Basic configurada exclusivamente no backend. Excel permanece como
+                      fonte ativa.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80 space-y-3">
-                <p className="text-xs font-semibold text-slate-700 flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-indigo-600" />
-                  Variáveis de ambiente necessárias para ativação:
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+                <p className="text-xs font-semibold text-slate-800 flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-slate-600" />
+                  Status da Conexão:
                 </p>
-                <div className="space-y-2 text-xs font-mono text-slate-600">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200">
-                    <span className="font-bold text-indigo-700">VITE_TRADEPRO_API_URL</span>
-                    <span className="text-slate-400 text-[11px] mt-1 sm:mt-0 font-sans">
-                      URL base do endpoint TradePro
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <span className="font-semibold text-slate-700 block">
+                      Fonte Operacional Ativa:
+                    </span>
+                    <span className="text-emerald-700 font-bold">
+                      Importação de Planilhas Excel (.xlsx)
                     </span>
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200">
-                    <span className="font-bold text-indigo-700">VITE_TRADEPRO_API_TOKEN</span>
-                    <span className="text-slate-400 text-[11px] mt-1 sm:mt-0 font-sans">
-                      Token de autenticação Bearer
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <span className="font-semibold text-slate-700 block">Segurança e Backend:</span>
+                    <span className="text-slate-600">
+                      Credenciais gerenciadas de forma isolada no servidor
                     </span>
                   </div>
                 </div>
@@ -767,8 +769,7 @@ export const ImportacaoPage: React.FC = () => {
 
               <div className="flex items-center justify-between pt-2">
                 <p className="text-xs text-slate-500">
-                  Enquanto a API não for configurada, utilize a aba{' '}
-                  <strong>Importar Arquivo</strong> para processar planilhas Excel.
+                  Excel permanece como fonte ativa para processar Validades e Rupturas.
                 </p>
                 <Button
                   variant="outline"
@@ -1727,11 +1728,12 @@ export const ImportacaoPage: React.FC = () => {
               </p>
               <p>
                 O importador identifica automaticamente o tipo de arquivo TradePro: para{' '}
-                <strong>Validades</strong> (aba “Pesquisa Validade”), valida os 7 campos
-                obrigatórios, filtra 90 dias, aplica correções e deduplicação em 2 etapas; para{' '}
-                <strong>Rupturas</strong> (aba “Rupturas” ou exportação correspondente), padroniza
-                os motivos, valida as informações da visita/produto e atualiza a Base Atual de
-                Rupturas com histórico completo.
+                <strong>Validades</strong> (aba “Pesquisa Validade”), processa os campos
+                obrigatórios da extração TradePro (Razão Social, Realizado, Produto, Cliente,
+                Quantidade e Validade), calcula os status operacionais e aplica deduplicação em 2
+                etapas; para <strong>Rupturas</strong> (aba “Rupturas” ou exportação
+                correspondente), padroniza os motivos, valida as informações da visita/produto e
+                atualiza a Base Atual de Rupturas com histórico completo.
               </p>
             </div>
           </div>

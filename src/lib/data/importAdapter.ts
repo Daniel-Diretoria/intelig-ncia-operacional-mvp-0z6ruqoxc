@@ -213,9 +213,8 @@ export class ImportDataSource implements IOperationalDataSource {
           }))
           return {
             reportType,
-            title: 'Validades por Categoria',
-            description:
-              'Distribuição das ocorrências da Base Atual agrupadas por status operacional.',
+            title: 'Resumo de Validades por Status',
+            description: 'distribuição de ocorrências ativas por status operacional',
             generatedAt: nowISO,
             chartData: data.map((d) => ({
               name: d.categoria,

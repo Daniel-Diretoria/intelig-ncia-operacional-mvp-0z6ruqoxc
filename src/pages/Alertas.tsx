@@ -1,18 +1,31 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useAlertas } from '@/services'
-import type { AlertaItem, AlertasFilter } from '@/types'
+import type { AlertasFilter } from '@/types'
 import { FilterBar, type FilterField } from '@/components/ui/filter-bar'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Bell, CheckCheck, Check, AlertTriangle, Clock, Tag, Package } from 'lucide-react'
+import {
+  Bell,
+  CheckCheck,
+  Check,
+  AlertTriangle,
+  Clock,
+  Tag,
+  Package,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+
+const PAGE_SIZE = 25
 
 export const AlertasPage: React.FC = () => {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('Todos')
   const [type, setType] = useState('Todos')
+  const [currentPage, setCurrentPage] = useState(1)
 
   const [appliedFilters, setAppliedFilters] = useState<AlertasFilter>({})
 
@@ -33,6 +46,7 @@ export const AlertasPage: React.FC = () => {
   }, [refetch])
 
   const handleApply = () => {
+    setCurrentPage(1)
     setAppliedFilters({
       search: search.trim() || undefined,
       severity: severity !== 'Todos' ? severity : undefined,
@@ -44,12 +58,31 @@ export const AlertasPage: React.FC = () => {
     setSearch('')
     setSeverity('Todos')
     setType('Todos')
+    setCurrentPage(1)
     setAppliedFilters({})
   }
 
   const unreadCount = useMemo(() => {
     return alertas.filter((a) => !a.isRead).length
   }, [alertas])
+
+  const totalItems = alertas.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE))
+
+  // Ajusta página atual se ultrapassar totalPages
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const paginatedAlertas = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return alertas.slice(start, start + PAGE_SIZE)
+  }, [alertas, currentPage])
+
+  const startRange = totalItems === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const endRange = Math.min(currentPage * PAGE_SIZE, totalItems)
 
   const filterFields: FilterField[] = [
     {
@@ -152,7 +185,7 @@ export const AlertasPage: React.FC = () => {
 
       {/* Alert Cards Feed */}
       {!error && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -175,116 +208,189 @@ export const AlertasPage: React.FC = () => {
               onAction={handleClear}
             />
           ) : (
-            alertas.map((alerta) => {
-              const isCrit = alerta.severity === 'Crítico'
-              const isHigh = alerta.severity === 'Alto'
-              const isRead = alerta.isRead
+            <>
+              {/* Info e Paginação Top/Bottom */}
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                <div>
+                  Mostrando{' '}
+                  <strong className="text-slate-700">
+                    {startRange}–{endRange}
+                  </strong>{' '}
+                  de <strong className="text-slate-700">{totalItems}</strong> alertas
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="h-7 px-2 text-xs gap-1"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    Anterior
+                  </Button>
+                  <span className="font-medium text-slate-700">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-7 px-2 text-xs gap-1"
+                  >
+                    Próxima
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
 
-              const borderAccentColor = isCrit
-                ? 'border-l-red-500'
-                : isHigh
-                  ? 'border-l-orange-500'
-                  : 'border-l-amber-500'
+              <div className="space-y-3">
+                {paginatedAlertas.map((alerta) => {
+                  const isCrit = alerta.severity === 'Crítico'
+                  const isHigh = alerta.severity === 'Alto'
+                  const isRead = alerta.isRead
 
-              return (
-                <div
-                  key={alerta.id}
-                  className={`bg-white rounded-xl border border-slate-200 border-l-4 ${borderAccentColor} p-4 sm:p-5 shadow-xs transition-all duration-200 ${
-                    isRead ? 'opacity-65 bg-slate-50/50' : 'hover:shadow-sm'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="flex items-start gap-3.5 flex-1">
-                      {/* Icon */}
-                      <div
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                          isCrit
-                            ? 'bg-red-100 text-red-700'
-                            : isHigh
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        <AlertTriangle className="w-4 h-4" />
-                      </div>
+                  const borderAccentColor = isCrit
+                    ? 'border-l-red-500'
+                    : isHigh
+                      ? 'border-l-orange-500'
+                      : 'border-l-amber-500'
 
-                      <div className="flex-1 space-y-1">
-                        {/* Title & Badges */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4
-                            className={`text-sm font-bold tracking-tight ${
-                              isRead ? 'text-slate-600 line-through-none' : 'text-slate-900'
+                  return (
+                    <div
+                      key={alerta.id}
+                      className={`bg-white rounded-xl border border-slate-200 border-l-4 ${borderAccentColor} p-4 sm:p-5 shadow-xs transition-all duration-200 ${
+                        isRead ? 'opacity-65 bg-slate-50/50' : 'hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="flex items-start gap-3.5 flex-1">
+                          {/* Icon */}
+                          <div
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                              isCrit
+                                ? 'bg-red-100 text-red-700'
+                                : isHigh
+                                  ? 'bg-orange-100 text-orange-700'
+                                  : 'bg-amber-100 text-amber-800'
                             }`}
                           >
-                            {alerta.title}
-                          </h4>
-                          <StatusBadge
-                            variant={
-                              alerta.severity === 'Crítico'
-                                ? 'critico'
-                                : alerta.severity === 'Alto'
-                                  ? 'alto'
-                                  : 'medio'
-                            }
-                          >
-                            {alerta.severity}
-                          </StatusBadge>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium text-[11px]">
-                            <Tag className="w-3 h-3 text-slate-400" />
-                            {alerta.type}
-                          </span>
-                        </div>
+                            <AlertTriangle className="w-4 h-4" />
+                          </div>
 
-                        {/* Description */}
-                        <p className="text-[13px] text-slate-600 leading-relaxed">
-                          {alerta.message}
-                        </p>
-
-                        {/* Context info (Product / SKU / Category) */}
-                        {alerta.product && (
-                          <div className="flex items-center gap-3 pt-1 text-xs text-slate-500">
-                            <span className="inline-flex items-center gap-1 font-medium text-slate-700">
-                              <Package className="w-3.5 h-3.5 text-slate-400" />
-                              {alerta.product}
-                            </span>
-                            {alerta.sku && (
-                              <span className="font-mono text-[11px] text-slate-400">
-                                SKU: {alerta.sku}
+                          <div className="flex-1 space-y-1">
+                            {/* Title & Badges */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4
+                                className={`text-sm font-bold tracking-tight ${
+                                  isRead ? 'text-slate-600 line-through-none' : 'text-slate-900'
+                                }`}
+                              >
+                                {alerta.title}
+                              </h4>
+                              <StatusBadge
+                                variant={
+                                  alerta.severity === 'Crítico'
+                                    ? 'critico'
+                                    : alerta.severity === 'Alto'
+                                      ? 'alto'
+                                      : 'medio'
+                                }
+                              >
+                                {alerta.severity}
+                              </StatusBadge>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium text-[11px]">
+                                <Tag className="w-3 h-3 text-slate-400" />
+                                {alerta.type}
                               </span>
-                            )}
-                            {alerta.category && (
-                              <span className="text-slate-400">• {alerta.category}</span>
+                            </div>
+
+                            {/* Description */}
+                            <p className="text-[13px] text-slate-600 leading-relaxed">
+                              {alerta.message}
+                            </p>
+
+                            {/* Context info (Product / SKU / Category) */}
+                            {alerta.product && (
+                              <div className="flex items-center gap-3 pt-1 text-xs text-slate-500">
+                                <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                                  <Package className="w-3.5 h-3.5 text-slate-400" />
+                                  {alerta.product}
+                                </span>
+                                {alerta.sku && (
+                                  <span className="font-mono text-[11px] text-slate-400">
+                                    SKU: {alerta.sku}
+                                  </span>
+                                )}
+                                {alerta.category && (
+                                  <span className="text-slate-400">• {alerta.category}</span>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
+                        </div>
+
+                        {/* Actions & Relative timestamp */}
+                        <div className="flex items-center sm:flex-col sm:items-end justify-between sm:justify-start gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                          <div className="flex items-center gap-1 text-[11px] text-slate-400 font-medium">
+                            <Clock className="w-3 h-3" />
+                            <span>{getRelativeTime(alerta.timestamp)}</span>
+                          </div>
+
+                          <Button
+                            variant={isRead ? 'ghost' : 'outline'}
+                            size="sm"
+                            onClick={() => toggleRead(alerta.id)}
+                            className={`h-7 px-2.5 text-xs font-medium gap-1.5 transition-all ${
+                              isRead
+                                ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                                : 'border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200'
+                            }`}
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>{isRead ? 'Lido' : 'Marcar como lido'}</span>
+                          </Button>
+                        </div>
                       </div>
                     </div>
+                  )
+                })}
+              </div>
 
-                    {/* Actions & Relative timestamp */}
-                    <div className="flex items-center sm:flex-col sm:items-end justify-between sm:justify-start gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                      <div className="flex items-center gap-1 text-[11px] text-slate-400 font-medium">
-                        <Clock className="w-3 h-3" />
-                        <span>{getRelativeTime(alerta.timestamp)}</span>
-                      </div>
-
-                      <Button
-                        variant={isRead ? 'ghost' : 'outline'}
-                        size="sm"
-                        onClick={() => toggleRead(alerta.id)}
-                        className={`h-7 px-2.5 text-xs font-medium gap-1.5 transition-all ${
-                          isRead
-                            ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                            : 'border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200'
-                        }`}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>{isRead ? 'Lido' : 'Marcar como lido'}</span>
-                      </Button>
-                    </div>
+              {/* Paginação Bottom */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+                  <div>
+                    Página <strong className="text-slate-700">{currentPage}</strong> de{' '}
+                    <strong className="text-slate-700">{totalPages}</strong> ({totalItems} itens no
+                    total)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="h-7 px-2 text-xs gap-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="h-7 px-2 text-xs gap-1"
+                    >
+                      Próxima
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 </div>
-              )
-            })
+              )}
+            </>
           )}
         </div>
       )}

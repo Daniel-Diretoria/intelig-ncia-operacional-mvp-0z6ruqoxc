@@ -15,7 +15,7 @@ import {
   FileText,
 } from 'lucide-react'
 import type { Ruptura } from '@/types'
-import { formatStoreDisplay } from '@/lib/data/storeRecognition'
+import { formatStoreIdentity, formatCityUf } from '@/lib/selectors'
 
 interface RupturaDetailModalProps {
   isOpen: boolean
@@ -59,7 +59,10 @@ export const RupturaDetailModal: React.FC<RupturaDetailModalProps> = ({
   if (!item) return null
 
   const isAtivo = item.situacao_atual === 'Ativo'
-  const storeLabel = formatStoreDisplay(item.codigo_loja, item.nome_loja)
+  const storeLabel = formatStoreIdentity({
+    codigo_loja: item.codigo_loja,
+    nome_loja: item.nome_loja,
+  })
 
   return (
     <Modal
@@ -113,11 +116,7 @@ export const RupturaDetailModal: React.FC<RupturaDetailModalProps> = ({
             label="Cliente / Razão Social"
             value={item.cliente || item.nome_loja}
           />
-          <Field
-            icon={MapPin}
-            label="Cidade / Estado"
-            value={`${item.cidade || '—'} / ${item.estado || '—'}`}
-          />
+          <Field icon={MapPin} label="Cidade / UF" value={formatCityUf(item.cidade, item.estado)} />{' '}
           <Field icon={FileText} label="CNPJ da Loja" value={item.cnpj_loja || '—'} />
           <Field icon={AlertTriangle} label="Motivo da Ruptura" value={item.motivo} />
           <Field icon={User} label="Colaborador / Auditor" value={item.colaborador || '—'} />

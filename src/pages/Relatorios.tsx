@@ -48,9 +48,8 @@ interface ReportCardItem {
 const REPORT_CARDS: ReportCardItem[] = [
   {
     type: 'validades-por-categoria',
-    title: 'Validades por Categoria',
-    description:
-      'Análise detalhada da concentração de lotes críticos, próximos e regulares por departamento.',
+    title: 'Resumo de Validades por Status',
+    description: 'distribuição de ocorrências ativas por status operacional',
     icon: CalendarCheck,
     badge: 'Validades',
   },
@@ -58,7 +57,7 @@ const REPORT_CARDS: ReportCardItem[] = [
     type: 'validades-proximas-vencer',
     title: 'Validades Próximas a Vencer',
     description:
-      'Lista prioritária de SKUs com validade inferior a 30 dias para ações promocionais imediatas.',
+      'Lista prioritária de produtos com validade em risco na Base Atual para ações preventivas imediatas.',
     icon: Clock,
     badge: 'Validades',
   },
@@ -66,7 +65,7 @@ const REPORT_CARDS: ReportCardItem[] = [
     type: 'rupturas-por-loja',
     title: 'Rupturas por Loja',
     description:
-      'Consolidação das ocorrências de desabastecimento ativas e resolvidas por ponto de venda.',
+      'Consolidação das ocorrências de desabastecimento ativas na Base Atual por ponto de venda.',
     icon: Store,
     badge: 'Rupturas',
   },

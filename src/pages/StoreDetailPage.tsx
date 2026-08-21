@@ -24,9 +24,11 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
+import { formatStoreIdentity, formatCityUf } from '@/lib/selectors'
 import { EmptyState } from '@/components/ui/empty-state'
 import type { ValidadeItem, Ruptura } from '@/types'
 import { OccurrenceDetailModal } from '@/components/validades/OccurrenceDetailModal'
+import { formatDisplayDate } from '@/lib/format/dateParser'
 import { RupturaDetailModal } from '@/components/rupturas/RupturaDetailModal'
 import { StoreRupturasTab } from '@/components/rupturas/StoreRupturasTab'
 
@@ -97,7 +99,11 @@ export const StoreDetailPage: React.FC = () => {
             <div>
               {/* Linha 1: Código • Nome */}
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                {store.storeCode} • {store.storeName}
+                {formatStoreIdentity({
+                  codigo_loja: store.storeCode,
+                  nome_loja: store.storeName,
+                  razao_social: store.razaoSocial,
+                })}
               </h1>
               {/* Linha 2: Rede • Cidade/UF */}
               <div className="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
@@ -108,7 +114,7 @@ export const StoreDetailPage: React.FC = () => {
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  {store.city} / {store.state}
+                  {formatCityUf(store.city, store.state)}
                 </span>
                 {store.razaoSocial && (
                   <>
@@ -251,7 +257,7 @@ export const StoreDetailPage: React.FC = () => {
                           {item.lote || '—'}
                         </td>
                         <td className="py-3 px-3 font-medium text-slate-900">
-                          {new Date(item.validade + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          {formatDisplayDate(item.validade, '—')}
                         </td>
                         <td className="py-3 px-3 text-center">
                           <CriticidadeBadge
@@ -361,7 +367,7 @@ export const StoreDetailPage: React.FC = () => {
                         </td>
                         <td className="py-3 px-3 text-slate-600">{item.cliente || '—'}</td>
                         <td className="py-3 px-3 font-medium text-red-700">
-                          {new Date(item.validade + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          {formatDisplayDate(item.validade, '—')}
                         </td>
                         <td className="py-3 px-3 text-center">
                           <Badge
@@ -409,7 +415,11 @@ export const StoreDetailPage: React.FC = () => {
               <p>
                 Drill-down completo de origem dos dados registrados para a loja{' '}
                 <strong className="text-slate-900">
-                  {store.storeCode} • {store.storeName}
+                  {formatStoreIdentity({
+                    codigo_loja: store.storeCode,
+                    nome_loja: store.storeName,
+                    razao_social: store.razaoSocial,
+                  })}
                 </strong>
                 :
               </p>
@@ -424,7 +434,11 @@ export const StoreDetailPage: React.FC = () => {
                 <div className="flex justify-between border-b border-slate-200/60 pb-1.5">
                   <span className="text-slate-500">Chave de Agrupamento:</span>
                   <span className="font-bold text-slate-800">
-                    {store.storeCode} • {store.storeName}
+                    {formatStoreIdentity({
+                      codigo_loja: store.storeCode,
+                      nome_loja: store.storeName,
+                      razao_social: store.razaoSocial,
+                    })}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-200/60 pb-1.5">

@@ -21,7 +21,7 @@ export const RupturasKpisCards: React.FC<RupturasKpisProps> = ({ kpis, isLoading
     }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       {/* Total de Rupturas Ativas */}
       <Card className="p-4 border-slate-200 bg-white shadow-xs">
         <div className="flex items-center justify-between">
@@ -36,11 +36,7 @@ export const RupturasKpisCards: React.FC<RupturasKpisProps> = ({ kpis, isLoading
           <div className="text-2xl font-bold text-slate-900 tabular-nums">
             {isLoading ? '...' : totalAtivas}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {totalGeral > 0
-              ? `${Math.round((totalAtivas / totalGeral) * 100)}% do histórico`
-              : 'Ocorrências no PDV'}
-          </p>
+          <p className="text-xs text-slate-500 mt-1">Base Atual</p>
         </div>
       </Card>
 
@@ -58,25 +54,7 @@ export const RupturasKpisCards: React.FC<RupturasKpisProps> = ({ kpis, isLoading
           <div className="text-2xl font-bold text-slate-900 tabular-nums">
             {isLoading ? '...' : novas}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Entradas recentes</p>
-        </div>
-      </Card>
-
-      {/* Resolvidas */}
-      <Card className="p-4 border-slate-200 bg-white shadow-xs">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Resolvidas / Repostas
-          </span>
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <CheckCircle className="w-4 h-4" />
-          </div>
-        </div>
-        <div className="mt-3">
-          <div className="text-2xl font-bold text-emerald-700 tabular-nums">
-            {isLoading ? '...' : resolvidas}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">Normalizadas em loja</p>
+          <p className="text-xs text-slate-500 mt-1">Entradas recentes na base</p>
         </div>
       </Card>
 

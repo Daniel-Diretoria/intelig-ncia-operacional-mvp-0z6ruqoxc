@@ -176,7 +176,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const produtoNome = (rec.produto || 'Produto sem descrição') as string
         const { skuDisplay, hasRealSku } = formatProductSku(rawSku, produtoNome)
 
-        const rawRede = (rec.rede || 'Rede não informada') as string
+        const rawRede = (rec.rede || rec.fantasia || rawName || '') as string
         const redeCanonica = normalizeNetworkName(rawRede)
 
         const cidade = (rec.cidade || '') as string
@@ -242,8 +242,16 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const rawCode = (rec.codigo_loja || rec.cod_cliente || '') as string
         const rawName = (rec.nome_loja || rec.razao_social || rec.cliente || '') as string
         const cleanStoreName = extractStoreCleanName({ codigo_loja: rawCode, nome_loja: rawName })
-        const storeRealCode = extractStoreRealCode({ codigo_loja: rawCode, nome_loja: rawName })
-        const storeIdFormatted = formatStoreIdentity({ codigo_loja: rawCode, nome_loja: rawName })
+        const storeRealCode = extractStoreRealCode({
+          codigo_loja: rawCode,
+          nome_loja: rawName,
+          razao_social: rec.razao_social as string,
+        })
+        const storeIdFormatted = formatStoreIdentity({
+          codigo_loja: rawCode,
+          nome_loja: rawName,
+          razao_social: rec.razao_social as string,
+        })
         const rupCidade = (rec.cidade || '') as string
         const rupUf = (rec.estado || rec.uf || '') as string
 
@@ -338,7 +346,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const code = item.codigoLoja || null
         const cleanName = item.loja
         const ident = formatStoreIdentity({ codigo_loja: code, nome_loja: cleanName })
-        // Chave de agrupamento segura: se tem código, usa código. Se não, usa combinação normalizada de nome + cidade
+        // Chave de agrupamento segura: se tem código, usa código. Se não, usa combinação normalizada de nome + cidade (ou CNPJ)
         const lojaKey = code
           ? `COD_${code}`
           : `NAME_${cleanName.toLowerCase()}_${item.cidade.toLowerCase()}`
@@ -393,7 +401,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
       for (const rup of rupturasAtivas) {
         const code = rup.codigo_loja || null
         const cleanName = rup.nome_loja
-        const lojaKey = code ? `COD_${code}` : `NAME_${cleanName.toLowerCase()}`
+        const lojaKey = code
+          ? `COD_${code}`
+          : `NAME_${cleanName.toLowerCase()}_${rup.cidade.toLowerCase()}`
         const loja = lojasMap.get(lojaKey)
         if (loja) {
           if (rup.situacao_atual === 'Ativo') {

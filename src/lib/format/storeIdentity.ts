@@ -1,16 +1,16 @@
 /**
- * Identidade canônica e padronização de Lojas, Redes, Cidades e Produtos.
+ * Identidade canônica e padronização central de Lojas, Redes, Cidades e Produtos.
+ * Helper central único reutilizado em Dashboard, Validades, Lojas, Rupturas, Alertas, Auditoria e Relatórios.
  *
  * Regras estritas:
- * - codigo_loja: string preservando zeros à esquerda
- * - se ausente no campo próprio, extrair de Razão Social / Nome (padrão "código - nome" ou "código • nome")
- * - remover do nome qualquer prefixo de código repetido antes de formatar
- * - saída: "CÓDIGO • NOME DA LOJA"
- * - NUNCA exibir código duplicado (ex: "845 • 845 • FORT...")
- * - NUNCA inventar "000"
- * - sem código real: "Código não identificado • NOME DA LOJA"
- * - Normalização de Rede canônica
- * - Cidade/UF sem separadores vazios ("Cidade/UF" ou "Cidade", nunca "Cidade/" ou "Cidade /")
+ * - Só é código de loja um token numérico real obtido do campo próprio (codigo_loja) ou prefixo numérico da Razão Social (ex: "250 - FORT...").
+ * - Preservar zeros à esquerda: 085, 010, 007.
+ * - FRUTAP, LILIBEL, PARMISSIMO, nome de indústria, cliente ou produto NUNCA podem virar código de loja.
+ * - Se não existir código numérico real, mostrar exatamente: "Código não identificado • NOME DA LOJA".
+ * - Nunca inventar "000".
+ * - Não repetir código no nome (nunca "845 • 845 • FORT...").
+ * - Rede: FORT / FORT ATACADISTA -> FORT ATACADISTA, BRASIL ATACADISTA -> BRASIL ATACADISTA, ATACADÃO -> ATACADÃO, GIASSI -> GIASSI, COMPER -> COMPER, GRUPO PEREIRA -> GRUPO PEREIRA. Se sem correspondência segura: "Rede não identificada".
+ * - Localização: "Cidade / UF" quando ambos existirem, só "Cidade" sem UF, só "UF" sem cidade. NUNCA "Cidade /" ou "/ UF".
  */
 
 export interface StoreIdentityInput {
@@ -22,42 +22,85 @@ export interface StoreIdentityInput {
   razao_social?: string | null
   loja?: string | null
   fantasia?: string | null
+  cliente?: string | null
+  fornecedor?: string | null
+  industria?: string | null
+  cnpj?: string | null
+  cidade?: string | null
+}
+
+const FORBIDDEN_CODES = new Set([
+  '000',
+  '0',
+  'undefined',
+  'null',
+  'nan',
+  'none',
+  'frutap',
+  'lilibel',
+  'parmissimo',
+  'parmíssimo',
+  'diretoria',
+  'italac',
+  'massas',
+  'cocoleve',
+  'marigold',
+  'gelo',
+])
+
+/**
+ * Valida se um token é puramente um código numérico real (podendo ter zeros à esquerda).
+ */
+export function isRealNumericStoreCode(code: unknown): boolean {
+  if (code === null || code === undefined) return false
+  const str = String(code).trim()
+  if (!str) return false
+  if (FORBIDDEN_CODES.has(str.toLowerCase())) return false
+
+  // Deve ser puramente dígitos (1 a 10 dígitos)
+  return /^\d{1,10}$/.test(str)
 }
 
 /**
  * Limpa código removendo espaços e tratando números/strings.
- * Não inventa zeros à esquerda se não for código real numérico.
+ * Retorna o código preservando zeros à esquerda se for numérico real, ou null.
  */
-function cleanCode(code: unknown): string | null {
+export function cleanCode(code: unknown): string | null {
   if (code === null || code === undefined) return null
   const str = String(code).trim()
-  if (
-    !str ||
-    str === '000' ||
-    str === '0' ||
-    str.toLowerCase() === 'undefined' ||
-    str.toLowerCase() === 'null'
-  ) {
-    return null
+  if (!str) return null
+  if (FORBIDDEN_CODES.has(str.toLowerCase())) return null
+
+  // Se for puramente numérico, preserva
+  if (/^\d{1,10}$/.test(str)) {
+    // Se for apenas zeros como "000" ou "0", rejeita
+    if (/^0+$/.test(str)) return null
+    return str
   }
-  return str
+
+  return null
 }
 
 /**
- * Extrai código e nome de uma string composta (ex: "845 - FORT ATACADISTA" ou "115 • COMPER")
+ * Extrai código numérico e nome de uma string composta (ex: "250 - FORT ATACADISTA FLORESTA" ou "085 • FORT")
  */
-function extractFromCombined(text: string): { extractedCode: string | null; cleanName: string } {
+export function extractFromCombined(text: string): {
+  extractedCode: string | null
+  cleanName: string
+} {
   const trimmed = text.trim()
   if (!trimmed) return { extractedCode: null, cleanName: '' }
 
-  // Match para "845 - NOME" ou "845 • NOME" ou "845 – NOME"
-  const match = trimmed.match(/^([A-Za-z0-9_-]{1,10})\s*[-•–]\s*(.+)$/)
+  // Match para "250 - NOME" ou "085 • NOME" ou "123 – NOME"
+  const match = trimmed.match(/^(\d{1,10})\s*[-•–]\s*(.+)$/)
   if (match) {
     const candidateCode = cleanCode(match[1])
     const remainder = match[2].trim()
-    return {
-      extractedCode: candidateCode,
-      cleanName: remainder || trimmed,
+    if (candidateCode) {
+      return {
+        extractedCode: candidateCode,
+        cleanName: remainder || trimmed,
+      }
     }
   }
 
@@ -68,16 +111,16 @@ function extractFromCombined(text: string): { extractedCode: string | null; clea
  * Remove qualquer prefixo repetido do código no nome.
  * Exemplo: se code = "845" e name = "845 • FORT ATACADISTA" ou "845 - FORT", limpa para "FORT ATACADISTA".
  */
-function removeRepeatedCodePrefix(name: string, code?: string | null): string {
+export function removeRepeatedCodePrefix(name: string, code?: string | null): string {
   let cleaned = name.trim()
   if (!cleaned) return 'Loja não identificada'
 
-  // Remove repetições sucessivas de qualquer código no início
   let changed = true
   while (changed) {
     changed = false
+
     // Se o nome começa com "123 • " ou "123 - "
-    const prefixMatch = cleaned.match(/^([A-Za-z0-9_-]{1,10})\s*[-•–]\s*(.+)$/)
+    const prefixMatch = cleaned.match(/^(\d{1,10})\s*[-•–]\s*(.+)$/)
     if (prefixMatch) {
       cleaned = prefixMatch[2].trim()
       changed = true
@@ -131,20 +174,20 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
   let code = cleanCode(rawCode)
   let name = String(rawName).trim()
 
-  // Se não tem código no campo próprio, tenta extrair de rawName ou rawRazao
+  // Se não tem código numérico no campo próprio, tenta extrair de rawRazao ou rawName
+  if (!code && rawRazao) {
+    const extracted = extractFromCombined(String(rawRazao))
+    if (extracted.extractedCode) {
+      code = extracted.extractedCode
+      if (!name || name === rawRazao) name = extracted.cleanName
+    }
+  }
+
   if (!code && name) {
     const extracted = extractFromCombined(name)
     if (extracted.extractedCode) {
       code = extracted.extractedCode
       name = extracted.cleanName
-    }
-  }
-
-  if (!code && rawRazao) {
-    const extracted = extractFromCombined(String(rawRazao))
-    if (extracted.extractedCode) {
-      code = extracted.extractedCode
-      if (!name) name = extracted.cleanName
     }
   }
 
@@ -158,7 +201,7 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
 }
 
 /**
- * Obtém apenas o código real da loja (ou null se não houver).
+ * Obtém apenas o código real da loja (ou null se não houver código numérico real).
  */
 export function extractStoreRealCode(
   input: StoreIdentityInput | string | null | undefined,
@@ -172,8 +215,13 @@ export function extractStoreRealCode(
   const clean = cleanCode(rawCode)
   if (clean) return clean
 
-  const rawName =
-    input.nomeLoja ?? input.nome_loja ?? input.loja ?? input.razaoSocial ?? input.razao_social ?? ''
+  const rawRazao = input.razaoSocial ?? input.razao_social ?? ''
+  if (rawRazao) {
+    const extracted = extractFromCombined(String(rawRazao))
+    if (extracted.extractedCode) return cleanCode(extracted.extractedCode)
+  }
+
+  const rawName = input.nomeLoja ?? input.nome_loja ?? input.loja ?? input.fantasia ?? ''
   if (rawName) {
     const extracted = extractFromCombined(String(rawName))
     if (extracted.extractedCode) return cleanCode(extracted.extractedCode)
@@ -206,58 +254,115 @@ export function extractStoreCleanName(
 }
 
 /**
- * Mapeamento canônico de Redes para garantir rótulos unificados (ex: "GRUPO PEREIRA" → "Grupo Pereira")
+ * Normalização de string para matching (sem acentos, lowercase, trim)
  */
-const CANONICAL_NETWORKS: Record<string, string> = {
-  'grupo pereira': 'Grupo Pereira',
-  comper: 'Comper',
-  'fort atacadista': 'Fort Atacadista',
-  bistek: 'Bistek Supermercados',
-  angeloni: 'Rede Angeloni',
-  giassi: 'Giassi Supermercados',
-  koch: 'Supermercados Koch',
-  komprao: 'Komprão Koch Atacadista',
-  condor: 'Condor Super Center',
-  muffato: 'Grupo Muffato',
-  superpao: 'Superpão',
-  passarela: 'Passarela Supermercados',
+function normStr(s: unknown): string {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
 }
 
 /**
- * Normaliza o nome da Rede: trim, case-insensitive mapping para rótulo canônico.
+ * Deriva a Rede canônica a partir da Razão Social / Nome da loja.
+ * NUNCA deriva do cliente ou da indústria.
+ * Padrões canônicos:
+ *  FORT / FORT ATACADISTA → FORT ATACADISTA
+ *  BRASIL ATACADISTA → BRASIL ATACADISTA
+ *  ATACADÃO → ATACADÃO
+ *  GIASSI → GIASSI
+ *  COMPER → COMPER
+ *  GRUPO PEREIRA → GRUPO PEREIRA
+ * Se não houver correspondência segura: "Rede não identificada".
  */
-export function normalizeNetworkName(name: unknown): string {
-  if (!name) return 'Rede não informada'
-  const str = String(name).trim()
-  if (!str) return 'Rede não informada'
+export function deriveNetworkName(storeNameOrRazao: unknown): string {
+  if (!storeNameOrRazao) return 'Rede não identificada'
+  const n = normStr(storeNameOrRazao)
+  if (!n) return 'Rede não identificada'
 
-  const key = str.toLowerCase()
-  if (CANONICAL_NETWORKS[key]) {
-    return CANONICAL_NETWORKS[key]
+  if (n.includes('fort atacadista') || n.includes('fort')) {
+    return 'FORT ATACADISTA'
+  }
+  if (n.includes('brasil atacadista') || n.includes('brasil atacado')) {
+    return 'BRASIL ATACADISTA'
+  }
+  if (n.includes('atacadao')) {
+    return 'ATACADÃO'
+  }
+  if (n.includes('giassi')) {
+    return 'GIASSI'
+  }
+  if (n.includes('comper')) {
+    return 'COMPER'
+  }
+  if (n.includes('grupo pereira') || n.includes('pereira')) {
+    return 'GRUPO PEREIRA'
+  }
+  if (n.includes('bistek')) {
+    return 'BISTEK'
+  }
+  if (n.includes('angeloni')) {
+    return 'ANGELONI'
+  }
+  if (n.includes('koch') || n.includes('komprao') || n.includes('komprão')) {
+    return 'KOCH'
+  }
+  if (n.includes('condor')) {
+    return 'CONDOR'
+  }
+  if (n.includes('muffato')) {
+    return 'MUFFATO'
+  }
+  if (n.includes('passarela')) {
+    return 'PASSARELA'
   }
 
-  // Capitalização padrão title case se não estiver no dicionário
-  return str
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => {
-      const lower = word.toLowerCase()
-      if (['de', 'da', 'do', 'das', 'dos', 'e'].includes(lower)) return lower
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    })
-    .join(' ')
+  return 'Rede não identificada'
+}
+
+/**
+ * Alias de compatibilidade para normalizar nome de rede
+ */
+export function normalizeNetworkName(name: unknown): string {
+  if (!name) return 'Rede não identificada'
+  const derived = deriveNetworkName(name)
+  if (derived !== 'Rede não identificada') return derived
+
+  const str = String(name).trim()
+  if (
+    !str ||
+    str.toLowerCase() === 'rede não informada' ||
+    str.toLowerCase() === 'rede não identificada'
+  ) {
+    return 'Rede não identificada'
+  }
+  return str.toUpperCase()
 }
 
 /**
  * Formata Cidade/UF.
- * Regra: se tem UF: "Cidade/UF". Se não tem UF: apenas "Cidade". NUNCA "Cidade/" ou "Cidade /".
+ * Regra: se tem Cidade e UF: "Cidade / UF".
+ * Se não tem UF: apenas "Cidade".
+ * Se não tem Cidade: apenas "UF".
+ * NUNCA "Joinville /" ou "/ SC" (sem separador vazio).
  */
 export function formatCityUf(cidade: unknown, uf: unknown): string {
-  const c = cidade ? String(cidade).trim() : ''
-  const u = uf ? String(uf).trim().toUpperCase() : ''
+  const c = cidade
+    ? String(cidade)
+        .trim()
+        .replace(/[/\s]+$/, '')
+    : ''
+  const u = uf
+    ? String(uf)
+        .trim()
+        .toUpperCase()
+        .replace(/^[/\s]+/, '')
+    : ''
 
   if (c && u) {
-    return `${c}/${u}`
+    return `${c} / ${u}`
   }
   if (c) {
     return c
@@ -284,7 +389,7 @@ export function formatProductSku(
   const str = String(sku).trim()
   const prodDesc = productDescription ? String(productDescription).trim() : ''
 
-  // Se o sku for idêntico à descrição do produto, não é um sku real
+  // Se o sku for idêntico à descrição do produto ou nomes genéricos
   if (
     !str ||
     str.toLowerCase() === 'undefined' ||

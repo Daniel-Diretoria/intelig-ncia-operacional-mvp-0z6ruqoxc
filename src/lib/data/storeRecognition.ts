@@ -1,4 +1,5 @@
 import type { StoreRecognition } from '@/types'
+import { formatStoreIdentity } from '@/lib/selectors'
 
 /**
  * Reconhecimento de Loja e Rede a partir dos dados do TradePro.
@@ -150,15 +151,7 @@ export function normalizeIdentifier(value: unknown): string {
   return String(value).trim()
 }
 
-/** Formata loja como '085 • FORT ATACADISTA JARAGUÁ DO SUL' com zeros à esquerda preservados */
+/** Formata loja usando o helper central único formatStoreIdentity */
 export function formatStoreDisplay(codigo?: string, nome?: string): string {
-  let cod = (codigo ?? '').trim()
-  const n = (nome ?? '').trim()
-  if (cod && !isNaN(Number(cod))) {
-    cod = cod.padStart(3, '0')
-  }
-  if (cod && n) return `${cod} • ${n}`
-  if (n) return n
-  if (cod) return cod
-  return 'Loja não identificada'
+  return formatStoreIdentity({ codigo_loja: codigo, nome_loja: nome })
 }

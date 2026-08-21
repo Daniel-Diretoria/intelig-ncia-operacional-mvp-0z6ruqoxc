@@ -34,7 +34,7 @@ import {
 import { useRupturas } from '@/services'
 import { RupturasKpisCards } from '@/components/rupturas/RupturasKpisCards'
 import { RupturaDetailModal } from '@/components/rupturas/RupturaDetailModal'
-import { formatStoreDisplay } from '@/lib/data/storeRecognition'
+import { formatStoreIdentity } from '@/lib/selectors'
 import type { Ruptura, RupturaMotivo, RupturaStatus } from '@/types'
 
 const PAGE_SIZE = 15
@@ -75,7 +75,10 @@ export function RupturasPage() {
 
     rupturas.forEach((r) => {
       if (r.codigo_loja || r.nome_loja) {
-        lojasMap.set(r.codigo_loja || r.nome_loja, formatStoreDisplay(r.codigo_loja, r.nome_loja))
+        lojasMap.set(
+          r.codigo_loja || r.nome_loja,
+          formatStoreIdentity({ codigo_loja: r.codigo_loja, nome_loja: r.nome_loja }),
+        )
       }
       if (r.motivo) motivosSet.add(r.motivo)
       if (r.cliente) clientesSet.add(r.cliente)
@@ -341,7 +344,10 @@ export function RupturasPage() {
               <TableBody>
                 {paginatedRupturas.map((item) => {
                   const isAtivo = item.situacao_atual === 'Ativo'
-                  const storeDisplay = formatStoreDisplay(item.codigo_loja, item.nome_loja)
+                  const storeDisplay = formatStoreIdentity({
+                    codigo_loja: item.codigo_loja,
+                    nome_loja: item.nome_loja,
+                  })
 
                   return (
                     <TableRow

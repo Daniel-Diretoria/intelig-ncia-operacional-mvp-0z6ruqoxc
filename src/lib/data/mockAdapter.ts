@@ -675,18 +675,15 @@ export class MockOperationalAdapter implements IOperationalDataSource {
 
     switch (reportType) {
       case 'validades-por-categoria': {
-        const categories = ['Mercearia', 'Laticínios', 'Bebidas', 'Limpeza', 'Higiene']
-        const rows = categories.map((cat) => {
-          const items = MOCK_VALIDADES.filter((v) => v.category === cat)
-          const crit = items.filter((v) => v.status === 'Vencido' || v.status === 'Crítico').length
-          const prox = items.filter((v) => v.status === 'Atenção' || v.status === 'Moderado').length
-          const ok = items.filter((v) => v.status === 'Normal').length
+        const statusList = ['Crítico', 'Atenção', 'Moderado', 'Normal']
+        const rows = statusList.map((st) => {
+          const items = MOCK_VALIDADES.filter((v) => v.status === st)
           const totalEstoque = items.reduce((acc, i) => acc + i.estoque, 0)
           return {
-            categoria: cat,
-            criticos: crit,
-            proximos: prox,
-            ok: ok,
+            categoria: st,
+            criticos: st === 'Crítico' ? items.length : 0,
+            proximos: st === 'Atenção' || st === 'Moderado' ? items.length : 0,
+            ok: st === 'Normal' ? items.length : 0,
             totalItens: items.length,
             volumeEstoque: totalEstoque,
           }
@@ -694,38 +691,29 @@ export class MockOperationalAdapter implements IOperationalDataSource {
 
         return {
           reportType,
-          title: 'Relatório: Validades por Categoria',
-          description:
-            'Distribuição detalhada dos lotes por faixa de vencimento e categoria de produtos.',
+          title: 'Resumo de Validades por Status',
+          description: 'distribuição de ocorrências ativas por status operacional',
           generatedAt: new Date().toISOString(),
           chartData: rows.map((r) => ({
             name: r.categoria,
-            'Crítico (<15d)': r.criticos,
-            'Próximo (15-30d)': r.proximos,
-            'OK (>30d)': r.ok,
+            Ocorrências: r.totalItens,
           })),
           tableColumns: [
-            { key: 'categoria', label: 'Categoria' },
-            { key: 'criticos', label: 'Críticos (<15d)' },
-            { key: 'proximos', label: 'Próximos (15-30d)' },
-            { key: 'ok', label: 'OK (>30d)' },
-            { key: 'totalItens', label: 'Total de SKUs' },
+            { key: 'categoria', label: 'Status' },
+            { key: 'totalItens', label: 'Total de Ocorrências' },
             { key: 'volumeEstoque', label: 'Volume Total em Estoque' },
           ],
           tableRows: rows,
           summaryCards: [
-            { label: 'Categorias Monitoradas', value: categories.length },
+            { label: 'Status Monitorados', value: statusList.length },
             {
-              label: 'Lotes Críticos',
-              value: MOCK_VALIDADES.filter((v) => v.status === 'Vencido' || v.status === 'Crítico')
-                .length,
+              label: 'Ocorrências Críticas',
+              value: MOCK_VALIDADES.filter((v) => v.status === 'Crítico').length,
               accent: 'danger',
             },
             {
-              label: 'Lotes Próximos',
-              value: MOCK_VALIDADES.filter((v) => v.status === 'Atenção' || v.status === 'Moderado')
-                .length,
-              accent: 'warning',
+              label: 'Ocorrências Totais',
+              value: MOCK_VALIDADES.length,
             },
           ],
         }

@@ -56,8 +56,9 @@ const MAX_FUTURE_DAYS = 365 * 10
 /**
  * Valida campos obrigatórios de um item mapeado (modelo TradePro).
  *
- * Pela especificação da Camada 04/TradePro, apenas 7 campos são obrigatórios:
- *   Razão Social, Realizado, Cliente, Produto, Quantidade, Validade, Fornecedor.
+ * Campos obrigatórios presentes na extração TradePro:
+ *   Razão Social, Realizado, Cliente, Produto, Quantidade, Validade.
+ * Campos calculados pelo sistema: Dias p/ Vencer, Status Operacional, Data Entrada.
  *
  * O mapper (excelMapper.mapRecord) já valida esses 7 no momento do mapeamento e
  * descarta linhas inválidas. Esta função reconfirma os 7 já mapeados para o

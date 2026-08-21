@@ -35,23 +35,30 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { formatStoreIdentity } from '@/lib/selectors'
+import { formatDisplayDate } from '@/lib/format/dateParser'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 25
 
 const fmtDate = (iso: string): string => {
   if (!iso) return '—'
-  try {
-    return new Date(iso + 'T00:00:00Z').toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      timeZone: 'UTC',
-    })
-  } catch {
-    return iso
-  }
+  return formatDisplayDate(iso, '—')
 }
 
-/** Badge de dias vencido com destaque visual. */
-const DiasVencidoBadge: React.FC<{ dias: number }> = ({ dias }) => {
+/** Badge de dias vencido com destaque visual e regras textuais estritas. */
+const DiasVencidoBadge: React.FC<{ dias: number; motivoAuditoria?: string }> = ({
+  dias,
+  motivoAuditoria,
+}) => {
+  if (motivoAuditoria === 'Data inválida') {
+    return (
+      <Badge className="bg-slate-100 text-slate-700 border-slate-300 text-[11px] font-semibold">
+        Data inválida
+      </Badge>
+    )
+  }
+
   if (dias === 0) {
     return (
       <Badge className="bg-red-600 text-white border-red-700 text-[11px] font-semibold">
@@ -59,17 +66,19 @@ const DiasVencidoBadge: React.FC<{ dias: number }> = ({ dias }) => {
       </Badge>
     )
   }
+
   const abs = Math.abs(dias)
+  if (abs === 1) {
+    return (
+      <Badge className="bg-red-100 text-red-700 border-red-200 text-[11px] font-semibold">
+        Venceu há 1 dia
+      </Badge>
+    )
+  }
+
   return (
-    <Badge
-      className={cn(
-        'text-[11px] font-semibold border',
-        dias < 0
-          ? 'bg-red-100 text-red-700 border-red-200'
-          : 'bg-amber-100 text-amber-700 border-amber-200',
-      )}
-    >
-      {dias < 0 ? `Vencido há ${abs} dia${abs === 1 ? '' : 's'}` : `Vence em ${dias} dias`}
+    <Badge className="bg-red-100 text-red-700 border-red-200 text-[11px] font-semibold">
+      Venceu há {abs} dias
     </Badge>
   )
 }
@@ -150,6 +159,7 @@ export const AuditoriaPage: React.FC = () => {
   const [filtroStatus, setFiltroStatus] = useState<
     'todos' | 'pendente' | 'confirmado' | 'aguardando'
   >('todos')
+  const [currentPage, setCurrentPage] = useState(1)
   const [sinalizando, setSinalizando] = useState<AuditoriaOcorrencia | null>(null)
   const [motivo, setMotivo] = useState('')
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
@@ -184,6 +194,23 @@ export const AuditoriaPage: React.FC = () => {
     }
     return list
   }, [ocorrencias, search, filtroStatus])
+
+  const totalItems = filtradas.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE))
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const paginadas = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return filtradas.slice(start, start + PAGE_SIZE)
+  }, [filtradas, currentPage])
+
+  const startRange = totalItems === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const endRange = Math.min(currentPage * PAGE_SIZE, totalItems)
 
   const handleConfirmar = async (o: AuditoriaOcorrencia) => {
     setActionLoadingId(o.id)
@@ -272,7 +299,10 @@ export const AuditoriaPage: React.FC = () => {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setCurrentPage(1)
+            }}
             placeholder="Buscar por produto, loja, promotor ou supervisor..."
             className="w-full h-9 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300"
           />
@@ -288,7 +318,10 @@ export const AuditoriaPage: React.FC = () => {
           ).map(([val, label]) => (
             <button
               key={val}
-              onClick={() => setFiltroStatus(val)}
+              onClick={() => {
+                setFiltroStatus(val)
+                setCurrentPage(1)
+              }}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
                 filtroStatus === val
@@ -335,10 +368,11 @@ export const AuditoriaPage: React.FC = () => {
                 <TableHeader>
                   <TableRow className="bg-slate-50/60">
                     <TableHead className="text-xs">Produto</TableHead>
-                    <TableHead className="text-xs">Loja</TableHead>
+                    <TableHead className="text-xs">Loja (Código • Loja)</TableHead>
+                    <TableHead className="text-xs">Motivo Auditoria</TableHead>
                     <TableHead className="text-xs text-right">Qtd</TableHead>
                     <TableHead className="text-xs">Validade</TableHead>
-                    <TableHead className="text-xs">Dias Vencido</TableHead>
+                    <TableHead className="text-xs">Status / Dias</TableHead>
                     <TableHead className="text-xs">Data Entrada</TableHead>
                     <TableHead className="text-xs">Promotor</TableHead>
                     <TableHead className="text-xs">Supervisor</TableHead>
@@ -347,89 +381,145 @@ export const AuditoriaPage: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtradas.map((o) => (
-                    <TableRow key={o.id} className="hover:bg-slate-50/70">
-                      <TableCell className="text-xs font-medium text-slate-900 max-w-[180px]">
-                        <div className="flex items-center gap-1.5">
-                          <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{o.produto || '—'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600 max-w-[220px]">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{o.loja || '—'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-right tabular-nums font-semibold text-slate-700">
-                        {o.quantidade}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                        {fmtDate(o.validadeEfetiva)}
-                      </TableCell>
-                      <TableCell className="text-xs whitespace-nowrap">
-                        <DiasVencidoBadge dias={o.diasVencido} />
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <CalendarDays className="w-3 h-3 text-slate-400" />
-                          {fmtDate(o.dataEntrada)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600 max-w-[120px]">
-                        <div className="flex items-center gap-1">
-                          <UserCheck className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate">{o.promotor || '—'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600 max-w-[120px]">
-                        <div className="flex items-center gap-1">
-                          <UserCog className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate">{o.supervisor || '—'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        <StatusAuditoriaBadge status={o.statusAuditoria} />
-                      </TableCell>
-                      <TableCell className="text-xs text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {o.statusAuditoria !== 'confirmado' && (
+                  {paginadas.map((o) => {
+                    const lojaIdent = formatStoreIdentity({
+                      codigo_loja: o.codigoLoja,
+                      nome_loja: o.loja,
+                    })
+
+                    return (
+                      <TableRow key={o.id} className="hover:bg-slate-50/70">
+                        <TableCell className="text-xs font-medium text-slate-900 max-w-[170px]">
+                          <div className="flex items-center gap-1.5">
+                            <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{o.produto || '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-700 font-medium max-w-[220px]">
+                          <div className="flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{lojaIdent}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <Badge
+                            variant="outline"
+                            className="text-[11px] font-semibold border-amber-300 text-amber-800 bg-amber-50"
+                          >
+                            {o.motivoAuditoria || 'Vencido'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-right tabular-nums font-semibold text-slate-700">
+                          {o.quantidade}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                          {fmtDate(o.validadeEfetiva)}
+                        </TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          <DiasVencidoBadge
+                            dias={o.diasVencido}
+                            motivoAuditoria={o.motivoAuditoria}
+                          />
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                          <div className="flex items-center gap-1">
+                            <CalendarDays className="w-3 h-3 text-slate-400" />
+                            {fmtDate(o.dataEntrada)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 max-w-[120px]">
+                          <div className="flex items-center gap-1">
+                            <UserCheck className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{o.promotor || '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 max-w-[120px]">
+                          <div className="flex items-center gap-1">
+                            <UserCog className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{o.supervisor || '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <StatusAuditoriaBadge status={o.statusAuditoria} />
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {o.statusAuditoria !== 'confirmado' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleConfirmar(o)}
+                                disabled={actionLoadingId === o.id}
+                                className="h-7 px-2 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
+                                title="Confirmar como Vencido legítimo"
+                              >
+                                {actionLoadingId === o.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3 h-3" />
+                                )}
+                                Confirmar
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handleConfirmar(o)}
-                              disabled={actionLoadingId === o.id}
-                              className="h-7 px-2 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
-                              title="Confirmar como Vencido legítimo"
+                              onClick={() => {
+                                setSinalizando(o)
+                                setMotivo('')
+                              }}
+                              disabled={actionLoadingId === o.id || o.sinalizadoCorrecao}
+                              className="h-7 px-2 text-[11px] gap-1 border-amber-200 text-amber-700 hover:bg-amber-50"
+                              title="Sinalizar para correção manual"
                             >
-                              {actionLoadingId === o.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-3 h-3" />
-                              )}
-                              Confirmar
+                              <Send className="w-3 h-3" />
+                              {o.sinalizadoCorrecao ? 'Sinalizado' : 'Sinalizar'}
                             </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSinalizando(o)
-                              setMotivo('')
-                            }}
-                            disabled={actionLoadingId === o.id || o.sinalizadoCorrecao}
-                            className="h-7 px-2 text-[11px] gap-1 border-amber-200 text-amber-700 hover:bg-amber-50"
-                            title="Sinalizar para correção manual"
-                          >
-                            <Send className="w-3 h-3" />
-                            {o.sinalizadoCorrecao ? 'Sinalizado' : 'Sinalizar'}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {/* Paginação */}
+          {!isLoading && totalPages > 1 && (
+            <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs text-slate-500 bg-slate-50/50">
+              <div>
+                Mostrando{' '}
+                <strong className="text-slate-700">
+                  {startRange}–{endRange}
+                </strong>{' '}
+                de <strong className="text-slate-700">{totalItems}</strong> ocorrências
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Anterior
+                </Button>
+                <span className="font-medium text-slate-700">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  Próxima
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           )}
         </div>

@@ -558,13 +558,7 @@ export class DataSourceFactory {
       case 'tradepro-api':
       case 'tradepro':
       case 'api': {
-        const apiUrl = (import.meta.env.VITE_TRADEPRO_API_URL || '').trim()
-        // Se VITE_TRADEPRO_API_URL não estiver configurada no caso tradepro-api, faz fallback para mock
-        if (dataSourceType === 'tradepro-api' && !apiUrl) {
-          activeInstance = new MockOperationalAdapter()
-        } else {
-          activeInstance = new TradeProApiAdapter()
-        }
+        activeInstance = new TradeProApiAdapter()
         break
       }
       case 'import':

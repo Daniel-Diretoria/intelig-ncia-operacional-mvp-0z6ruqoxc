@@ -15,6 +15,7 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { useLojas } from '@/services/useLojas'
+import { formatStoreIdentity, formatCityUf } from '@/lib/selectors'
 import type { StatusOperacional } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,7 +56,7 @@ export const LojasPage: React.FC = () => {
     .sort()
 
   const formatStoreCode = (code: string) => {
-    if (!code) return '000'
+    if (!code) return null
     if (!isNaN(Number(code))) return code.padStart(3, '0')
     return code
   }
@@ -276,23 +277,24 @@ export const LojasPage: React.FC = () => {
                       {/* Apresentação global de 2 linhas */}
                       <td className="py-3 px-4 font-medium text-slate-900">
                         <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors">
-                          {formattedCode} • {store.storeName}
+                          {formatStoreIdentity({
+                            codigo_loja: store.storeCode,
+                            nome_loja: store.storeName,
+                          })}
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-slate-400" />
                           <span>{store.networkName}</span>
                           <span>•</span>
                           <MapPin className="w-3 h-3 text-slate-400" />
-                          <span>
-                            {store.city}/{store.state}
-                          </span>
+                          <span>{formatCityUf(store.city, store.state)}</span>
                         </div>
                       </td>
 
                       <td className="py-3 px-4 text-slate-600 font-medium">{store.networkName}</td>
 
                       <td className="py-3 px-4 text-slate-600">
-                        {store.city} / {store.state}
+                        {formatCityUf(store.city, store.state)}
                       </td>
 
                       <td className="py-3 px-4 text-center">
