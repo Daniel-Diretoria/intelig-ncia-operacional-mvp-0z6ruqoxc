@@ -111,7 +111,7 @@ export function useKpis(): UseKpisResult {
           period: 'Base Atual',
           total: kpis.rupturasAtivasTotal,
           ativas: kpis.rupturasAtivasTotal,
-          resolvidas: 0,
+          resolvidos: 0,
         },
       ]
 

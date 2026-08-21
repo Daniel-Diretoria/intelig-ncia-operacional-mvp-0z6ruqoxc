@@ -272,7 +272,10 @@ export const DashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right whitespace-nowrap">
-                      <CriticidadeBadge level={item.status} diasRestantes={item.diasRestantes} />
+                      <CriticidadeBadge
+                        level={item.status === 'Normal' ? 'OK' : item.status}
+                        diasRestantes={item.diasRestantes}
+                      />
                     </div>
                   </div>
                 )

@@ -194,14 +194,6 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
 
         // Classificação operacional
         const statusOp = classifyOperationalStatus(dias)
-        const criticidadeMap: Record<StatusOperacionalFaixa, CriticidadeLevel> = {
-          Vencido: 'Vencido',
-          Crítico: 'Crítico',
-          Atenção: 'Atenção',
-          Moderado: 'Moderado',
-          Normal: 'OK',
-        }
-        const criticidadeLevel = criticidadeMap[statusOp]
 
         const item: ValidadeItem = {
           id,
@@ -221,7 +213,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
           unidade: 'UN',
           validade: parsedDate ? parsedDate.toISOString().slice(0, 10) : '',
           diasRestantes: dias ?? 0,
-          status: criticidadeLevel,
+          status: statusOp,
           promotor,
           supervisor,
           dataEntrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : undefined,
@@ -252,6 +244,8 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const cleanStoreName = extractStoreCleanName({ codigo_loja: rawCode, nome_loja: rawName })
         const storeRealCode = extractStoreRealCode({ codigo_loja: rawCode, nome_loja: rawName })
         const storeIdFormatted = formatStoreIdentity({ codigo_loja: rawCode, nome_loja: rawName })
+        const rupCidade = (rec.cidade || '') as string
+        const rupUf = (rec.estado || rec.uf || '') as string
 
         const rawEntrada = rec.data_entrada || rec.primeira_ocorrencia || rec.data_visita
         const entradaParsed = parseOperationalDate(rawEntrada)
@@ -264,6 +258,10 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
           operational_key: String(rec.chave_operacional || rec.id || ''),
           codigo_loja: storeRealCode || '',
           nome_loja: cleanStoreName,
+          cnpj_loja: String(rec.cnpj_loja || rec.cnpj || ''),
+          cidade: rupCidade,
+          estado: rupUf,
+          codigo_cliente: String(rec.codigo_cliente || rec.cod_cliente || ''),
           produto: String(rec.produto || 'Produto não informado'),
           motivo: (rec.motivo as Ruptura['motivo']) || 'Ruptura Total',
           data_visita: rec.data_visita ? String(rec.data_visita) : '',
@@ -271,8 +269,17 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
           dias_em_ruptura: diasPositivos,
           cliente: (rec.cliente as string) || cleanStoreName,
           colaborador: (rec.colaborador as string) || (rec.promotor as string) || '',
-          data_entrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : undefined,
-          categoria: (rec.categoria as string) || undefined,
+          data_entrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : '',
+          ultima_aparicao: rec.ultima_aparicao
+            ? String(rec.ultima_aparicao)
+            : rec.data_visita
+              ? String(rec.data_visita)
+              : '',
+          categoria: (rec.categoria as string) || '',
+          observacao: (rec.observacao as string) || '',
+          dedup_key: String(rec.dedup_key || ''),
+          source_import_id: String(rec.source_import_id || ''),
+          source_row: Number(rec.source_row || 0),
         })
       }
 
@@ -315,7 +322,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
             diasRestantes: item.diasRestantes,
             quantidade: item.quantidade ?? item.estoque,
             severidade,
-            status: item.status,
+            status: item.status as CriticidadeLevel,
             tipo: 'Validade',
             lido: readAlertIds.has(item.id),
             chaveOperacional: item.chaveOperacional || item.id,
@@ -432,7 +439,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
       const validadesCriticas = validadesAtivas.filter((i) => i.status === 'Crítico').length
       const validadesAtencao = validadesAtivas.filter((i) => i.status === 'Atenção').length
       const validadesModerado = validadesAtivas.filter((i) => i.status === 'Moderado').length
-      const validadesNormal = validadesAtivas.filter((i) => i.status === 'OK').length
+      const validadesNormal = validadesAtivas.filter((i) => i.status === 'Normal').length
       const quantidadeTotalEmRisco = validadesAtivas
         .filter((i) => i.status === 'Crítico' || itemIsAtencaoOuModerado(i.status))
         .reduce((sum, i) => sum + (i.quantidade ?? i.estoque), 0)
@@ -471,7 +478,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
   return fetchPromise
 }
 
-function itemIsAtencaoOuModerado(st: CriticidadeLevel): boolean {
+function itemIsAtencaoOuModerado(st: StatusOperacionalFaixa): boolean {
   return st === 'Atenção' || st === 'Moderado'
 }
 

@@ -199,7 +199,7 @@ export interface ValidadeItem {
   product: string
   sku: string
   lote: string
-  category: ProductCategory
+  category: ProductCategory | 'Não informada'
   validade: string // ISO format YYYY-MM-DD
   diasRestantes: number
   status: ValidadeStatus
@@ -219,6 +219,8 @@ export interface ValidadeItem {
   quantidade?: number // quantidade de unidades envolvidas na ocorrência
   precoUnitario?: number // preço médio unitário (R$) para estimativa de exposição financeira
   ultimaAtualizacao?: string // ISO date-time string
+  dataEntrada?: string
+  chaveOperacional?: string
 }
 
 export interface RupturaItem {
@@ -290,9 +292,11 @@ export interface ChartCategoryData {
 
 export interface ChartRupturaPeriodData {
   period: string
-  eventos: number
-  criticos: number
+  eventos?: number
+  criticos?: number
   resolvidos: number
+  total?: number
+  ativas?: number
 }
 
 export interface ValidadesFilter {
@@ -340,11 +344,14 @@ export interface AlertasFilter {
 
 export type ReportType =
   | 'validades-por-categoria'
+  | 'resumo-validades'
   | 'rupturas-por-periodo'
   | 'top-rupturas-por-produto'
   | 'validades-proximas-vencer'
+  | 'tendencia-vencimento'
   | 'rupturas-por-loja'
   | 'rupturas-por-motivo'
+  | 'validades-por-loja'
 
 export interface ReportData {
   /**

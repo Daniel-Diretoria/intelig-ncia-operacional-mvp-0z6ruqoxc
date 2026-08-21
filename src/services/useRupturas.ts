@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getBaseAtualSnapshot, type BaseAtualSnapshot } from '@/lib/selectors'
 import type { Ruptura, RupturasFilters, RupturasKpis } from '@/types'
-import { computeRupturasKpis } from '@/lib/data/deduplication'
+import { computeRupturasKpis } from '@/lib/pipeline/rupturasPipeline'
 
 export interface UseRupturasResult {
   data: Ruptura[]
@@ -40,10 +40,8 @@ export function useRupturas(filters?: RupturasFilters): UseRupturasResult {
         )
       }
 
-      if (filters?.codigo_loja && filters.codigo_loja !== 'all') {
-        items = items.filter(
-          (i) => i.codigo_loja === filters.codigo_loja || i.nome_loja === filters.codigo_loja,
-        )
+      if (filters?.loja && filters.loja !== 'all') {
+        items = items.filter((i) => i.codigo_loja === filters.loja || i.nome_loja === filters.loja)
       }
 
       if (filters?.motivo && filters.motivo !== 'all') {
@@ -54,12 +52,15 @@ export function useRupturas(filters?: RupturasFilters): UseRupturasResult {
         items = items.filter((i) => i.cliente === filters.cliente)
       }
 
-      if (filters?.situacao_atual && filters.situacao_atual !== 'all') {
-        items = items.filter((i) => i.situacao_atual === filters.situacao_atual)
+      if (
+        filters?.situacao &&
+        filters.situacao !== ('all' as unknown as RupturasFilters['situacao'])
+      ) {
+        items = items.filter((i) => i.situacao_atual === filters.situacao)
       }
 
-      if (filters?.data_inicio) {
-        const inicio = new Date(filters.data_inicio + 'T00:00:00').getTime()
+      if (filters?.dataInicio) {
+        const inicio = new Date(filters.dataInicio + 'T00:00:00').getTime()
         items = items.filter((i) => {
           if (!i.data_visita) return true
           const t = new Date(
@@ -69,8 +70,8 @@ export function useRupturas(filters?: RupturasFilters): UseRupturasResult {
         })
       }
 
-      if (filters?.data_fim) {
-        const fim = new Date(filters.data_fim + 'T23:59:59').getTime()
+      if (filters?.dataFim) {
+        const fim = new Date(filters.dataFim + 'T23:59:59').getTime()
         items = items.filter((i) => {
           if (!i.data_visita) return true
           const t = new Date(
