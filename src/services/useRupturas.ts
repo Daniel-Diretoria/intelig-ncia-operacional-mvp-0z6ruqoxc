@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { getBaseAtualSnapshot, type BaseAtualSnapshot } from '@/lib/selectors'
 import type { Ruptura, RupturasFilters, RupturasKpis } from '@/types'
-import { DataSourceFactory } from '@/lib/data'
+import { computeRupturasKpis } from '@/lib/data/deduplication'
 
 export interface UseRupturasResult {
   data: Ruptura[]
@@ -23,15 +24,67 @@ export function useRupturas(filters?: RupturasFilters): UseRupturasResult {
     setIsLoading(true)
     setError(null)
     try {
-      const provider = DataSourceFactory.getProvider()
-      const [fetchedItems, fetchedKpis] = await Promise.all([
-        provider.listRupturasDomain ? provider.listRupturasDomain(filters) : [],
-        provider.getRupturasKpis(),
-      ])
+      const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
+      let items = [...snapshot.rupturasAtivas]
+
+      // Aplica filtros
+      if (filters?.search) {
+        const q = filters.search.trim().toLowerCase()
+        items = items.filter(
+          (i) =>
+            i.produto.toLowerCase().includes(q) ||
+            i.nome_loja.toLowerCase().includes(q) ||
+            (i.codigo_loja && i.codigo_loja.toLowerCase().includes(q)) ||
+            (i.colaborador && i.colaborador.toLowerCase().includes(q)) ||
+            (i.cliente && i.cliente.toLowerCase().includes(q)),
+        )
+      }
+
+      if (filters?.codigo_loja && filters.codigo_loja !== 'all') {
+        items = items.filter(
+          (i) => i.codigo_loja === filters.codigo_loja || i.nome_loja === filters.codigo_loja,
+        )
+      }
+
+      if (filters?.motivo && filters.motivo !== 'all') {
+        items = items.filter((i) => i.motivo === filters.motivo)
+      }
+
+      if (filters?.cliente && filters.cliente !== 'all') {
+        items = items.filter((i) => i.cliente === filters.cliente)
+      }
+
+      if (filters?.situacao_atual && filters.situacao_atual !== 'all') {
+        items = items.filter((i) => i.situacao_atual === filters.situacao_atual)
+      }
+
+      if (filters?.data_inicio) {
+        const inicio = new Date(filters.data_inicio + 'T00:00:00').getTime()
+        items = items.filter((i) => {
+          if (!i.data_visita) return true
+          const t = new Date(
+            i.data_visita.includes('T') ? i.data_visita : i.data_visita + 'T00:00:00',
+          ).getTime()
+          return t >= inicio
+        })
+      }
+
+      if (filters?.data_fim) {
+        const fim = new Date(filters.data_fim + 'T23:59:59').getTime()
+        items = items.filter((i) => {
+          if (!i.data_visita) return true
+          const t = new Date(
+            i.data_visita.includes('T') ? i.data_visita : i.data_visita + 'T00:00:00',
+          ).getTime()
+          return t <= fim
+        })
+      }
+
+      const calculatedKpis = computeRupturasKpis(snapshot.rupturasAtivas)
 
       if (isMounted.current) {
-        setData(fetchedItems)
-        setKpis(fetchedKpis)
+        setData(items)
+        setKpis(calculatedKpis)
       }
     } catch (err) {
       if (isMounted.current) {
@@ -49,17 +102,6 @@ export function useRupturas(filters?: RupturasFilters): UseRupturasResult {
     fetchData()
     return () => {
       isMounted.current = false
-    }
-  }, [fetchData])
-
-  // Ouvir evento global de atualização (pós importação)
-  useEffect(() => {
-    const handleRefresh = () => {
-      fetchData()
-    }
-    window.addEventListener('diretoria:refresh', handleRefresh)
-    return () => {
-      window.removeEventListener('diretoria:refresh', handleRefresh)
     }
   }, [fetchData])
 

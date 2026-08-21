@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { DataSourceFactory } from '@/lib/data'
 import type { ReportData, ReportType } from '@/types'
+import { getBaseAtualSnapshot, type BaseAtualSnapshot } from '@/lib/selectors'
+import {
+  buildResumoValidadesReport,
+  buildValidadesPorLojaReport,
+  buildTendenciaVencimentoReport,
+  buildRupturasPorLojaReport,
+  buildRupturasPorMotivoReport,
+} from '@/lib/data/reports'
 
 export interface UseReportResult {
   data: ReportData | null
@@ -19,14 +26,41 @@ export function useReport(reportType: ReportType): UseReportResult {
     setIsLoading(true)
     setError(null)
     try {
-      const provider = DataSourceFactory.getProvider()
-      const result = await provider.getReportData(reportType)
+      const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
+      const validades = snapshot.validadesAtivas
+      const rupturas = snapshot.rupturasAtivas
+
+      let result: ReportData
+
+      switch (reportType) {
+        case 'validades-por-categoria':
+        case 'resumo-validades':
+          result = buildResumoValidadesReport(validades)
+          break
+        case 'validades-proximas-vencer':
+        case 'tendencia-vencimento':
+          result = buildTendenciaVencimentoReport(validades)
+          break
+        case 'rupturas-por-loja':
+        case 'top-rupturas-por-produto':
+          result = buildRupturasPorLojaReport(rupturas)
+          break
+        case 'rupturas-por-motivo':
+        case 'rupturas-por-periodo':
+          result = buildRupturasPorMotivoReport(rupturas)
+          break
+        case 'validades-por-loja':
+        default:
+          result = buildValidadesPorLojaReport(validades)
+          break
+      }
+
       if (isMounted.current) {
         setData(result)
       }
     } catch (err) {
       if (isMounted.current) {
-        setError(err instanceof Error ? err : new Error('Erro ao gerar relatório'))
+        setError(err instanceof Error ? err : new Error('Falha ao gerar relatório'))
       }
     } finally {
       if (isMounted.current) {

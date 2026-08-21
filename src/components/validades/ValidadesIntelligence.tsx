@@ -1,385 +1,227 @@
-import React from 'react'
-import { cn } from '@/lib/utils'
-import { TrendingUp, AlertTriangle, Clock, Users, MapPin, ListOrdered } from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { ValidadeItem } from '@/types'
-import {
-  rankingPorLoja,
-  rankingPorCidade,
-  rankingPorCliente,
-  produtosVencendoPrimeiro,
-  prioridadeAtuacao,
-  type RankingItem,
-} from '@/lib/data/validadesCompute'
-import { getCriticidadeFaixa, classificarCriticidade } from '@/lib/data/criticidade'
-import { CriticidadeBadge } from './CriticidadeBadge'
+import { TrendingDown, AlertTriangle, Building2, Calendar, Layers } from 'lucide-react'
+import { classificarCriticidade } from '@/lib/data/criticidade'
+import { formatStoreIdentity } from '@/lib/format/storeIdentity'
 
-const fmtMoney = (v: number) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+interface ValidadesIntelligenceProps {
+  items: ValidadeItem[]
+  isLoading?: boolean
+}
+
 const fmtInt = (v: number) => v.toLocaleString('pt-BR')
 
-function IntelligenceCard({
-  title,
-  question,
-  icon: Icon,
-  iconClass,
-  children,
-}: {
-  title: string
-  question: string
-  icon: React.ElementType
-  iconClass: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 flex flex-col">
-      <div className="flex items-start gap-3 mb-3">
-        <div
-          className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', iconClass)}
-        >
-          <Icon className="w-4 h-4" />
-        </div>
-        <div>
-          <h4 className="text-sm font-bold text-slate-900 leading-tight">{title}</h4>
-          <p className="text-[11px] text-slate-500 mt-0.5">{question}</p>
-        </div>
-      </div>
-      <div className="flex-1 min-h-0">{children}</div>
-    </div>
-  )
-}
-
-function RankingRow({
-  rank,
-  label,
-  metrica,
-  direita,
-  isLast,
-}: {
-  rank: number
-  label: string
-  metrica: string
-  direita: string
-  isLast?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'flex items-center justify-between py-2 text-xs gap-2',
-        !isLast && 'border-b border-slate-100',
-      )}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span
-          className={cn(
-            'w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0',
-            rank === 1
-              ? 'bg-red-100 text-red-700'
-              : rank === 2
-                ? 'bg-orange-100 text-orange-700'
-                : rank === 3
-                  ? 'bg-amber-100 text-amber-700'
-                  : 'bg-slate-100 text-slate-600',
-          )}
-        >
-          {rank}
-        </span>
-        <span className="font-medium text-slate-800 truncate">{label}</span>
-      </div>
-      <div className="text-right shrink-0">
-        <p className="font-semibold text-slate-900 tabular-nums">{metrica}</p>
-        <p className="text-[10px] text-slate-400">{direita}</p>
-      </div>
-    </div>
-  )
-}
-
-function renderRanking(
-  rows: RankingItem[],
-  metricaLabel: string,
-  direitaFn: (r: RankingItem) => string,
-) {
-  if (rows.length === 0) {
-    return <p className="text-xs text-slate-400 py-4 text-center">Sem dados para o filtro atual.</p>
-  }
-  return (
-    <div>
-      {rows.map((r, i) => (
-        <RankingRow
-          key={r.chave}
-          rank={i + 1}
-          label={r.chave}
-          metrica={`${fmtInt(r.criticos)} crít.`}
-          direita={direitaFn(r)}
-        />
-      ))}
-      <p className="text-[10px] text-slate-400 mt-1">{metricaLabel}</p>
-    </div>
-  )
-}
-
-export const ValidadesIntelligence: React.FC<{ items: ValidadeItem[]; isLoading?: boolean }> = ({
+export const ValidadesIntelligence: React.FC<ValidadesIntelligenceProps> = ({
   items,
   isLoading,
 }) => {
-  const topLojas = React.useMemo(() => rankingPorLoja(items, 6), [items])
-  const topCidades = React.useMemo(() => rankingPorCidade(items, 6), [items])
-  const topClientes = React.useMemo(() => rankingPorCliente(items, 6), [items])
-  const vencendoPrimeiro = React.useMemo(() => produtosVencendoPrimeiro(items, 6), [items])
-  const prioridade = React.useMemo(() => prioridadeAtuacao(items, 6), [items])
+  const blocks = useMemo(() => {
+    if (!items || items.length === 0) return null
+
+    // 1. Clientes/Indústrias com maior volume em risco
+    const porIndustria: Record<string, { quantidade: number; ocorrencias: number }> = {}
+    items.forEach((item) => {
+      const ind = item.industria || item.cliente || 'Diretoria'
+      if (!porIndustria[ind]) {
+        porIndustria[ind] = { quantidade: 0, ocorrencias: 0 }
+      }
+      porIndustria[ind].quantidade += item.quantidade ?? item.estoque
+      porIndustria[ind].ocorrencias += 1
+    })
+    const topIndustrias = Object.entries(porIndustria)
+      .map(([industria, data]) => ({ industria, ...data }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+      .slice(0, 5)
+
+    // 2. Lojas com mais ocorrências
+    const porLoja: Record<
+      string,
+      { nome: string; codigo?: string; total: number; criticos: number }
+    > = {}
+    items.forEach((item) => {
+      const key = item.loja || 'Loja não informada'
+      if (!porLoja[key]) {
+        porLoja[key] = {
+          nome: item.loja,
+          codigo: item.codigoLoja,
+          total: 0,
+          criticos: 0,
+        }
+      }
+      porLoja[key].total += 1
+      if (classificarCriticidade(item.diasRestantes) === 'Crítico') {
+        porLoja[key].criticos += 1
+      }
+    })
+    const topLojas = Object.entries(porLoja)
+      .map(([_, data]) => ({
+        identidade: formatStoreIdentity({ codigo_loja: data.codigo, nome_loja: data.nome }),
+        total: data.total,
+        criticos: data.criticos,
+      }))
+      .sort((a, b) => b.criticos - a.criticos || b.total - a.total)
+      .slice(0, 5)
+
+    // 3. Distribuição por faixa de dias
+    const faixas = {
+      ate15: { label: '1 a 15 dias (Crítico)', count: 0, qtd: 0 },
+      de16a25: { label: '16 a 25 dias (Atenção)', count: 0, qtd: 0 },
+      de26a35: { label: '26 a 35 dias (Moderado)', count: 0, qtd: 0 },
+      acima35: { label: '> 35 dias (OK)', count: 0, qtd: 0 },
+    }
+    items.forEach((item) => {
+      const d = item.diasRestantes
+      const q = item.quantidade ?? item.estoque
+      if (d <= 15) {
+        faixas.ate15.count++
+        faixas.ate15.qtd += q
+      } else if (d <= 25) {
+        faixas.de16a25.count++
+        faixas.de16a25.qtd += q
+      } else if (d <= 35) {
+        faixas.de26a35.count++
+        faixas.de26a35.qtd += q
+      } else {
+        faixas.acima35.count++
+        faixas.acima35.qtd += q
+      }
+    })
+
+    // 4. Produtos mais críticos (pelo menor número de dias)
+    const produtosCriticos = [...items]
+      .sort((a, b) => a.diasRestantes - b.diasRestantes)
+      .slice(0, 5)
+
+    return {
+      topIndustrias,
+      topLojas,
+      faixas: Object.values(faixas),
+      produtosCriticos,
+    }
+  }, [items])
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white rounded-xl border border-slate-200 p-5 h-48 animate-pulse"
-          />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="border-slate-200">
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </CardContent>
+          </Card>
         ))}
       </div>
     )
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
-        Ajuste os filtros para visualizar os blocos de inteligência.
-      </div>
-    )
+  if (!blocks) {
+    return null
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <IntelligenceCard
-        title="Maiores concentrações de risco"
-        question="Onde estão as maiores concentrações de risco? (top cidades com itens críticos)"
-        icon={MapPin}
-        iconClass="bg-red-100 text-red-700"
-      >
-        {renderRanking(
-          topCidades,
-          'Cidades com maior número de ocorrências críticas.',
-          (r) => `${fmtInt(r.ocorrencias)} ocorr.`,
-        )}
-      </IntelligenceCard>
-
-      <IntelligenceCard
-        title="Lojas que exigem atenção"
-        question="Quais lojas exigem atenção? (ranking por itens vencendo)"
-        icon={AlertTriangle}
-        iconClass="bg-orange-100 text-orange-700"
-      >
-        {renderRanking(
-          topLojas,
-          'Lojas com maior concentração de ocorrências críticas.',
-          (r) => `${fmtInt(r.quantidade)} un.`,
-        )}
-      </IntelligenceCard>
-
-      <IntelligenceCard
-        title="Produtos que vencerão primeiro"
-        question="Quais produtos vencerão primeiro? (ordenados por data mais próxima)"
-        icon={Clock}
-        iconClass="bg-amber-100 text-amber-700"
-      >
-        {vencendoPrimeiro.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">Sem dados.</p>
-        ) : (
-          <div>
-            {vencendoPrimeiro.map(({ item, nivel }, i) => (
-              <div
-                key={item.id}
-                className={cn(
-                  'flex items-center justify-between py-2 text-xs gap-2',
-                  i < vencendoPrimeiro.length - 1 && 'border-b border-slate-100',
-                )}
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-slate-800 truncate">{item.product}</p>
-                  <p className="text-[10px] text-slate-400">
-                    {item.loja} •{' '}
-                    {new Date(item.validade + 'T00:00:00').toLocaleDateString('pt-BR')}
-                  </p>
-                </div>
-                <div className="shrink-0">
-                  <CriticidadeBadge level={nivel} diasRestantes={item.diasRestantes} />
-                </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 1. Clientes / Indústrias com Maior Volume */}
+      <Card className="border-slate-200 shadow-sm bg-white">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+            Volume em Risco por Indústria
+          </CardTitle>
+          <Building2 className="w-4 h-4 text-indigo-600" />
+        </CardHeader>
+        <CardContent className="space-y-2.5 pt-1">
+          {blocks.topIndustrias.map((item, idx) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <div className="min-w-0 pr-2">
+                <p className="font-medium text-slate-900 truncate">{item.industria}</p>
+                <p className="text-[10px] text-slate-400">
+                  {item.ocorrencias} {item.ocorrencias === 1 ? 'ocorrência' : 'ocorrências'}
+                </p>
               </div>
-            ))}
-          </div>
-        )}
-      </IntelligenceCard>
+              <span className="font-semibold text-slate-900 whitespace-nowrap tabular-nums text-[11px]">
+                {fmtInt(item.quantidade)} un
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-      <IntelligenceCard
-        title="Clientes com maior exposição"
-        question="Quais clientes possuem maior exposição? (volume financeiro em risco)"
-        icon={Users}
-        iconClass="bg-indigo-100 text-indigo-700"
-      >
-        {topClientes.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">Sem dados.</p>
-        ) : (
-          <div>
-            {topClientes.map((r, i) => (
-              <div
-                key={r.chave}
-                className={cn(
-                  'flex items-center justify-between py-2 text-xs gap-2',
-                  i < topClientes.length - 1 && 'border-b border-slate-100',
-                )}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={cn(
-                      'w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0',
-                      i === 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600',
-                    )}
-                  >
-                    {i + 1}
-                  </span>
-                  <span className="font-medium text-slate-800 truncate">{r.chave}</span>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-semibold text-slate-900 tabular-nums">
-                    {fmtMoney(r.exposicao)}
-                  </p>
-                  <p className="text-[10px] text-slate-400">{fmtInt(r.ocorrencias)} ocorr.</p>
-                </div>
+      {/* 2. Lojas com Mais Ocorrências */}
+      <Card className="border-slate-200 shadow-sm bg-white">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+            Lojas com Mais Ocorrências
+          </CardTitle>
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
+        </CardHeader>
+        <CardContent className="space-y-2.5 pt-1">
+          {blocks.topLojas.map((item, idx) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <div className="min-w-0 pr-2">
+                <p className="font-medium text-slate-900 truncate">{item.identidade}</p>
+                <p className="text-[10px] text-slate-400">
+                  {item.criticos > 0 ? `${item.criticos} crítica(s)` : 'Sob controle'}
+                </p>
               </div>
-            ))}
-          </div>
-        )}
-      </IntelligenceCard>
+              <span className="font-semibold text-slate-900 whitespace-nowrap text-[11px]">
+                {item.total} {item.total === 1 ? 'item' : 'itens'}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-      <IntelligenceCard
-        title="Prioridade de atuação recomendada"
-        question="Qual prioridade de atuação recomendamos? (criticidade × quantidade × proximidade)"
-        icon={ListOrdered}
-        iconClass="bg-emerald-100 text-emerald-700"
-      >
-        {prioridade.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">Sem dados.</p>
-        ) : (
-          <div>
-            {prioridade.map((p, i) => {
-              const faixa = getCriticidadeFaixa(p.nivel)
-              return (
-                <div
-                  key={p.item.id}
-                  className={cn(
-                    'flex items-center justify-between py-2 text-xs gap-2',
-                    i < prioridade.length - 1 && 'border-b border-slate-100',
-                  )}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={cn(
-                        'w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0',
-                        i === 0 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600',
-                      )}
-                    >
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-800 truncate">{p.item.product}</p>
-                      <p className="text-[10px] text-slate-400 truncate">
-                        {p.item.loja} • {fmtInt(p.item.quantidade ?? p.item.estoque)} un.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <CriticidadeBadge level={p.nivel} />
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      score {p.score.toFixed(1)} • {faixa.label}
-                    </p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </IntelligenceCard>
+      {/* 3. Distribuição por Faixa de Vencimento */}
+      <Card className="border-slate-200 shadow-sm bg-white">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+            Distribuição por Status
+          </CardTitle>
+          <Calendar className="w-4 h-4 text-emerald-600" />
+        </CardHeader>
+        <CardContent className="space-y-2.5 pt-1">
+          {blocks.faixas.map((item, idx) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <span className="font-medium text-slate-700 truncate pr-2">{item.label}</span>
+              <div className="text-right whitespace-nowrap">
+                <span className="font-semibold text-slate-900 tabular-nums text-[11px]">
+                  {fmtInt(item.count)}
+                </span>
+                <span className="text-[10px] text-slate-400 ml-1">({fmtInt(item.qtd)} un)</span>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-      <IntelligenceCard
-        title="Resumo quantitativo"
-        question="Distribuição das ocorrências por faixa de criticidade (dados filtrados)"
-        icon={TrendingUp}
-        iconClass="bg-slate-100 text-slate-700"
-      >
-        <ResumoQuantitativo items={items} />
-      </IntelligenceCard>
-    </div>
-  )
-}
-
-function ResumoQuantitativo({ items }: { items: ValidadeItem[] }) {
-  const counts = React.useMemo(() => {
-    let v = 0 // Vencido
-    let c = 0 // Crítico
-    let a = 0 // Atenção
-    let m = 0 // Moderado
-    let o = 0 // OK
-    let qtd = 0
-    let exp = 0
-    for (const it of items) {
-      const nivel = classificarCriticidade(it.diasRestantes)
-      if (nivel === 'Vencido') v++
-      else if (nivel === 'Crítico') c++
-      else if (nivel === 'Atenção') a++
-      else if (nivel === 'Moderado') m++
-      else o++
-      qtd += it.quantidade ?? it.estoque
-      exp += (it.quantidade ?? it.estoque) * (it.precoUnitario ?? 0)
-    }
-    return { v, c, a, m, o, qtd, exp, total: items.length }
-  }, [items])
-
-  const rows: Array<{ label: string; value: string; chip: string }> = [
-    { label: 'Vencido (≤ 0 dias)', value: fmtInt(counts.v), chip: 'bg-rose-100 text-rose-700' },
-    { label: 'Crítico (1–15 dias)', value: fmtInt(counts.c), chip: 'bg-red-100 text-red-700' },
-    {
-      label: 'Atenção (16–25 dias)',
-      value: fmtInt(counts.a),
-      chip: 'bg-orange-100 text-orange-700',
-    },
-    {
-      label: 'Moderado (26–35 dias)',
-      value: fmtInt(counts.m),
-      chip: 'bg-amber-100 text-amber-800',
-    },
-    { label: 'OK (> 35 dias)', value: fmtInt(counts.o), chip: 'bg-emerald-100 text-emerald-700' },
-    {
-      label: 'Quantidade total envolvida',
-      value: `${fmtInt(counts.qtd)} un.`,
-      chip: 'bg-slate-100 text-slate-700',
-    },
-    {
-      label: 'Exposição financeira estimada',
-      value: fmtMoney(counts.exp),
-      chip: 'bg-indigo-100 text-indigo-700',
-    },
-  ]
-
-  return (
-    <div>
-      {rows.map((r, i) => (
-        <div
-          key={r.label}
-          className={cn(
-            'flex items-center justify-between py-2 text-xs gap-2',
-            i < rows.length - 1 && 'border-b border-slate-100',
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <span className={cn('w-2.5 h-2.5 rounded-full', r.chip.split(' ')[0])} />
-            <span className="text-slate-600">{r.label}</span>
-          </div>
-          <span className="font-semibold text-slate-900 tabular-nums">{r.value}</span>
-        </div>
-      ))}
-      <p className="text-[10px] text-slate-400 mt-1">
-        Total de ocorrências no filtro: {fmtInt(counts.total)}
-      </p>
+      {/* 4. Validades mais Iminentes */}
+      <Card className="border-slate-200 shadow-sm bg-white">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+            Validades mais Iminentes
+          </CardTitle>
+          <TrendingDown className="w-4 h-4 text-red-600" />
+        </CardHeader>
+        <CardContent className="space-y-2.5 pt-1">
+          {blocks.produtosCriticos.map((item, idx) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <div className="min-w-0 pr-2">
+                <p className="font-medium text-slate-900 truncate">{item.product}</p>
+                <p className="text-[10px] text-slate-400 truncate">{item.loja}</p>
+              </div>
+              <span className="font-semibold text-red-600 whitespace-nowrap tabular-nums text-[11px]">
+                {item.diasRestantes} {item.diasRestantes === 1 ? 'dia' : 'dias'}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   )
 }

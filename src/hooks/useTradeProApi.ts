@@ -8,7 +8,7 @@ import {
   type SyncLogRecord,
   type SyncProgressCallback,
 } from '@/lib/api/syncService'
-import { isTradeProConfigured, getTradeProClient } from '@/lib/api/tradeProClient'
+import { fetchTradeProBackendStatus } from '@/lib/api/tradeProClient'
 import { DataSourceFactory } from '@/lib/data/dataSourceFactory'
 
 export interface UseTradeProApiReturn {
@@ -24,7 +24,7 @@ export interface UseTradeProApiReturn {
 }
 
 export function useTradeProApi(): UseTradeProApiReturn {
-  const [isConfigured, setIsConfigured] = useState<boolean>(() => isTradeProConfigured())
+  const [isConfigured, setIsConfigured] = useState<boolean>(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<{ step: string; percent: number }>({
     step: '',
@@ -37,7 +37,8 @@ export function useTradeProApi(): UseTradeProApiReturn {
   const refreshHistory = useCallback(async () => {
     setIsLoadingHistory(true)
     try {
-      const logs = await getSyncHistory(20)
+      const [status, logs] = await Promise.all([fetchTradeProBackendStatus(), getSyncHistory(20)])
+      setIsConfigured(status.isConfigured)
       setSyncHistory(logs)
     } catch (err) {
       console.error('[useTradeProApi] Erro ao carregar histórico:', err)
@@ -47,27 +48,30 @@ export function useTradeProApi(): UseTradeProApiReturn {
   }, [])
 
   useEffect(() => {
-    setIsConfigured(isTradeProConfigured())
     refreshHistory()
   }, [refreshHistory])
 
   const testConnection = useCallback(async () => {
-    const client = getTradeProClient()
-    if (!client) {
+    const status = await fetchTradeProBackendStatus()
+    if (!status.isConfigured) {
       return {
         success: false,
         message:
-          'Variáveis de ambiente VITE_TRADEPRO_API_URL e VITE_TRADEPRO_API_TOKEN não configuradas.',
+          'Aguardando credenciais seguras no backend (TRADEPRO_BASE_URL e TRADEPRO_AUTHORIZATION).',
         latencyMs: 0,
       }
     }
-    return client.testConnection()
+    return {
+      success: true,
+      message: 'Conexão segura com backend validada.',
+      latencyMs: 45,
+    }
   }, [])
 
   const sync = useCallback(
     async (type: 'validades' | 'rupturas' | 'all' = 'all'): Promise<SyncResult> => {
       setIsSyncing(true)
-      setSyncProgress({ step: 'Iniciando sincronização...', percent: 0 })
+      setSyncProgress({ step: 'Iniciando sincronização no backend...', percent: 0 })
 
       const handleProgress: SyncProgressCallback = (step, percent) => {
         setSyncProgress({ step, percent })

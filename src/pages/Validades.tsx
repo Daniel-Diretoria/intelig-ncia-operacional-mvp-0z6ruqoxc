@@ -36,6 +36,8 @@ import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
 import { ValidadesIntelligence } from '@/components/validades/ValidadesIntelligence'
 import { ExportModal } from '@/components/validades/ExportModal'
 import { OccurrenceDetailModal } from '@/components/validades/OccurrenceDetailModal'
+import { formatDisplayDate } from '@/lib/format/dateParser'
+import { formatStoreIdentity, formatCityUf } from '@/lib/format/storeIdentity'
 import { cn } from '@/lib/utils'
 
 type KpiId =
@@ -47,42 +49,32 @@ type KpiId =
   | 'quantidade'
   | 'lojas'
   | 'clientes'
-  | 'exposicao'
 
 const PAGE_SIZE = 10
 
-const fmtMoney = (v: number) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 const fmtInt = (v: number) => v.toLocaleString('pt-BR')
 
 export const ValidadesPage: React.FC = () => {
   const navigate = useNavigate()
-  // Estado de filtros (UI)
   const [filterState, setFilterState] = useState<ValidadesFilterState>(emptyValidadesFilterState)
   const [appliedFilter, setAppliedFilter] =
     useState<ValidadesFilterState>(emptyValidadesFilterState)
 
-  // Drill-down
   const [drill, setDrill] = useState<ValidadeDrill | undefined>(undefined)
-  // KPI selecionado (aplica criticidade como filtro rápido)
   const [selectedKpi, setSelectedKpi] = useState<KpiId | null>(null)
 
-  // Modais
   const [exportOpen, setExportOpen] = useState(false)
   const [detailItem, setDetailItem] = useState<ValidadeItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
-  // Ordenação / paginação
   const [sortKey, setSortKey] = useState<string>('diasRestantes')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
 
-  // Filtro efetivo enviado ao hook = filtros aplicados + drill + atalho KPI
   const effectiveFilter = useMemo(() => {
     const base = buildValidadesFilter(appliedFilter)
     const merged: typeof base = { ...base }
     if (drill) merged.drill = drill
-    // Atalho de KPI: adiciona criticidade correspondente
     if (selectedKpi) {
       const map: Partial<Record<KpiId, CriticidadeLevel>> = {
         criticos: 'Crítico',
@@ -92,7 +84,6 @@ export const ValidadesPage: React.FC = () => {
       }
       const nivel = map[selectedKpi]
       if (nivel) {
-        // sobrescreve criticidades do filtro manual
         merged.criticidades = [nivel]
       }
     }
@@ -101,14 +92,12 @@ export const ValidadesPage: React.FC = () => {
 
   const { data: validades, isLoading, error, refetch } = useValidades(effectiveFilter)
 
-  // Escuta refresh global do header
   useEffect(() => {
     const handleGlobalRefresh = () => refetch()
     window.addEventListener('diretoria:refresh', handleGlobalRefresh)
     return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
   }, [refetch])
 
-  // KPIs calculados sobre os dados filtrados (sem o atalho de KPI, para o total "geral")
   const kpis = useMemo(() => calcularKpis(validades), [validades])
 
   const handleApplyFilters = useCallback(() => {
@@ -144,14 +133,12 @@ export const ValidadesPage: React.FC = () => {
     setPage(1)
   }
 
-  // Drill-down: clica num registro -> desce um nível conforme contexto atual
   const handleRowClick = (row: ValidadeItem) => {
     setDetailItem(row)
     setDetailOpen(true)
   }
 
   const drillInto = (item: ValidadeItem) => {
-    // Hierarquia: overview -> cliente -> loja -> produto -> ocorrencia
     if (!drill || drill.level === 'overview') {
       setDrill({ level: 'cliente', cliente: item.cliente })
     } else if (drill.level === 'cliente') {
@@ -194,20 +181,18 @@ export const ValidadesPage: React.FC = () => {
     setPage(1)
   }
 
-  // Breadcrumb items
   const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
     const items: BreadcrumbItem[] = [{ label: 'Visão Geral', level: 'overview' }]
     if (selectedKpi) {
       const labels: Record<KpiId, string> = {
         total: 'Todas as ocorrências',
-        criticos: 'Produtos Críticos (0–15 dias)',
+        criticos: 'Produtos Críticos (1–15 dias)',
         atencao: 'Atenção (16–25 dias)',
         moderado: 'Moderado (26–35 dias)',
         ok: 'OK (> 35 dias)',
         quantidade: 'Quantidade total',
         lojas: 'Lojas afetadas',
         clientes: 'Clientes afetados',
-        exposicao: 'Exposição financeira',
       }
       items.push({ label: labels[selectedKpi], level: 'overview' })
     }
@@ -221,7 +206,6 @@ export const ValidadesPage: React.FC = () => {
     return items
   }, [drill, selectedKpi])
 
-  // Dados ordenados
   const sortedData = useMemo(() => {
     const list = [...validades]
     if (!sortKey) return list
@@ -244,7 +228,6 @@ export const ValidadesPage: React.FC = () => {
     return list
   }, [validades, sortKey, sortOrder])
 
-  // Paginação
   const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const paginatedData = useMemo(
@@ -252,7 +235,6 @@ export const ValidadesPage: React.FC = () => {
     [sortedData, currentPage],
   )
 
-  // Opções de filtro derivadas dos dados reais (não mais do mock)
   const uniqueSorted = (vals: Array<string | undefined | null>) =>
     [...new Set(vals.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   const toOptions = (arr: string[]) => arr.map((v) => ({ label: v, value: v }))
@@ -266,18 +248,11 @@ export const ValidadesPage: React.FC = () => {
       produtos: toOptions(uniqueSorted(validades.map((v) => v.product))),
       promotores: toOptions(uniqueSorted(validades.map((v) => v.promotor))),
       supervisores: toOptions(uniqueSorted(validades.map((v) => v.supervisor))),
-      categorias: [
-        { label: 'Mercearia', value: 'Mercearia' },
-        { label: 'Laticínios', value: 'Laticínios' },
-        { label: 'Bebidas', value: 'Bebidas' },
-        { label: 'Limpeza', value: 'Limpeza' },
-        { label: 'Higiene', value: 'Higiene' },
-      ],
+      categorias: [],
     }),
     [validades],
   )
 
-  // KPI tiles
   const kpiTiles: KpiTile[] = useMemo(
     () => [
       {
@@ -286,7 +261,7 @@ export const ValidadesPage: React.FC = () => {
         value: fmtInt(kpis.total),
         icon: ClipboardList,
         chipClass: 'bg-slate-100 text-slate-700',
-        hint: 'Total no filtro',
+        hint: 'Total na Base Atual',
         active: selectedKpi === 'total',
       },
       {
@@ -295,7 +270,7 @@ export const ValidadesPage: React.FC = () => {
         value: fmtInt(kpis.criticos),
         icon: AlertOctagon,
         chipClass: 'bg-red-100 text-red-700',
-        hint: '0 a 15 dias',
+        hint: '1 a 15 dias',
         active: selectedKpi === 'criticos',
       },
       {
@@ -327,8 +302,8 @@ export const ValidadesPage: React.FC = () => {
       },
       {
         id: 'quantidade',
-        label: 'Qtd. total',
-        value: fmtInt(kpis.quantidadeTotal),
+        label: 'Volume em risco',
+        value: `${fmtInt(kpis.quantidadeTotal)} un`,
         icon: Package,
         chipClass: 'bg-indigo-100 text-indigo-700',
         hint: 'Unidades envolvidas',
@@ -351,15 +326,6 @@ export const ValidadesPage: React.FC = () => {
         chipClass: 'bg-purple-100 text-purple-700',
         hint: 'Clientes distintos',
         active: selectedKpi === 'clientes',
-      },
-      {
-        id: 'exposicao',
-        label: 'Exposição financeira',
-        value: fmtMoney(kpis.exposicaoFinanceira),
-        icon: Brain,
-        chipClass: 'bg-rose-100 text-rose-700',
-        hint: 'Estimativa em risco',
-        active: selectedKpi === 'exposicao',
       },
     ],
     [kpis, selectedKpi],
@@ -388,12 +354,14 @@ export const ValidadesPage: React.FC = () => {
       {
         key: 'loja',
         header: 'Loja',
-        className: 'min-w-[160px] text-slate-600',
+        className: 'min-w-[180px] text-slate-600',
         sortable: true,
         render: (row) => {
-          const codeKey = row.codigoLoja
-            ? `${row.codigoLoja.padStart(3, '0')}-${row.loja}`
-            : row.loja
+          const storeIdent = formatStoreIdentity({
+            codigo_loja: row.codigoLoja,
+            nome_loja: row.loja,
+          })
+          const codeKey = row.codigoLoja ? `${row.codigoLoja}-${row.loja}` : row.loja
           return (
             <div
               className="min-w-0 cursor-pointer group"
@@ -404,21 +372,11 @@ export const ValidadesPage: React.FC = () => {
                 }
               }}
             >
-              <p className="truncate group-hover:text-indigo-600 transition-colors">
-                {row.codigoLoja ? (
-                  <>
-                    <span className="font-mono font-bold text-indigo-700 group-hover:text-indigo-800">
-                      {row.codigoLoja}
-                    </span>
-                    <span className="text-slate-400"> • </span>
-                  </>
-                ) : null}
-                <span className="font-medium text-slate-900 group-hover:text-indigo-600">
-                  {row.loja}
-                </span>
+              <p className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                {storeIdent}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {row.cidade}/{row.uf}
+                {formatCityUf(row.cidade, row.uf)}
               </p>
             </div>
           )
@@ -432,8 +390,10 @@ export const ValidadesPage: React.FC = () => {
         render: (row) => (
           <div className="min-w-0">
             <p className="font-medium text-slate-900 truncate">{row.product}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {row.category} • {row.sku}
+            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+              {row.sku && row.sku !== 'Código não informado'
+                ? `SKU: ${row.sku}`
+                : 'Código não informado'}
             </p>
           </div>
         ),
@@ -443,19 +403,24 @@ export const ValidadesPage: React.FC = () => {
         header: 'Qtd.',
         align: 'right',
         sortable: true,
-        render: (row) => (
-          <span className="font-semibold text-slate-900 tabular-nums">
-            {fmtInt(row.quantidade ?? row.estoque)}{' '}
-            <span className="text-[10px] text-slate-400 font-normal">{row.unidade}</span>
-          </span>
-        ),
+        render: (row) => {
+          const qty = row.quantidade ?? row.estoque
+          return (
+            <span className="font-semibold text-slate-900 tabular-nums">
+              {fmtInt(qty)}{' '}
+              <span className="text-[10px] text-slate-400 font-normal">
+                {qty === 1 ? 'unidade' : 'unidades'}
+              </span>
+            </span>
+          )
+        },
       },
       {
         key: 'validade',
         header: 'Validade',
         sortable: true,
         className: 'tabular-nums text-slate-700',
-        render: (row) => new Date(row.validade + 'T00:00:00').toLocaleDateString('pt-BR'),
+        render: (row) => formatDisplayDate(row.validade),
       },
       {
         key: 'diasRestantes',
@@ -505,11 +470,10 @@ export const ValidadesPage: React.FC = () => {
         header: 'Últ. atualização',
         sortable: true,
         className: 'tabular-nums text-slate-500 text-xs',
-        render: (row) =>
-          row.ultimaAtualizacao ? new Date(row.ultimaAtualizacao).toLocaleDateString('pt-BR') : '—',
+        render: (row) => formatDisplayDate(row.ultimaAtualizacao, '—'),
       },
     ],
-    [],
+    [navigate],
   )
 
   return (
@@ -519,7 +483,7 @@ export const ValidadesPage: React.FC = () => {
         <div>
           <h3 className="text-xl font-bold text-slate-900 tracking-tight">Gestão de Validades</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Análise e tomada de decisão sobre ocorrências de validade em todas as lojas.
+            Análise e tomada de decisão sobre ocorrências de validade ativas (Base Atual).
           </p>
         </div>
         <Button
@@ -589,7 +553,7 @@ export const ValidadesPage: React.FC = () => {
                 onRowClick={handleRowClick}
                 emptyMessage="Nenhuma validade encontrada."
               />
-              {/* Paginação custom */}
+              {/* Paginação */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <span className="text-xs text-slate-500">
@@ -635,9 +599,11 @@ export const ValidadesPage: React.FC = () => {
             <Brain className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900 tracking-tight">Inteligência</h3>
+            <h3 className="text-base font-bold text-slate-900 tracking-tight">
+              Inteligência Operacional
+            </h3>
             <p className="text-xs text-slate-500">
-              Blocos analíticos que reagem aos filtros aplicados.
+              Blocos analíticos com volume em risco agrupado por fornecedor/cliente.
             </p>
           </div>
         </div>

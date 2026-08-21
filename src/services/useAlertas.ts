@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { DataSourceFactory } from '@/lib/data'
+import {
+  getBaseAtualSnapshot,
+  type BaseAtualSnapshot,
+  type AlertaOperacionalItem,
+} from '@/lib/selectors'
 import type { AlertaItem, AlertasFilter } from '@/types'
 
 export interface UseAlertasResult {
@@ -23,10 +27,49 @@ export function useAlertas(filters?: AlertasFilter): UseAlertasResult {
     setIsLoading(true)
     setError(null)
     try {
-      const provider = DataSourceFactory.getProvider()
-      const result = await provider.listAlertas(filters)
+      const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
+      const rawAlertas = snapshot.alertasOperacionais
+
+      // Converte para AlertaItem compatível com a UI
+      let items: AlertaItem[] = rawAlertas.map((a: AlertaOperacionalItem) => {
+        const severityLabel =
+          a.severidade === 'Crítico' ? 'Crítico' : a.severidade === 'Atenção' ? 'Alto' : 'Médio'
+        const desc = `${a.produto} possui ${a.quantidade} un vencendo em ${a.diasRestantes} dias (${a.validadeFormatada}) na loja ${a.lojaIdentidade}.`
+        return {
+          id: a.id,
+          title: `Validade: ${a.lojaIdentidade}`,
+          message: desc,
+          severity: severityLabel,
+          type: 'Validade',
+          timestamp: a.validadeRaw ? `${a.validadeRaw}T00:00:00Z` : new Date().toISOString(),
+          isRead: a.lido,
+          product: a.produto,
+          sku: a.codigoProduto || undefined,
+          category: undefined,
+        }
+      })
+
+      if (filters?.search) {
+        const q = filters.search.trim().toLowerCase()
+        items = items.filter(
+          (i) =>
+            i.title.toLowerCase().includes(q) ||
+            i.message.toLowerCase().includes(q) ||
+            (i.product && i.product.toLowerCase().includes(q)) ||
+            (i.sku && i.sku.toLowerCase().includes(q)),
+        )
+      }
+
+      if (filters?.severity && filters.severity !== 'Todos') {
+        items = items.filter((i) => i.severity === filters.severity)
+      }
+
+      if (filters?.type && filters.type !== 'Todos') {
+        items = items.filter((i) => i.type === filters.type)
+      }
+
       if (isMounted.current) {
-        setData(result)
+        setData(items)
       }
     } catch (err) {
       if (isMounted.current) {
@@ -48,13 +91,31 @@ export function useAlertas(filters?: AlertasFilter): UseAlertasResult {
   }, [fetchData])
 
   const toggleRead = useCallback((id: string) => {
-    setData((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, isRead: !item.isRead } : item)),
-    )
+    setData((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, isRead: !item.isRead } : item,
+      )
+      try {
+        const readIds = updated.filter((i) => i.isRead).map((i) => i.id)
+        localStorage.setItem('diretoria_read_alerts', JSON.stringify(readIds))
+      } catch {
+        // ignore
+      }
+      return updated
+    })
   }, [])
 
   const markAllAsRead = useCallback(() => {
-    setData((prev) => prev.map((item) => ({ ...item, isRead: true })))
+    setData((prev) => {
+      const updated = prev.map((item) => ({ ...item, isRead: true }))
+      try {
+        const readIds = updated.map((i) => i.id)
+        localStorage.setItem('diretoria_read_alerts', JSON.stringify(readIds))
+      } catch {
+        // ignore
+      }
+      return updated
+    })
   }, [])
 
   return { data, isLoading, error, refetch: fetchData, toggleRead, markAllAsRead }
