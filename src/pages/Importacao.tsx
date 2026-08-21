@@ -794,15 +794,15 @@ export const ImportacaoPage: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-base font-bold text-slate-900">
-                          Sincronização Direta TradePro
+                          API TradePro — sincronização segura
                         </h4>
                         <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[11px]">
-                          <CheckCircle className="w-3 h-3 mr-1" /> API Conectada
+                          <CheckCircle className="w-3 h-3 mr-1" /> Configurada no Backend
                         </Badge>
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
-                        Puxe os registros de lojas diretamente da API com validação, deduplicação em
-                        2 etapas e atualização da Base Atual.
+                        Autenticação Basic configurada exclusivamente no backend. Excel permanece
+                        como fonte ativa prioritária.
                       </p>
                     </div>
                   </div>

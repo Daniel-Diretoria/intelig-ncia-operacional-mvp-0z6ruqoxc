@@ -296,7 +296,6 @@ export function buildRupturasPorLojaReport(rupturas: Ruptura[]): ReportData {
       codigo: r.codigo || '—',
       total: r.total,
       ativas: r.ativas,
-      resolvidas: r.resolvidas,
       mediaDias: r.ativas > 0 ? `${(r.totalDias / r.ativas).toFixed(1)} dias` : '0 dias',
     }))
 
@@ -311,14 +310,11 @@ export function buildRupturasPorLojaReport(rupturas: Ruptura[]): ReportData {
     chartData: top.map((r) => ({
       name: r.loja.slice(0, 20),
       'Rupturas Ativas': r.ativas,
-      Resolvidas: r.resolvidas,
     })),
     tableColumns: [
       { key: 'loja', label: 'Loja' },
       { key: 'codigo', label: 'Código' },
       { key: 'ativas', label: 'Rupturas Ativas' },
-      { key: 'resolvidas', label: 'Resolvidas' },
-      { key: 'total', label: 'Total Histórico' },
       { key: 'mediaDias', label: 'Média de Dias em Ruptura' },
     ],
     tableRows: rows,

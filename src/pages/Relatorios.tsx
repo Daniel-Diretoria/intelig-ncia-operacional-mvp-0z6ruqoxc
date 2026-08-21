@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { useReport, useValidades } from '@/services'
+import { useReport, useValidades, useRupturas } from '@/services'
 import type { ReportType } from '@/types'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -99,6 +99,7 @@ export const RelatoriosPage: React.FC = () => {
   //  1. popular as opções dos selects de filtro (lojas, clientes, etc.)
   //  2. exibir a contagem de ocorrências que serão exportadas com os filtros ativos
   const { data: validades } = useValidades(effectiveFilter)
+  const { data: rupturas } = useRupturas()
   const { toast } = useToast()
 
   // Listen to header refresh
@@ -311,8 +312,9 @@ export const RelatoriosPage: React.FC = () => {
                 {reportData?.description || 'Carregando parâmetros do relatório...'}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                {validades.length} ocorrência(s) para os filtros ativos serão consideradas nas
-                exportações.
+                {isRupturasReport
+                  ? `${rupturas.length} ocorrência(s) de ruptura disponíveis para exportação.`
+                  : `${validades.length} ocorrência(s) de validade para os filtros ativos serão consideradas nas exportações.`}
               </p>
             </div>
 
