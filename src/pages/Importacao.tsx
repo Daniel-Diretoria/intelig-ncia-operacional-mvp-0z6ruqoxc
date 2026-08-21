@@ -1104,7 +1104,7 @@ export const ImportacaoPage: React.FC = () => {
                         : i === 0
               const Icon = f.icon
               return (
-                <React.Fragment key={f.id}>
+                <span key={f.id} className="inline-flex items-center gap-2">
                   <span
                     className={cn(
                       'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border',
@@ -1134,7 +1134,7 @@ export const ImportacaoPage: React.FC = () => {
                     {f.label}
                   </span>
                   {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-slate-300" />}
-                </React.Fragment>
+                </span>
               )
             })}
           </div>

@@ -28,7 +28,7 @@ export const ValidadesBreadcrumb: React.FC<ValidadesBreadcrumbProps> = ({ items,
         const isLast = idx === items.length - 1
         const isFirst = idx === 0
         return (
-          <React.Fragment key={`${item.level}-${idx}`}>
+          <span key={`${item.level}-${idx}`} className="inline-flex items-center gap-1">
             <button
               type="button"
               onClick={() => !isLast && onNavigate(item.level)}
@@ -44,7 +44,7 @@ export const ValidadesBreadcrumb: React.FC<ValidadesBreadcrumbProps> = ({ items,
               <span className="max-w-[280px] truncate">{item.label}</span>
             </button>
             {!isLast && <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
-          </React.Fragment>
+          </span>
         )
       })}
     </nav>
