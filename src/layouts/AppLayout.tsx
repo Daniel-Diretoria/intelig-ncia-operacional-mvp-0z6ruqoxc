@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import logoImg from '@/assets/image-9f672.png'
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -151,7 +152,7 @@ export const AppLayout: React.FC = () => {
         <div className="h-20 px-5 border-b border-slate-800 flex items-center justify-between bg-[#060E20]">
           <div className="flex items-center gap-3">
             <img
-              src="/src/assets/image-9f672.png"
+              src={logoImg}
               alt="Diretoria Promoções Logo"
               className="h-10 w-auto object-contain drop-shadow-md"
             />
@@ -229,7 +230,7 @@ export const AppLayout: React.FC = () => {
         >
           <div className="flex items-center gap-3 overflow-hidden">
             <img
-              src="/src/assets/image-9f672.png"
+              src={logoImg}
               alt="Diretoria Promoções"
               className={cn(
                 'object-contain drop-shadow-md transition-all',

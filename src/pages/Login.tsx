@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import logoImg from '@/assets/image-9f672.png'
 import { useAuth } from '@/services/authContext'
 import { TrendingUp, Lock, Mail, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -84,7 +85,7 @@ export const LoginPage: React.FC = () => {
           {/* Brand & Logo */}
           <div className="text-center mb-8 flex flex-col items-center">
             <img
-              src="/src/assets/image-9f672.png"
+              src={logoImg}
               alt="Diretoria Promoções Logo"
               className="h-20 sm:h-24 w-auto object-contain mb-3 drop-shadow-sm"
             />
