@@ -143,3 +143,87 @@ export interface RupturasImportResult {
     | 'Cancelada'
   error_message?: string
 }
+
+/**
+ * Tipos para o Motor de Confronto Rupturas × Validades (operational_cross_evidence)
+ */
+export type MatchMethod = 'high_code_product' | 'medium_exact_name' | 'inconclusive'
+export type CrossEvidenceConfidence = 'high' | 'medium' | 'inconclusive'
+export type ProposedStatus = 'inferred_resolved' | 'awaiting_review' | 'inconclusive' | 'reopened'
+export type ReviewStatus = 'pending' | 'confirmed' | 'rejected'
+
+export interface CrossEvidence {
+  id?: string
+  rupture_record_id: string
+  validity_record_id: string
+  store_code: string
+  store_name: string
+  store_key: string
+  product_code: string
+  product_name: string
+  product_key: string
+  client_or_brand: string
+  rupture_detected_at: string
+  stock_evidence_at: string
+  quantity_found: number
+  product_expiry_date: string
+  resolution_days: number
+  match_method: MatchMethod
+  confidence: CrossEvidenceConfidence
+  proposed_status: ProposedStatus
+  review_status: ReviewStatus
+  reviewed_at?: string
+  reviewed_by?: string
+  rejection_reason?: string
+  engine_version: string
+  evidence_key: string
+  created_at?: string
+  updated_at?: string
+  created?: string
+  updated?: string
+  // Dados expandidos opcionais para visualização / drilldown
+  expand?: {
+    rupture_record_id?: Ruptura
+    validity_record_id?: Record<string, unknown>
+  }
+}
+
+export interface CrossEvidenceFilter {
+  store?: string
+  product?: string
+  brand?: string
+  confidence?: CrossEvidenceConfidence | 'all'
+  proposed_status?: ProposedStatus | 'all'
+  review_status?: ReviewStatus | 'all'
+  periodStart?: string
+  periodEnd?: string
+  quickAudit?:
+    | 'no_product_code'
+    | 'same_day_no_time'
+    | 'different_brand'
+    | 'similar_products'
+    | 'rejected'
+    | 'all'
+}
+
+export interface CrossEvidenceKpis {
+  rupturasOficiaisAtivas: number // sempre 184 (hardcoded ou lido de rupturas_base)
+  evidenciasAltaConfianca: number
+  evidenciasAguardandoRevisao: number
+  confrontosInconclusivos: number
+  rupturasReabertas: number
+  tempoMedioAteEvidencia: number | null // dias, só para datas válidas
+}
+
+export interface ReconciliationResult {
+  rupturasAnalisadas: number
+  validadesAnalisadas: number
+  evidenciasGeradas: number
+  high: number
+  medium: number
+  inconclusive: number
+  reopened: number
+  semCorrespondencia: number
+  erros: number
+  detalhes?: string[]
+}

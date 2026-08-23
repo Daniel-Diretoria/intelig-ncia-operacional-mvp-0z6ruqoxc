@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T22:33:25.839Z",
+  "generatedAt": "2026-08-23T00:09:15.339Z",
   "collections": [
     {
       "name": "users",
@@ -1837,6 +1837,196 @@
         "CREATE INDEX idx_sync_logs_tipo ON sync_logs (tipo)",
         "CREATE INDEX idx_sync_logs_status ON sync_logs (status)",
         "CREATE INDEX idx_sync_logs_created ON sync_logs (created DESC)"
+      ]
+    },
+    {
+      "name": "operational_cross_evidence",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "rupture_record_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "rupturas_base"
+        },
+        {
+          "name": "validity_record_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "validades_base"
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_key",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_key",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_or_brand",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rupture_detected_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stock_evidence_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantity_found",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_expiry_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolution_days",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "match_method",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["high_code_product", "medium_exact_name", "inconclusive"]
+        },
+        {
+          "name": "confidence",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["high", "medium", "inconclusive"]
+        },
+        {
+          "name": "proposed_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["inferred_resolved", "awaiting_review", "inconclusive", "reopened"]
+        },
+        {
+          "name": "review_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pending", "confirmed", "rejected"]
+        },
+        {
+          "name": "reviewed_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reviewed_by",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rejection_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "engine_version",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "evidence_key",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "updated_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_cross_evidence_key ON operational_cross_evidence (evidence_key)",
+        "CREATE INDEX idx_cross_evidence_review_status ON operational_cross_evidence (review_status)",
+        "CREATE INDEX idx_cross_evidence_store_code ON operational_cross_evidence (store_code)",
+        "CREATE INDEX idx_cross_evidence_confidence ON operational_cross_evidence (confidence)",
+        "CREATE INDEX idx_cross_evidence_proposed_status ON operational_cross_evidence (proposed_status)"
       ]
     }
   ]

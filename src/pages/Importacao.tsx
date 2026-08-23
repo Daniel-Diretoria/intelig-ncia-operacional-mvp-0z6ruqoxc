@@ -27,7 +27,9 @@ import {
   KeyRound,
   CheckCircle,
   Clock,
+  GitCompare,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -683,12 +685,25 @@ export const ImportacaoPage: React.FC = () => {
             Base Atual.
           </p>
         </div>
-        {stage !== 'idle' && (
-          <Button variant="outline" size="sm" onClick={reset} className="h-9 gap-1.5 text-xs">
-            <X className="w-3.5 h-3.5" />
-            Limpar
+        <div className="flex items-center gap-2">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs text-indigo-700 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100"
+          >
+            <Link to="/rupturas?tab=confronto">
+              <GitCompare className="w-3.5 h-3.5 text-indigo-600" />
+              Motor de Confronto Rupturas × Validades
+            </Link>
           </Button>
-        )}
+          {stage !== 'idle' && (
+            <Button variant="outline" size="sm" onClick={reset} className="h-9 gap-1.5 text-xs">
+              <X className="w-3.5 h-3.5" />
+              Limpar
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Tabs de Seleção de Origem: API vs Arquivo Excel */}

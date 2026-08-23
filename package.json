@@ -70,6 +70,7 @@
     "tailwind-merge": "^2.6.1",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
+    "vitest": "4.1.11",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
