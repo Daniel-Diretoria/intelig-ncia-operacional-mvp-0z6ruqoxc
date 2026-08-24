@@ -12,9 +12,22 @@ import {
   UploadCloud,
   FileSpreadsheet,
   GitCompare,
+  Download,
 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useToast } from '@/hooks/use-toast'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import {
+  downloadBaseTratadaRupturasXLSX,
+  downloadBaseTratadaRupturasCSV,
+} from '@/lib/export/operationalExports'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -72,6 +85,43 @@ export function RupturasPage() {
   }, [search, selectedLoja, selectedMotivo, selectedCliente, selectedStatus, dataInicio, dataFim])
 
   const { data: rupturas, kpis, isLoading, error, refetch } = useRupturas(filters)
+  const { toast } = useToast()
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportRupturas = async (format: 'xlsx' | 'csv') => {
+    setIsExporting(true)
+    try {
+      const snap = await getBaseAtualSnapshot()
+      // Se houver filtros, usa a lista de rupturas filtrada para o snapshot local
+      const customSnapshot = {
+        ...snap,
+        rupturas: rupturas.length > 0 ? rupturas : snap.rupturasAtivas,
+      }
+      if (format === 'xlsx') {
+        downloadBaseTratadaRupturasXLSX(
+          customSnapshot,
+          hasActiveFilters ? (filters as Record<string, unknown>) : undefined,
+        )
+      } else {
+        downloadBaseTratadaRupturasCSV(
+          customSnapshot,
+          hasActiveFilters ? (filters as Record<string, unknown>) : undefined,
+        )
+      }
+      toast({
+        title: 'Exportação concluída',
+        description: `Base Tratada de Rupturas exportada em formato ${format.toUpperCase()}.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao exportar',
+        description: err instanceof Error ? err.message : 'Falha na exportação de rupturas.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Opções para os selects com base em todos os dados sem filtro de texto
   const { lojasOptions, motivosOptions, clientesOptions } = useMemo(() => {
@@ -166,6 +216,36 @@ export function RupturasPage() {
         <div className="flex items-center gap-2 self-start sm:self-center">
           {activeTab === 'rupturas' && (
             <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isExporting || rupturas.length === 0}
+                    className="h-10 px-3.5 gap-2 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-600" />
+                    <span>{isExporting ? 'Exportando...' : 'Exportar Base Tratada'}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => handleExportRupturas('xlsx')}
+                    className="gap-2 text-xs cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    <span>Excel (.xlsx)</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleExportRupturas('csv')}
+                    className="gap-2 text-xs cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                    <span>CSV (.csv UTF-8)</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <Button
                 variant="outline"
                 size="sm"

@@ -53,6 +53,15 @@ import { formatStoreIdentity } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { useToast } from '@/hooks/use-toast'
 import pb from '@/lib/pocketbase/client'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Download, FileSpreadsheet } from 'lucide-react'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import { downloadConfrontoXLSX, downloadConfrontoCSV } from '@/lib/export/operationalExports'
 import type {
   CrossEvidence,
   CrossEvidenceFilter,
@@ -91,6 +100,41 @@ export const CrossEvidenceTab: React.FC = () => {
   const [recalculateConfirmOpen, setRecalculateConfirmOpen] = useState(false)
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [recalcProgressText, setRecalcProgressText] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportConfronto = async (format: 'xlsx' | 'csv') => {
+    setIsExporting(true)
+    try {
+      const snapshot = getBaseAtualSnapshot()
+      const customSnapshot = {
+        ...snapshot,
+        crossEvidence: data,
+      }
+      if (format === 'xlsx') {
+        downloadConfrontoXLSX(
+          customSnapshot,
+          hasActiveFilters ? (filters as unknown as Record<string, unknown>) : undefined,
+        )
+      } else {
+        downloadConfrontoCSV(
+          customSnapshot,
+          hasActiveFilters ? (filters as unknown as Record<string, unknown>) : undefined,
+        )
+      }
+      toast({
+        title: 'Exportação concluída',
+        description: `Confronto Ruptura × Validade exportado em formato ${format.toUpperCase()}.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao exportar confronto',
+        description: err instanceof Error ? err.message : 'Falha na exportação de confronto.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Montar objeto de filtros
   const filters: CrossEvidenceFilter = useMemo(() => {
@@ -240,6 +284,36 @@ export const CrossEvidenceTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isExporting || data.length === 0}
+                className="h-9 px-3.5 gap-2 text-xs font-bold border-amber-300 bg-white hover:bg-amber-50 text-slate-800 rounded-xl shadow-2xs"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-700" />
+                <span>{isExporting ? 'Exportando...' : 'Exportar Confronto'}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => handleExportConfronto('xlsx')}
+                className="gap-2 text-xs cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-emerald-600" />
+                <span>Excel (.xlsx)</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportConfronto('csv')}
+                className="gap-2 text-xs cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                <span>CSV (.csv UTF-8)</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             variant="default"
             size="sm"

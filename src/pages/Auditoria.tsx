@@ -37,7 +37,18 @@ import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { formatStoreIdentity } from '@/lib/selectors'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import {
+  downloadPendenciasAuditoriaXLSX,
+  downloadPendenciasAuditoriaCSV,
+} from '@/lib/export/operationalExports'
 
 const PAGE_SIZE = 25
 
@@ -163,6 +174,41 @@ export const AuditoriaPage: React.FC = () => {
   const [sinalizando, setSinalizando] = useState<AuditoriaOcorrencia | null>(null)
   const [motivo, setMotivo] = useState('')
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportAuditoria = async (format: 'xlsx' | 'csv') => {
+    setIsExporting(true)
+    try {
+      const snapshot = getBaseAtualSnapshot()
+      const customSnapshot = {
+        ...snapshot,
+        auditoria_pendencias: filtradas.length > 0 ? filtradas : ocorrencias,
+      }
+      const filtrosAplicados = {
+        busca: search || undefined,
+        status: filtroStatus !== 'todos' ? filtroStatus : undefined,
+      }
+
+      if (format === 'xlsx') {
+        downloadPendenciasAuditoriaXLSX(customSnapshot as any, filtrosAplicados)
+      } else {
+        downloadPendenciasAuditoriaCSV(customSnapshot as any, filtrosAplicados)
+      }
+
+      toast({
+        title: 'Exportação concluída',
+        description: `Pendências de Auditoria exportadas em formato ${format.toUpperCase()}.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao exportar',
+        description: err instanceof Error ? err.message : 'Falha na exportação de pendências.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   useEffect(() => {
     const handleGlobalRefresh = () => refetch()
@@ -291,9 +337,41 @@ export const AuditoriaPage: React.FC = () => {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-bold self-start sm:self-center shadow-2xs">
-          <ShieldAlert className="w-4 h-4" />
-          <span>{resumo.totalVencidos} ocorrência(s) vencida(s)</span>
+        <div className="flex items-center gap-2 self-start sm:self-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isExporting || ocorrencias.length === 0}
+                className="h-10 px-3.5 gap-2 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl shadow-2xs"
+              >
+                <Download className="w-3.5 h-3.5 text-red-600" />
+                <span>{isExporting ? 'Exportando...' : 'Exportar Pendências'}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => handleExportAuditoria('xlsx')}
+                className="gap-2 text-xs cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-emerald-600" />
+                <span>Excel (.xlsx)</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExportAuditoria('csv')}
+                className="gap-2 text-xs cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                <span>CSV (.csv UTF-8)</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-bold shadow-2xs">
+            <ShieldAlert className="w-4 h-4" />
+            <span>{resumo.totalVencidos} ocorrência(s) vencida(s)</span>
+          </div>
         </div>
       </div>
 

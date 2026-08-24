@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { useReport, useValidades, useRupturas } from '@/services'
+import {
+  useReport,
+  useValidades,
+  useRupturas,
+  useAuditoria,
+  useImportHistory,
+  useCrossEvidence,
+} from '@/services'
 import type { ReportType } from '@/types'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -17,9 +25,30 @@ import {
   Layers,
   Store,
   ArrowRight,
+  FileSpreadsheet,
+  ShieldAlert,
+  GitCompare,
+  Boxes,
+  History,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react'
 import { exportarRelatorioValidades } from '@/lib/export/relatoriosExport'
 import { exportarRelatorioPdf } from '@/lib/export/relatoriosPdfExport'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import {
+  downloadBaseTratadaValidadesXLSX,
+  downloadBaseTratadaValidadesCSV,
+  downloadBaseTratadaRupturasXLSX,
+  downloadBaseTratadaRupturasCSV,
+  downloadPendenciasAuditoriaXLSX,
+  downloadPendenciasAuditoriaCSV,
+  downloadConfrontoXLSX,
+  downloadConfrontoCSV,
+  downloadCentralEstrategicaXLSX,
+  downloadHistoricoImportacoesXLSX,
+  downloadHistoricoImportacoesCSV,
+} from '@/lib/export/operationalExports'
 import {
   BarChart,
   Bar,
@@ -99,8 +128,48 @@ export const RelatoriosPage: React.FC = () => {
   //  1. popular as opções dos selects de filtro (lojas, clientes, etc.)
   //  2. exibir a contagem de ocorrências que serão exportadas com os filtros ativos
   const { data: validades } = useValidades(effectiveFilter)
-  const { data: rupturas } = useRupturas()
+  const { data: allValidades, isLoading: validadesLoading } = useValidades()
+  const { data: rupturas, isLoading: rupturasLoading } = useRupturas()
+  const { ocorrencias: auditoriaOcorrencias, isLoading: auditoriaLoading } = useAuditoria()
+  const { history: importHistory, isLoading: historyLoading } = useImportHistory()
+  const { data: crossEvidences, isLoading: crossLoading } = useCrossEvidence()
   const { toast } = useToast()
+
+  // Estados de exportação da Central Operacional
+  const [exportingCard, setExportingCard] = useState<string | null>(null)
+
+  const handleExportOperational = async (
+  key: string,
+  action: (snap: any) => Promise<void> | void,
+  successMsg: string,
+) => {
+  setExportingCard(key)
+  try {
+    const snap = await getBaseAtualSnapshot()
+    const snapshot = {
+      ...snap,
+      validades: allValidades?.length ? allValidades : snap.validadesAtivas,
+      rupturas: rupturas?.length ? rupturas : snap.rupturasAtivas,
+      importHistory: importHistory || [],
+      auditoria_pendencias: auditoriaOcorrencias || [],
+      crossEvidence: crossEvidences || [],
+    }
+
+    await action(snapshot)
+    toast({
+      title: 'Exportação concluída',
+      description: successMsg,
+    })
+  } catch (err) {
+    toast({
+      title: 'Erro na exportação',
+      description: err instanceof Error ? err.message : 'Falha ao gerar o arquivo de exportação.',
+      variant: 'destructive',
+    })
+  } finally {
+    setExportingCard(null)
+  }
+}
 
   // Listen to header refresh
   useEffect(() => {
@@ -287,6 +356,372 @@ export const RelatoriosPage: React.FC = () => {
             </div>
           )
         })}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* NOVO BLOCO — CENTRAL DE EXPORTAÇÕES OPERACIONAIS                           */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+              <Download className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+                Central de Exportações Operacionais
+              </h2>
+              <p className="text-xs text-slate-500">
+                Exportações completas e auditáveis da Base Atual para análise offline
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid de 6 Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Card 1: Base Tratada de Validades */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <CalendarCheck className="w-4 h-4" />
+                </div>
+                {validadesLoading ? (
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                ) : (
+                  <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 font-bold text-[11px]">
+                    {(allValidades?.length ?? 0).toLocaleString('pt-BR')} registros
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Base Tratada de Validades</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Fotografia completa das validades ativas com loja formatada e status.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'validades-xlsx' || (allValidades?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'validades-xlsx',
+                    (snap) => downloadBaseTratadaValidadesXLSX(snap),
+                    'Base Tratada de Validades exportada em XLSX com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'validades-xlsx' ? 'Exportando...' : 'XLSX'}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'validades-csv' || (allValidades?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'validades-csv',
+                    (snap) => downloadBaseTratadaValidadesCSV(snap),
+                    'Base Tratada de Validades exportada em CSV com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'validades-csv' ? 'Exportando...' : 'CSV'}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Card 2: Base Tratada de Rupturas */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                {rupturasLoading ? (
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                ) : (
+                  <Badge className="bg-amber-50 text-amber-700 border-amber-200 font-bold text-[11px]">
+                    {(rupturas?.length ?? 0).toLocaleString('pt-BR')} ocorrências
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Base Tratada de Rupturas</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Consolidação oficial de rupturas ativas e histórico com dias em desabastecimento.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'rupturas-xlsx' || (rupturas?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'rupturas-xlsx',
+                    (snap) => downloadBaseTratadaRupturasXLSX(snap),
+                    'Base Tratada de Rupturas exportada em XLSX com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'rupturas-xlsx' ? 'Exportando...' : 'XLSX'}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'rupturas-csv' || (rupturas?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'rupturas-csv',
+                    (snap) => downloadBaseTratadaRupturasCSV(snap),
+                    'Base Tratada de Rupturas exportada em CSV com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'rupturas-csv' ? 'Exportando...' : 'CSV'}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Card 3: Pendências de Auditoria */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-red-100 text-red-700 flex items-center justify-center">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                {auditoriaLoading ? (
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                ) : (
+                  <Badge className="bg-red-50 text-red-700 border-red-200 font-bold text-[11px]">
+                    {(auditoriaOcorrencias?.length ?? 0).toLocaleString('pt-BR')} itens
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Pendências de Auditoria</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Isolamento de produtos vencidos, correções pendentes e notas operacionais.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  exportingCard === 'auditoria-xlsx' || (auditoriaOcorrencias?.length ?? 0) === 0
+                }
+                onClick={() =>
+                  handleExportOperational(
+                    'auditoria-xlsx',
+                    (snap) => downloadPendenciasAuditoriaXLSX(snap),
+                    'Pendências de Auditoria exportadas em XLSX com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'auditoria-xlsx' ? 'Exportando...' : 'XLSX'}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  exportingCard === 'auditoria-csv' || (auditoriaOcorrencias?.length ?? 0) === 0
+                }
+                onClick={() =>
+                  handleExportOperational(
+                    'auditoria-csv',
+                    (snap) => downloadPendenciasAuditoriaCSV(snap),
+                    'Pendências de Auditoria exportadas em CSV com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'auditoria-csv' ? 'Exportando...' : 'CSV'}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Card 4: Confronto Ruptura × Validade */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <GitCompare className="w-4 h-4" />
+                </div>
+                {crossLoading ? (
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                ) : (
+                  <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 font-bold text-[11px]">
+                    {(crossEvidences?.length ?? 0).toLocaleString('pt-BR')} confrontos
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Confronto Ruptura × Validade</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Evidências de estoque posterior em modo shadow com método de match e confiança.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'confronto-xlsx' || (crossEvidences?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'confronto-xlsx',
+                    (snap) => downloadConfrontoXLSX(snap),
+                    'Confronto Ruptura × Validade exportado em XLSX com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'confronto-xlsx' ? 'Exportando...' : 'XLSX'}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'confronto-csv' || (crossEvidences?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'confronto-csv',
+                    (snap) => downloadConfrontoCSV(snap),
+                    'Confronto Ruptura × Validade exportado em CSV com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'confronto-csv' ? 'Exportando...' : 'CSV'}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Card 5: Central Estratégica */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Boxes className="w-4 h-4" />
+                </div>
+                <Badge className="bg-purple-50 text-purple-700 border-purple-200 font-bold text-[11px]">
+                  4 abas
+                </Badge>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Central Estratégica</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Lojas críticas, produtos, marcas e ações recomendadas do modelo de risco.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'estrategica-xlsx'}
+                onClick={() =>
+                  handleExportOperational(
+                    'estrategica-xlsx',
+                    (snap) => downloadCentralEstrategicaXLSX(snap),
+                    'Central Estratégica exportada em XLSX (4 abas + Metadados) com sucesso.',
+                  )
+                }
+                className="h-8 w-full text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50 text-purple-700"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>
+                  {exportingCard === 'estrategica-xlsx'
+                    ? 'Exportando...'
+                    : 'Exportar XLSX (4 abas)'}
+                </span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Card 6: Histórico de Importações */}
+          <div className="bg-slate-50/60 rounded-xl border border-slate-200/80 p-4.5 flex flex-col justify-between space-y-4 hover:border-slate-300 hover:bg-slate-50 transition-all">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <History className="w-4 h-4" />
+                </div>
+                {historyLoading ? (
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                ) : (
+                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-bold text-[11px]">
+                    {(importHistory?.length ?? 0).toLocaleString('pt-BR')} jobs
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Histórico de Importações</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Auditoria de arquivos processados, hashes, volumes lidos e persistidos.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'historico-xlsx' || (importHistory?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'historico-xlsx',
+                    (snap) => downloadHistoricoImportacoesXLSX(snap),
+                    'Histórico de Importações exportado em XLSX com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'historico-xlsx' ? 'Exportando...' : 'XLSX'}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportingCard === 'historico-csv' || (importHistory?.length ?? 0) === 0}
+                onClick={() =>
+                  handleExportOperational(
+                    'historico-csv',
+                    (snap) => downloadHistoricoImportacoesCSV(snap),
+                    'Histórico de Importações exportado em CSV com sucesso.',
+                  )
+                }
+                className="h-8 flex-1 text-xs font-semibold gap-1.5 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{exportingCard === 'historico-csv' ? 'Exportando...' : 'CSV'}</span>
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filtros compartilhados (busca, loja, criticidade, período) — os mesmos

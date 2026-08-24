@@ -19,7 +19,11 @@ import {
   Zap,
   Info,
   RefreshCw,
+  Download,
 } from 'lucide-react'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import { downloadCentralEstrategicaXLSX } from '@/lib/export/operationalExports'
+import { useToast } from '@/hooks/use-toast'
 import {
   BarChart,
   Bar,
@@ -566,6 +570,32 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
   onRetry,
 }) => {
   const [showExplanation, setShowExplanation] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const { toast } = useToast()
+
+  const handleExportCentral = async () => {
+    setIsExporting(true)
+    try {
+      const snapshot = getBaseAtualSnapshot()
+      if (validades?.length) snapshot.validades = validades
+      if (rupturas?.length) snapshot.rupturas = rupturas
+
+      downloadCentralEstrategicaXLSX(snapshot)
+      toast({
+        title: 'Exportação concluída',
+        description: 'Central Estratégica exportada em XLSX (4 abas + Metadados).',
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao exportar',
+        description:
+          err instanceof Error ? err.message : 'Falha ao exportar a Central Estratégica.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Motor estratégico executado puramente em memória sobre os dados da Base Atual
   const strategicData = useMemo(() => {
@@ -678,16 +708,28 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowExplanation((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors shadow-2xs self-start sm:self-center"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
-            <span>
-              {showExplanation ? 'Ocultar regras de cálculo' : 'Como o score é calculado?'}
-            </span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <button
+              type="button"
+              onClick={handleExportCentral}
+              disabled={isExporting}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-purple-800 px-3 py-2 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 transition-colors shadow-2xs disabled:opacity-60"
+            >
+              <Download className="w-3.5 h-3.5 text-purple-600" />
+              <span>{isExporting ? 'Exportando...' : 'Exportar Central (XLSX)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowExplanation((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors shadow-2xs"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
+              <span>
+                {showExplanation ? 'Ocultar regras de cálculo' : 'Como o score é calculado?'}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Disclosure Explicativo Elegante */}

@@ -4,7 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Download, FileSpreadsheet, FileText, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ValidadeItem } from '@/types'
-import { exportarCSV, exportarXLSX } from '@/lib/export/validadesExport'
+import {
+  downloadBaseTratadaValidadesXLSX,
+  downloadBaseTratadaValidadesCSV,
+} from '@/lib/export/operationalExports'
 import { useToast } from '@/hooks/use-toast'
 
 interface ExportModalProps {
@@ -21,11 +24,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
 
   const handleExport = () => {
     try {
-      const dateStr = new Date().toISOString().slice(0, 10)
+      const mockSnapshot = {
+        validades: items,
+        rupturas: [],
+        timestamp: new Date().toISOString(),
+        isMockFallback: false,
+      }
       if (selected === 'xlsx') {
-        exportarXLSX(items, `validades_${dateStr}.xlsx`)
+        downloadBaseTratadaValidadesXLSX(mockSnapshot)
       } else {
-        exportarCSV(items, `validades_${dateStr}.csv`)
+        downloadBaseTratadaValidadesCSV(mockSnapshot)
       }
       toast({
         title: 'Exportação concluída',

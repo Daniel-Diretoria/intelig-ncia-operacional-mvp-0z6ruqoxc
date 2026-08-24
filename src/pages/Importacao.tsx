@@ -74,6 +74,17 @@ import {
   type ImportProgressState,
 } from '@/lib/import/importClient'
 import { exportErrorsCSV, exportErrorsXLSX } from '@/lib/export/errorReportExport'
+import {
+  downloadHistoricoImportacoesXLSX,
+  downloadHistoricoImportacoesCSV,
+} from '@/lib/export/operationalExports'
+import { getBaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type { PersistenceTaskError } from '@/lib/import/persistenceQueue'
 import {
   executarPipeline,
@@ -266,6 +277,35 @@ export const ImportacaoPage: React.FC = () => {
   const [forceReprocess, setForceReprocess] = useState(false)
 
   const { history, isLoading: historyLoading, refetch: refetchHistory } = useImportHistory()
+  const [isExportingHistory, setIsExportingHistory] = useState(false)
+
+  const handleExportHistory = async (format: 'xlsx' | 'csv') => {
+    setIsExportingHistory(true)
+    try {
+      const snapshot = getBaseAtualSnapshot()
+      const customSnapshot = {
+        ...snapshot,
+        importHistory: history,
+      }
+      if (format === 'xlsx') {
+        downloadHistoricoImportacoesXLSX(customSnapshot as any)
+      } else {
+        downloadHistoricoImportacoesCSV(customSnapshot as any)
+      }
+      toast({
+        title: 'Exportação concluída',
+        description: `Histórico de Importações exportado em formato ${format.toUpperCase()}.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao exportar',
+        description: err instanceof Error ? err.message : 'Falha na exportação do histórico.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExportingHistory(false)
+    }
+  }
 
   // Escuta refresh global do header
   useEffect(() => {
@@ -1686,7 +1726,39 @@ export const ImportacaoPage: React.FC = () => {
                   Histórico de importações (Arquivos)
                 </h4>
               </div>
-              <span className="text-xs text-slate-400">{history.length} registro(s)</span>
+              <div className="flex items-center gap-3">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isExportingHistory || history.length === 0}
+                      className="h-8 px-2.5 gap-1.5 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{isExportingHistory ? 'Exportando...' : 'Exportar Histórico'}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onClick={() => handleExportHistory('xlsx')}
+                      className="gap-2 text-xs cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-emerald-600" />
+                      <span>Excel (.xlsx)</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleExportHistory('csv')}
+                      className="gap-2 text-xs cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                      <span>CSV (.csv UTF-8)</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <span className="text-xs text-slate-400">{history.length} registro(s)</span>
+              </div>
             </div>
 
             {historyLoading ? (
