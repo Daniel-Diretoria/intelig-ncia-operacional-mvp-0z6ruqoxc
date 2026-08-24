@@ -488,7 +488,8 @@ export const ValidadesPage: React.FC = () => {
         </div>
         <Button
           onClick={() => setExportOpen(true)}
-          className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm self-start"
+          disabled={isLoading}
+          className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm self-start disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
           <span>Exportar</span>

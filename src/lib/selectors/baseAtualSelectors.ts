@@ -23,6 +23,7 @@ import {
   formatStoreIdentity,
   extractStoreRealCode,
   extractStoreCleanName,
+  deriveNetworkName,
   normalizeNetworkName,
   formatCityUf,
   formatProductSku,
@@ -176,8 +177,17 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const produtoNome = (rec.produto || 'Produto sem descrição') as string
         const { skuDisplay, hasRealSku } = formatProductSku(rawSku, produtoNome)
 
-        const rawRede = (rec.rede || rec.fantasia || rawName || '') as string
-        const redeCanonica = normalizeNetworkName(rawRede)
+        // Deriva Rede/Bandeira prioritariamente pelo nome da loja / razão social para não absorver 'GRUPO PEREIRA' de fantasia genérica
+        const rawRedeCandidate = (rawName ||
+          rec.razao_social ||
+          rec.rede ||
+          rec.fantasia ||
+          '') as string
+        const derivedFromStore = deriveNetworkName(rawRedeCandidate)
+        const redeCanonica =
+          derivedFromStore !== 'Rede não identificada'
+            ? derivedFromStore
+            : normalizeNetworkName((rec.rede || rec.fantasia || rawName || '') as string)
 
         const cidade = (rec.cidade || '') as string
         const uf = (rec.estado || rec.uf || '') as string

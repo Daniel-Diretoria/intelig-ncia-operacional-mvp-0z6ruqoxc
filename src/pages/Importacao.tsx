@@ -208,7 +208,7 @@ export const ImportacaoPage: React.FC = () => {
   } | null>(null)
 
   // Sub-aba ativa na visualização
-  const [activeTab, setActiveTab] = useState<'api' | 'file'>(isApiConfigured ? 'api' : 'file')
+  const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
 
   // Estado do fluxo de arquivo Excel
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -678,11 +678,11 @@ export const ImportacaoPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h3 className="text-xl font-bold text-slate-900 tracking-tight">
-            Importação &amp; Integração TradePro
+            Importação de Dados via Excel
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Sincronize diretamente com a API do TradePro ou importe planilhas Excel para alimentar a
-            Base Atual.
+            Alimente a Base Atual importando as planilhas Excel (.xlsx) extraídas do TradePro para
+            Validades e Rupturas.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -706,392 +706,97 @@ export const ImportacaoPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs de Seleção de Origem: API vs Arquivo Excel */}
+      {/* Tabs de Seleção de Origem: Planilhas Excel vs Status da Integração */}
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as 'api' | 'file')}
         className="w-full"
       >
         <TabsList className="grid w-full grid-cols-2 max-w-md bg-slate-100 p-1">
-          <TabsTrigger value="api" className="gap-2 text-xs font-semibold">
-            <Cloud className="w-4 h-4 text-indigo-600" />
-            Sincronizar via API
-            {isApiConfigured ? (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            ) : (
-              <Badge variant="outline" className="text-[10px] py-0 px-1 text-slate-500">
-                Em breve
-              </Badge>
-            )}
-          </TabsTrigger>
           <TabsTrigger value="file" className="gap-2 text-xs font-semibold">
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            Importar Arquivo
+            Importar Arquivo Excel
+          </TabsTrigger>
+          <TabsTrigger value="api" className="gap-2 text-xs font-semibold">
+            <Cloud className="w-4 h-4 text-slate-500" />
+            Integração TradePro
+            <Badge
+              variant="outline"
+              className="text-[10px] py-0 px-1 text-slate-500 border-slate-300"
+            >
+              Informativo
+            </Badge>
           </TabsTrigger>
         </TabsList>
 
         {/* ========================================================================= */}
-        {/* SEÇÃO A — "Sincronizar via API"                                          */}
+        {/* SEÇÃO INFORMATIVA — "Status da Integração TradePro" (Sem botões de sincronização) */}
         {/* ========================================================================= */}
         <TabsContent value="api" className="space-y-6 mt-4">
-          {!isApiConfigured ? (
-            /* Card informativo: API TradePro Segura e Desativada */
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                    <Cloud className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-base font-bold text-slate-900">
-                        API TradePro — aguardando credencial
-                      </h4>
-                      <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[11px] font-semibold">
-                        Desativada por padrão
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Autenticação Basic configurada exclusivamente no backend. Excel permanece como
-                      fonte ativa.
-                    </p>
-                  </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                  <Cloud className="w-6 h-6" />
                 </div>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
-                <p className="text-xs font-semibold text-slate-800 flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-slate-600" />
-                  Status da Conexão:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="font-semibold text-slate-700 block">
-                      Fonte Operacional Ativa:
-                    </span>
-                    <span className="text-emerald-700 font-bold">
-                      Importação de Planilhas Excel (.xlsx)
-                    </span>
-                  </div>
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="font-semibold text-slate-700 block">Segurança e Backend:</span>
-                    <span className="text-slate-600">
-                      Credenciais gerenciadas de forma isolada no servidor
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-slate-500">
-                  Excel permanece como fonte ativa para processar Validades e Rupturas.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setActiveTab('file')}
-                  className="gap-1.5 text-xs h-9 bg-slate-50 hover:bg-slate-100"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  Ir para Importação Excel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            /* Card principal: API Configurada */
-            <div className="space-y-6">
-              <div className="bg-white rounded-2xl border border-indigo-200/80 p-6 sm:p-8 shadow-sm space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                      <Cloud className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-bold text-slate-900">
-                          API TradePro — sincronização segura
-                        </h4>
-                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[11px]">
-                          <CheckCircle className="w-3 h-3 mr-1" /> Configurada no Backend
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Autenticação Basic configurada exclusivamente no backend. Excel permanece
-                        como fonte ativa prioritária.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleTestConnection}
-                      disabled={testingConnection || isSyncing}
-                      className="h-9 gap-1.5 text-xs"
-                    >
-                      {testingConnection ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                      ) : (
-                        <Activity className="w-3.5 h-3.5 text-indigo-600" />
-                      )}
-                      Testar Conexão
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Resultado do Teste de Conexão */}
-                {connectionTestResult && (
-                  <AlertBanner
-                    type={connectionTestResult.success ? 'success' : 'error'}
-                    title={connectionTestResult.success ? 'Conexão OK' : 'Falha na conexão'}
-                    message={`${connectionTestResult.message} ${connectionTestResult.latencyMs ? `(${connectionTestResult.latencyMs}ms)` : ''}`}
-                  />
-                )}
-
-                {/* Ações de Sincronização */}
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <Button
-                      size="lg"
-                      onClick={() => handleApiSyncAction('all')}
-                      disabled={isSyncing}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 font-bold shadow-md hover:shadow-lg transition-all h-12 flex-1"
-                    >
-                      {isSyncing ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <Zap className="w-5 h-5 text-amber-300" />
-                      )}
-                      {isSyncing ? 'Sincronizando...' : 'Sincronizar Tudo (Validades & Rupturas)'}
-                    </Button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <Button
-                      variant="outline"
-                      onClick={() => handleApiSyncAction('validades')}
-                      disabled={isSyncing}
-                      className="h-10 gap-2 text-xs font-semibold border-indigo-200 text-indigo-900 bg-indigo-50/50 hover:bg-indigo-100/60"
-                    >
-                      <RefreshCw
-                        className={cn('w-3.5 h-3.5 text-indigo-600', isSyncing && 'animate-spin')}
-                      />
-                      Sincronizar Apenas Validades
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleApiSyncAction('rupturas')}
-                      disabled={isSyncing}
-                      className="h-10 gap-2 text-xs font-semibold border-amber-200 text-amber-900 bg-amber-50/50 hover:bg-amber-100/60"
-                    >
-                      <RefreshCw
-                        className={cn('w-3.5 h-3.5 text-amber-600', isSyncing && 'animate-spin')}
-                      />
-                      Sincronizar Apenas Rupturas
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Barra de Progresso Real */}
-                {isSyncing && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-700 flex items-center gap-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                        {syncProgress.step || 'Sincronizando com a API...'}
-                      </span>
-                      <span className="font-mono font-bold text-indigo-600">
-                        {syncProgress.percent}%
-                      </span>
-                    </div>
-                    <Progress value={syncProgress.percent} className="h-2 bg-slate-200" />
-                  </div>
-                )}
-
-                {/* Card de Resumo do Último Sync */}
-                {lastSyncResult && !isSyncing && (
-                  <div
-                    className={cn(
-                      'rounded-xl border p-4 space-y-3',
-                      lastSyncResult.success
-                        ? 'bg-emerald-50/60 border-emerald-200'
-                        : 'bg-red-50/60 border-red-200',
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {lastSyncResult.success ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-red-600" />
-                        )}
-                        <h5 className="text-sm font-bold text-slate-900">
-                          {lastSyncResult.success
-                            ? 'Última sincronização realizada com sucesso'
-                            : 'Última sincronização falhou'}
-                        </h5>
-                      </div>
-                      <span className="text-xs text-slate-500 font-mono">
-                        {(lastSyncResult.durationMs / 1000).toFixed(2)}s de execução
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-slate-200/60 text-center">
-                        <p className="text-[10px] uppercase font-bold text-slate-500">Total API</p>
-                        <p className="text-lg font-bold text-slate-900 tabular-nums">
-                          {lastSyncResult.totalRows}
-                        </p>
-                      </div>
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-200/60 text-center">
-                        <p className="text-[10px] uppercase font-bold text-emerald-700">
-                          Novos / Vigentes
-                        </p>
-                        <p className="text-lg font-bold text-emerald-700 tabular-nums">
-                          {lastSyncResult.newRows}
-                        </p>
-                      </div>
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-blue-200/60 text-center">
-                        <p className="text-[10px] uppercase font-bold text-blue-700">
-                          Consolidados
-                        </p>
-                        <p className="text-lg font-bold text-blue-700 tabular-nums">
-                          {lastSyncResult.updatedRows}
-                        </p>
-                      </div>
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-slate-200/60 text-center">
-                        <p className="text-[10px] uppercase font-bold text-slate-500">Módulo</p>
-                        <p className="text-sm font-bold text-slate-800 capitalize mt-1">
-                          {lastSyncResult.type}
-                        </p>
-                      </div>
-                    </div>
-
-                    {lastSyncResult.errors.length > 0 && (
-                      <div className="p-2.5 rounded bg-red-100/80 border border-red-200 text-xs text-red-800 space-y-1">
-                        <p className="font-semibold">Ocorrências / Avisos:</p>
-                        {lastSyncResult.errors.map((err, i) => (
-                          <p key={i}>• {err}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Tabela de Histórico de Sincronizações (sync_logs) */}
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
                   <div className="flex items-center gap-2">
-                    <History className="w-4 h-4 text-indigo-600" />
-                    <h4 className="text-sm font-bold text-slate-900">
-                      Histórico de Sincronizações via API
+                    <h4 className="text-base font-bold text-slate-900">
+                      Integração TradePro — aguardando credenciais e homologação
                     </h4>
+                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[11px] font-semibold">
+                      Informativo
+                    </Badge>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => refreshApiHistory()}
-                    disabled={isApiHistoryLoading}
-                    className="h-8 text-xs gap-1.5 text-slate-500 hover:text-slate-900"
-                  >
-                    <RefreshCw
-                      className={cn('w-3.5 h-3.5', isApiHistoryLoading && 'animate-spin')}
-                    />
-                    Atualizar
-                  </Button>
+                  <p className="text-xs text-slate-500 mt-1">
+                    A alimentação de dados é realizada exclusivamente por planilhas Excel.
+                  </p>
                 </div>
-
-                {isApiHistoryLoading ? (
-                  <div className="p-4 space-y-2">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <Skeleton key={i} className="h-10 rounded-lg" />
-                    ))}
-                  </div>
-                ) : syncHistory.length === 0 ? (
-                  <div className="p-8">
-                    <EmptyState
-                      icon={Cloud}
-                      title="Nenhuma sincronização via API registrada"
-                      description="Clique em 'Sincronizar Tudo' para buscar os dados de lojas da API TradePro."
-                    />
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">Data/Hora</TableHead>
-                          <TableHead className="text-xs">Tipo</TableHead>
-                          <TableHead className="text-xs text-right">Total API</TableHead>
-                          <TableHead className="text-xs text-right">Novos</TableHead>
-                          <TableHead className="text-xs text-right">Atualizados</TableHead>
-                          <TableHead className="text-xs text-right">Duração</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {syncHistory.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell className="text-xs text-slate-600 whitespace-nowrap font-mono">
-                              {fmtDate(log.created)}
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  'text-[10px] font-bold uppercase',
-                                  log.tipo === 'rupturas'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : log.tipo === 'all'
-                                      ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                      : 'bg-indigo-50 text-indigo-700 border-indigo-200',
-                                )}
-                              >
-                                {log.tipo === 'all'
-                                  ? 'Completo'
-                                  : log.tipo === 'rupturas'
-                                    ? 'Rupturas'
-                                    : 'Validades'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums text-slate-700">
-                              {log.total_rows}
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums text-emerald-700 font-semibold">
-                              {log.new_rows}
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums text-blue-700 font-semibold">
-                              {log.updated_rows}
-                            </TableCell>
-                            <TableCell className="text-xs text-right tabular-nums text-slate-500 font-mono">
-                              {(log.duration_ms / 1000).toFixed(1)}s
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  'text-[11px] font-semibold',
-                                  statusBadgeClass(log.status),
-                                )}
-                              >
-                                {statusLabel(log.status)}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
               </div>
             </div>
-          )}
+
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+              <p className="text-xs font-semibold text-slate-800 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-slate-600" />
+                Status do Conector:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="font-semibold text-slate-700 block">
+                    Fonte Operacional Ativa:
+                  </span>
+                  <span className="text-emerald-700 font-bold">
+                    Importação de Planilhas Excel (.xlsx)
+                  </span>
+                </div>
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="font-semibold text-slate-700 block">Homologação API:</span>
+                  <span className="text-slate-600">
+                    Aguardando liberação de credenciais de produção
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-slate-500">
+                Integração TradePro — aguardando credenciais e homologação.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab('file')}
+                className="gap-1.5 text-xs h-9 bg-slate-50 hover:bg-slate-100"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Ir para Importação Excel
+              </Button>
+            </div>
+          </div>
         </TabsContent>
 
         {/* ========================================================================= */}
-        {/* SEÇÃO B — "Importar Arquivo" (Upload Excel clássico / fallback)           */}
+        {/* SEÇÃO PRINCIPAL — "Importar Arquivo Excel"                                 */}
         {/* ========================================================================= */}
         <TabsContent value="file" className="space-y-6 mt-4">
           <div className="flex items-center justify-between pb-1">
@@ -1629,49 +1334,72 @@ export const ImportacaoPage: React.FC = () => {
                       <TableHead className="text-xs text-right">Importados</TableHead>
                       <TableHead className="text-xs text-right">Consolidados</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs">Observação / Erro</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {history.map((h) => (
-                      <TableRow key={h.id}>
-                        <TableCell className="text-xs text-slate-600 whitespace-nowrap tabular-nums">
-                          {fmtDate(h.created)}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              'text-[10px] font-bold uppercase',
-                              h.tipo === 'rupturas'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                    {history.map((h) => {
+                      const statusStr = String(h.status)
+                      const isFailed = statusStr === 'failed' || statusStr === 'error'
+                      const errorReason =
+                        (h as unknown as { error_message?: string; erro?: string }).error_message ||
+                        (h as unknown as { error_message?: string; erro?: string }).erro ||
+                        (isFailed ? 'Erro desconhecido' : '—')
+
+                      return (
+                        <TableRow key={h.id}>
+                          <TableCell className="text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                            {fmtDate(h.created)}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'text-[10px] font-bold uppercase',
+                                h.tipo === 'rupturas'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                              )}
+                            >
+                              {h.tipo === 'rupturas' ? 'Rupturas' : 'Validades'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs font-medium text-slate-900">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[200px]">{h.file_name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs text-right tabular-nums text-emerald-700 font-semibold">
+                            {h.imported_rows}
+                          </TableCell>
+                          <TableCell className="text-xs text-right tabular-nums text-slate-500">
+                            {h.skipped_rows}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'text-[11px] font-semibold',
+                                statusBadgeClass(h.status),
+                              )}
+                            >
+                              {statusLabel(h.status)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className="text-xs text-slate-500 max-w-[180px] truncate"
+                            title={errorReason !== '—' ? errorReason : undefined}
+                          >
+                            {isFailed ? (
+                              <span className="text-red-600 font-medium">{errorReason}</span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
                             )}
-                          >
-                            {h.tipo === 'rupturas' ? 'Rupturas' : 'Validades'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs font-medium text-slate-900">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[200px]">{h.file_name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs text-right tabular-nums text-emerald-700 font-semibold">
-                          {h.imported_rows}
-                        </TableCell>
-                        <TableCell className="text-xs text-right tabular-nums text-slate-500">
-                          {h.skipped_rows}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={cn('text-[11px] font-semibold', statusBadgeClass(h.status))}
-                          >
-                            {statusLabel(h.status)}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -1732,14 +1460,14 @@ export const ImportacaoPage: React.FC = () => {
             </div>
           )}
 
-          {/* Nota informativa TradePro */}
+          {/* Nota informativa TradePro e Rodapé */}
           <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/50">
             <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
               <Info className="w-4 h-4" />
             </div>
             <div className="text-xs text-slate-700 leading-relaxed">
               <p className="font-semibold text-slate-900 mb-0.5">
-                Pipeline TradePro (Validades &amp; Rupturas)
+                Pipeline TradePro (Validades &amp; Rupturas via Excel)
               </p>
               <p>
                 O importador identifica automaticamente o tipo de arquivo TradePro: para{' '}
@@ -1749,6 +1477,9 @@ export const ImportacaoPage: React.FC = () => {
                 etapas; para <strong>Rupturas</strong> (aba “Rupturas” ou exportação
                 correspondente), padroniza os motivos, valida as informações da visita/produto e
                 atualiza a Base Atual de Rupturas com histórico completo.
+              </p>
+              <p className="mt-2 text-slate-500 italic text-[11px]">
+                Integração TradePro — aguardando credenciais e homologação.
               </p>
             </div>
           </div>

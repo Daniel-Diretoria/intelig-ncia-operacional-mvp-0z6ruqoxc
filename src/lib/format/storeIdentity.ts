@@ -155,7 +155,8 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
     const { extractedCode, cleanName } = extractFromCombined(input)
     const finalName = removeRepeatedCodePrefix(cleanName, extractedCode)
     if (extractedCode) {
-      return `${extractedCode} • ${finalName}`
+      const paddedCode = extractedCode.replace(/^0+/, '').padStart(3, '0')
+      return `${paddedCode} • ${finalName}`
     }
     return `Código não identificado • ${finalName || input}`
   }
@@ -194,7 +195,8 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
   const finalName = removeRepeatedCodePrefix(name, code)
 
   if (code) {
-    return `${code} • ${finalName}`
+    const paddedCode = code.replace(/^0+/, '').padStart(3, '0')
+    return `${paddedCode} • ${finalName}`
   }
 
   return `Código não identificado • ${finalName || 'Loja não identificada'}`
@@ -282,6 +284,8 @@ export function deriveNetworkName(storeNameOrRazao: unknown): string {
   const n = normStr(storeNameOrRazao)
   if (!n) return 'Rede não identificada'
 
+  // Importante: verificar bandeiras específicas ANTES de nomes genéricos de grupos.
+  // FORT e COMPER são bandeiras operacionais (mesmo quando pertencentes ao Grupo Pereira).
   if (n.includes('fort atacadista') || n.includes('fort')) {
     return 'FORT ATACADISTA'
   }
@@ -296,9 +300,6 @@ export function deriveNetworkName(storeNameOrRazao: unknown): string {
   }
   if (n.includes('comper')) {
     return 'COMPER'
-  }
-  if (n.includes('grupo pereira') || n.includes('pereira')) {
-    return 'GRUPO PEREIRA'
   }
   if (n.includes('bistek')) {
     return 'BISTEK'
@@ -317,6 +318,9 @@ export function deriveNetworkName(storeNameOrRazao: unknown): string {
   }
   if (n.includes('passarela')) {
     return 'PASSARELA'
+  }
+  if (n.includes('grupo pereira') || n.includes('pereira')) {
+    return 'GRUPO PEREIRA'
   }
 
   return 'Rede não identificada'

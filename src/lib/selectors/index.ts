@@ -11,3 +11,8 @@ export {
   cleanCode,
   type StoreIdentityInput,
 } from '@/lib/format/storeIdentity'
+export {
+  normalizeStoreCode,
+  formatStoreCode,
+  normalizeStoreCodeForMatching,
+} from '@/lib/format/storeCode'

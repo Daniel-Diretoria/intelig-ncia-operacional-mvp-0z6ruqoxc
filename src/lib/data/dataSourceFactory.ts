@@ -111,6 +111,12 @@ export class TradeProApiAdapter implements IOperationalDataSource {
         ? rec.dias_vencimento_atual
         : calcularDiasRestantes(validade)
 
+    const storeCodeNorm = (rec.codigo_loja as string)?.trim() || undefined
+    const storeCodePadded = storeCodeNorm
+      ? storeCodeNorm.replace(/^0+/, '').padStart(3, '0')
+      : undefined
+    const storeName = (rec.nome_loja as string) || (rec.razao_social as string) || ''
+
     return {
       id: rec.id as string,
       product: (rec.produto as string) || '',
@@ -127,10 +133,8 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       cliente: (rec.cliente as string) || undefined,
       industria: (rec.fornecedor as string) || undefined,
       rede: (rec.rede as string) || undefined,
-      codigoLoja: (rec.codigo_loja as string) || undefined,
-      loja: rec.codigo_loja
-        ? `${String(rec.codigo_loja).padStart(3, '0')} • ${(rec.nome_loja as string) || (rec.razao_social as string) || ''}`
-        : (rec.nome_loja as string) || (rec.razao_social as string) || undefined,
+      codigoLoja: storeCodePadded,
+      loja: storeCodePadded ? `${storeCodePadded} • ${storeName}` : storeName || undefined,
       cidade: (rec.cidade as string) || undefined,
       uf: (rec.estado as string) || undefined,
       promotor: (rec.colaborador as string) || undefined,

@@ -88,81 +88,98 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Validades Críticas */}
-        <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Validades Críticas
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
-              <CalendarClock className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-              {summary?.validadesCriticas.count ?? 0}
-            </div>
-            <p className="text-xs text-red-600 font-medium">1 a 15 dias para vencer</p>
-          </CardContent>
-        </Card>
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="border-slate-200 shadow-sm bg-white animate-pulse">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <div className="h-3 bg-slate-200 rounded w-24" />
+                <div className="w-8 h-8 bg-slate-100 rounded-lg" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="h-7 bg-slate-200 rounded w-16" />
+                <div className="h-3 bg-slate-100 rounded w-32" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Validades Críticas */}
+          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Validades Críticas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+                <CalendarClock className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
+                {summary?.validadesCriticas.count ?? 0}
+              </div>
+              <p className="text-xs text-red-600 font-medium">1 a 15 dias para vencer</p>
+            </CardContent>
+          </Card>
 
-        {/* Rupturas Ativas */}
-        <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Rupturas Ativas
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-              {summary?.rupturasAtivas.count ?? 0}
-            </div>
-            <p className="text-xs text-amber-600 font-medium">Ocorrências na Base Atual</p>
-          </CardContent>
-        </Card>
+          {/* Rupturas Ativas */}
+          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Rupturas Ativas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
+                {summary?.rupturasAtivas.count ?? 0}
+              </div>
+              <p className="text-xs text-amber-600 font-medium">Ocorrências na Base Atual</p>
+            </CardContent>
+          </Card>
 
-        {/* Alertas Abertos */}
-        <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Alertas Abertos
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-              <Bell className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-              {summary?.alertasAbertos.count ?? 0}
-            </div>
-            <p className="text-xs text-blue-600 font-medium">
-              Crítico, Atenção e Moderado não lidos
-            </p>
-          </CardContent>
-        </Card>
+          {/* Alertas Abertos */}
+          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Alertas Abertos
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+                <Bell className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
+                {summary?.alertasAbertos.count ?? 0}
+              </div>
+              <p className="text-xs text-blue-600 font-medium">
+                Crítico, Atenção e Moderado não lidos
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* Produtos em Risco */}
-        <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Produtos em Risco
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center">
-              <Package className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-              {summary?.produtosEmRisco.count ?? 0}
-            </div>
-            <p className="text-xs text-purple-600 font-medium">SKUs distintos em risco</p>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Produtos em Risco */}
+          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Produtos em Risco
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center">
+                <Package className="w-4 h-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
+                {summary?.produtosEmRisco.count ?? 0}
+              </div>
+              <p className="text-xs text-purple-600 font-medium">SKUs distintos em risco</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Gráfico: Distribuição de Validades por Faixa Operacional */}
       <Card className="border-slate-200 shadow-sm bg-white">
@@ -181,47 +198,53 @@ export const DashboardPage: React.FC = () => {
           </p>
         </CardHeader>
         <CardContent className="pt-2">
-          <div className="w-full h-64 min-h-[256px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={categoryDistribution}
-                margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                <XAxis
-                  dataKey="category"
-                  tick={{ fontSize: 11, fill: '#64748B' }}
-                  interval={0}
-                  tickLine={false}
-                />
-                <YAxis tick={{ fontSize: 11, fill: '#64748B' }} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1E293B',
-                    color: '#FFF',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    border: 'none',
-                  }}
-                  formatter={(value: number) => [`${value} ocorrência(s)`, 'Total']}
-                />
-                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                <Bar
-                  dataKey="critico"
-                  name="Crítico (1-15d)"
-                  fill="#EF4444"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar
-                  dataKey="proximo"
-                  name="Atenção/Moderado (16-35d)"
-                  fill="#F59E0B"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar dataKey="ok" name="Normal (36+d)" fill="#10B981" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {isLoading ? (
+            <div className="w-full h-64 flex items-center justify-center bg-slate-50 rounded-lg animate-pulse">
+              <span className="text-xs text-slate-400">Carregando gráfico de distribuição...</span>
+            </div>
+          ) : (
+            <div className="w-full min-w-0 h-64 min-h-[256px]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
+                <BarChart
+                  data={categoryDistribution}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis
+                    dataKey="category"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    interval={0}
+                    tickLine={false}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748B' }} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1E293B',
+                      color: '#FFF',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      border: 'none',
+                    }}
+                    formatter={(value: number) => [`${value} ocorrência(s)`, 'Total']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Bar
+                    dataKey="critico"
+                    name="Crítico (1-15d)"
+                    fill="#EF4444"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="proximo"
+                    name="Atenção/Moderado (16-35d)"
+                    fill="#F59E0B"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar dataKey="ok" name="Normal (36+d)" fill="#10B981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -246,7 +269,13 @@ export const DashboardPage: React.FC = () => {
             </Link>
           </CardHeader>
           <CardContent className="space-y-3 pt-0">
-            {topValidadesCriticas.length === 0 ? (
+            {isLoading ? (
+              <div className="space-y-3 py-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-16 bg-slate-50 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : topValidadesCriticas.length === 0 ? (
               <EmptyState
                 title="Nenhuma validade crítica no momento"
                 description="Todas as ocorrências ativas estão acima da faixa de 15 dias."
@@ -301,7 +330,13 @@ export const DashboardPage: React.FC = () => {
             </Link>
           </CardHeader>
           <CardContent className="space-y-3 pt-0">
-            {topRupturas.length === 0 ? (
+            {isLoading ? (
+              <div className="space-y-3 py-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-16 bg-slate-50 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : topRupturas.length === 0 ? (
               <EmptyState
                 title="Nenhuma ruptura ativa no momento"
                 description="Não há registros de ruptura pendentes na Base Atual."
@@ -363,7 +398,13 @@ export const DashboardPage: React.FC = () => {
           </Link>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-          {recentAlerts.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-2 py-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-14 bg-slate-50 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : recentAlerts.length === 0 ? (
             <div className="text-center py-6 text-xs text-slate-500">
               Nenhum alerta pendente de leitura no momento.
             </div>

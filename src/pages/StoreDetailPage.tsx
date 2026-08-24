@@ -46,10 +46,26 @@ export const StoreDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="p-8 space-y-4">
+      <div className="p-8 space-y-4 animate-fade-in">
         <div className="h-8 w-48 bg-slate-100 rounded animate-pulse" />
         <div className="h-32 bg-slate-100 rounded-xl animate-pulse" />
         <div className="h-64 bg-slate-100 rounded-xl animate-pulse" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 text-center space-y-4 max-w-md mx-auto">
+        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 mx-auto flex items-center justify-center">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-900">Erro ao carregar detalhes da loja</h3>
+        <p className="text-xs text-slate-500">{error.message}</p>
+        <Button onClick={() => navigate('/lojas')} variant="outline" size="sm">
+          <ArrowLeft className="w-4 h-4 mr-1.5" />
+          Voltar para Lojas
+        </Button>
       </div>
     )
   }

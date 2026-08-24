@@ -203,10 +203,11 @@ function fmtDate(iso: string | undefined): string {
 /** Monta a string de loja no formato "código • nome". */
 function fmtLoja(item: NormItem): string {
   const codigo = item.codigoLoja?.trim() || ''
+  const paddedCode = codigo ? codigo.replace(/^0+/, '').padStart(3, '0') : ''
   const nome = item.loja?.trim() || ''
-  if (codigo && nome) return `${codigo} • ${nome}`
+  if (paddedCode && nome) return `${paddedCode} • ${nome}`
   if (nome) return nome
-  if (codigo) return codigo
+  if (paddedCode) return paddedCode
   return ''
 }
 
@@ -272,10 +273,12 @@ export async function exportarRelatorioRupturas(
   }
 
   const rows: Array<Record<string, string | number>> = records.map((it) => {
+    const code = it.codigo_loja?.trim()
+    const paddedCode = code ? code.replace(/^0+/, '').padStart(3, '0') : ''
     const lojaStr =
-      it.codigo_loja && it.nome_loja
-        ? `${it.codigo_loja} • ${it.nome_loja}`
-        : it.nome_loja || it.codigo_loja || '—'
+      paddedCode && it.nome_loja
+        ? `${paddedCode} • ${it.nome_loja}`
+        : it.nome_loja || paddedCode || '—'
     return {
       LOJA: lojaStr,
       PRODUTO: it.produto,

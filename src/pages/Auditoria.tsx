@@ -286,11 +286,22 @@ export const AuditoriaPage: React.FC = () => {
       </div>
 
       {/* Resumo */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <ResumoCardItem key={c.label} {...c} />
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white animate-pulse">
+              <div className="h-3 bg-slate-200 rounded w-20 mb-2" />
+              <div className="h-7 bg-slate-200 rounded w-12" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {cards.map((c) => (
+            <ResumoCardItem key={c.label} {...c} />
+          ))}
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -349,9 +360,13 @@ export const AuditoriaPage: React.FC = () => {
       {!error && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           {isLoading ? (
-            <div className="p-4 space-y-2">
+            <div className="p-8 space-y-3">
+              <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                <span>Carregando dados de auditoria...</span>
+              </div>
               {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 rounded-lg" />
+                <Skeleton key={i} className="h-10 rounded-lg" />
               ))}
             </div>
           ) : filtradas.length === 0 ? (

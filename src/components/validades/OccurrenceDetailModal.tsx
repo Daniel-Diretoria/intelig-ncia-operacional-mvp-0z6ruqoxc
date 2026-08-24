@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Building2, Store, Package, User, MapPin, Calendar, Hash, Layers } from 'lucide-react'
 import type { ValidadeItem } from '@/types'
 import { classificarCriticidade, getCriticidadeFaixa } from '@/lib/data/criticidade'
+import { formatStoreIdentity } from '@/lib/selectors'
 import { CriticidadeBadge } from './CriticidadeBadge'
 
 interface OccurrenceDetailModalProps {
@@ -99,7 +100,15 @@ export const OccurrenceDetailModal: React.FC<OccurrenceDetailModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
           <Field icon={Building2} label="Cliente" value={item.cliente} />
           <Field icon={Layers} label="Indústria" value={item.industria} />
-          <Field icon={Store} label="Loja" value={item.loja} />
+          <Field
+            icon={Store}
+            label="Loja"
+            value={
+              item.codigoLoja
+                ? formatStoreIdentity({ codigo_loja: item.codigoLoja, nome_loja: item.loja })
+                : item.loja
+            }
+          />
           <Field
             icon={MapPin}
             label="Cidade / UF"

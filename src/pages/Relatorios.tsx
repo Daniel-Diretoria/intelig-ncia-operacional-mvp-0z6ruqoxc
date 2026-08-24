@@ -392,8 +392,8 @@ export const RelatoriosPage: React.FC = () => {
                   <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4">
                     Visualização Gráfica
                   </h5>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-72 w-full min-w-0 min-h-[288px]">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288}>
                       <BarChart
                         data={reportData.chartData}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
