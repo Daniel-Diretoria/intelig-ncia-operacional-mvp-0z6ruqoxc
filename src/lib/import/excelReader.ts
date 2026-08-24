@@ -21,6 +21,12 @@ export interface ParsedSheet {
   sheetName: string
   /** Data representada pelo arquivo (ISO YYYY-MM-DD), extraída do nome. */
   dataArquivo?: string
+  /** Linhas declaradas na dimensão da planilha (!ref). */
+  declaredPhysicalRows: number
+  /** Linhas preenchidas úteis (excluindo cabeçalho). */
+  usefulRows: number
+  /** Linhas vazias ignoradas entre as declaradas e as úteis. */
+  ignoredBlankRows: number
 }
 
 /** Abas consideradas de Validades no formato TradePro. */
@@ -156,12 +162,127 @@ function coerceTextIds(
   })
 }
 
+/**
+ * Extrai dados de uma worksheet SheetJS de maneira esparsa, sem iterar
+ * pela dimensão declarada (!ref / max_row), operando apenas sobre chaves reais de células.
+ */
+export function parseWorksheetSparse(worksheet: XLSX.WorkSheet): {
+  headers: string[]
+  rows: Record<string, unknown>[]
+  declaredPhysicalRows: number
+  usefulRows: number
+  ignoredBlankRows: number
+} {
+  // 1. Calcula declaredPhysicalRows a partir de worksheet['!ref']
+  let declaredPhysicalRows = 0
+  const ref = worksheet['!ref']
+  if (ref) {
+    const range = XLSX.utils.decode_range(ref)
+    declaredPhysicalRows = Math.max(0, range.e.r - range.s.r + 1)
+  }
+
+  // 2. Agrupa células reais por linha (0-indexed)
+  // Ignora chaves internas que começam com "!"
+  const rowsMap = new Map<number, Map<number, unknown>>()
+  for (const cellKey of Object.keys(worksheet)) {
+    if (cellKey.startsWith('!')) continue
+    const cell = worksheet[cellKey]
+    if (!cell) continue
+
+    // Extrai valor da célula (preferindo v ou w ou Date)
+    let val: unknown = cell.v
+    if (val === undefined || val === null) {
+      val = cell.w
+    }
+    if (val === undefined || val === null) continue
+    if (typeof val === 'string' && val.trim() === '') continue
+
+    const coord = XLSX.utils.decode_cell(cellKey)
+    let rowCells = rowsMap.get(coord.r)
+    if (!rowCells) {
+      rowCells = new Map<number, unknown>()
+      rowsMap.set(coord.r, rowCells)
+    }
+    rowCells.set(coord.c, val)
+  }
+
+  if (rowsMap.size === 0) {
+    throw new Error('A planilha está vazia.')
+  }
+
+  // 3. Ordena os números de linha preenchidos
+  const sortedRowIndices = Array.from(rowsMap.keys()).sort((a, b) => a - b)
+  if (sortedRowIndices.length === 0) {
+    throw new Error('A planilha está vazia.')
+  }
+
+  // 4. Primeira linha preenchida como cabeçalho
+  const headerRowIndex = sortedRowIndices[0]
+  const headerCells = rowsMap.get(headerRowIndex)!
+
+  const maxColIndex = Math.max(...Array.from(headerCells.keys()))
+  const headerColMap = new Map<number, string>()
+  const headers: string[] = []
+
+  for (let c = 0; c <= maxColIndex; c++) {
+    const rawVal = headerCells.get(c)
+    if (rawVal != null) {
+      const hStr = String(rawVal).trim()
+      if (hStr) {
+        headerColMap.set(c, hStr)
+        headers.push(hStr)
+      }
+    }
+  }
+
+  if (headers.length === 0) {
+    throw new Error('A planilha está vazia ou sem cabeçalhos válidos.')
+  }
+
+  // 5. Linhas de dados (linhas posteriores preenchidas)
+  const rawRows: Record<string, unknown>[] = []
+  for (let i = 1; i < sortedRowIndices.length; i++) {
+    const rIdx = sortedRowIndices[i]
+    const rowCells = rowsMap.get(rIdx)!
+    const rowObj: Record<string, unknown> = {}
+    let hasAnyData = false
+
+    for (const [cIdx, headerName] of headerColMap.entries()) {
+      const cellVal = rowCells.get(cIdx)
+      if (cellVal !== undefined && cellVal !== null && cellVal !== '') {
+        rowObj[headerName] = cellVal
+        hasAnyData = true
+      } else {
+        rowObj[headerName] = ''
+      }
+    }
+
+    if (hasAnyData) {
+      rawRows.push(rowObj)
+    }
+  }
+
+  const rows = coerceTextIds(rawRows, headers)
+  const usefulRows = rows.length
+  // Linhas físicas declaradas menos (cabeçalho + linhas úteis)
+  const totalOccupied = usefulRows > 0 ? usefulRows + 1 : 0
+  const ignoredBlankRows = Math.max(0, declaredPhysicalRows - totalOccupied)
+
+  return {
+    headers,
+    rows,
+    declaredPhysicalRows,
+    usefulRows,
+    ignoredBlankRows,
+  }
+}
+
 export async function parseExcelFile(
   file: File,
 ): Promise<ParsedSheet & { isRupturaSheet?: boolean }> {
   const buffer = await file.arrayBuffer()
-  // cellDates: true para interpretar datas reais como objetos Date
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+  // cellDates: true para interpretar datas reais como objetos Date, cellStyles: false conforme especificação
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, cellStyles: false })
 
   const { sheetName, isRuptura } = selectBestSheet(workbook)
   if (!sheetName) {
@@ -169,38 +290,11 @@ export async function parseExcelFile(
   }
 
   const worksheet = workbook.Sheets[sheetName]
-
-  // json com header:1 para extrair cabeçalho da primeira linha
-  const aoa: unknown[][] = XLSX.utils.sheet_to_json(worksheet, {
-    header: 1,
-    raw: true,
-    defval: '',
-    blankrows: false,
-  })
-
-  if (aoa.length === 0) {
-    throw new Error('A planilha está vazia.')
-  }
-
-  const headerRow = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim())
-  const headers = headerRow.filter((h) => h.length > 0)
-
-  // json com header padrão (usa a primeira linha como chaves)
-  // raw: false para que datas venham como strings formatadas quando não forem Date
-  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-    raw: true,
-    defval: '',
-    blankrows: false,
-  })
-
-  // Trata identificadores como texto (preserva zeros à esquerda)
-  const rows = coerceTextIds(jsonRows, headers)
-
+  const parsedSparse = parseWorksheetSparse(worksheet)
   const dataArquivo = extractDataArquivo(file.name)
 
   return {
-    headers,
-    rows,
+    ...parsedSparse,
     sheetName,
     dataArquivo,
     isRupturaSheet: isRuptura,

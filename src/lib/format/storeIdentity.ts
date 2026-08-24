@@ -71,7 +71,7 @@ export function cleanCode(code: unknown): string | null {
   if (!str) return null
   if (FORBIDDEN_CODES.has(str.toLowerCase())) return null
 
-  // Se for puramente numérico, preserva
+  // Se for puramente numérico, preserva zeros à esquerda como string
   if (/^\d{1,10}$/.test(str)) {
     // Se for apenas zeros como "000" ou "0", rejeita
     if (/^0+$/.test(str)) return null
@@ -82,7 +82,7 @@ export function cleanCode(code: unknown): string | null {
 }
 
 /**
- * Extrai código numérico e nome de uma string composta (ex: "250 - FORT ATACADISTA FLORESTA" ou "085 • FORT")
+ * Extrai código numérico e nome de uma string composta (ex: "00250 - FORT ATACADISTA FLORESTA", "085 • FORT" ou "00012 · LOJA")
  */
 export function extractFromCombined(text: string): {
   extractedCode: string | null
@@ -91,8 +91,8 @@ export function extractFromCombined(text: string): {
   const trimmed = text.trim()
   if (!trimmed) return { extractedCode: null, cleanName: '' }
 
-  // Match para "250 - NOME" ou "085 • NOME" ou "123 – NOME"
-  const match = trimmed.match(/^(\d{1,10})\s*[-•–]\s*(.+)$/)
+  // Match para "00000 - NOME" ou "00000 • NOME" ou "00000 · NOME" ou "00000 – NOME"
+  const match = trimmed.match(/^(\d{1,10})\s*[-•·–]\s*(.+)$/)
   if (match) {
     const candidateCode = cleanCode(match[1])
     const remainder = match[2].trim()
@@ -155,8 +155,7 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
     const { extractedCode, cleanName } = extractFromCombined(input)
     const finalName = removeRepeatedCodePrefix(cleanName, extractedCode)
     if (extractedCode) {
-      const paddedCode = extractedCode.replace(/^0+/, '').padStart(3, '0')
-      return `${paddedCode} • ${finalName}`
+      return `${extractedCode} • ${finalName}`
     }
     return `Código não identificado • ${finalName || input}`
   }
@@ -195,8 +194,7 @@ export function formatStoreIdentity(input: StoreIdentityInput | string | null | 
   const finalName = removeRepeatedCodePrefix(name, code)
 
   if (code) {
-    const paddedCode = code.replace(/^0+/, '').padStart(3, '0')
-    return `${paddedCode} • ${finalName}`
+    return `${code} • ${finalName}`
   }
 
   return `Código não identificado • ${finalName || 'Loja não identificada'}`

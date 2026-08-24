@@ -109,21 +109,57 @@ export function parseTextId(raw: unknown): string {
 }
 
 /** Calcula dias restantes até a validade a partir de uma data ISO. */
-export function calcularDiasRestantes(validadeISO: string, refDate: Date = new Date()): number {
+/**
+ * Retorna a data atual no fuso America/Sao_Paulo (ISO YYYY-MM-DD).
+ */
+export function getTodaySaoPaulo(): string {
+  const now = new Date()
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+/**
+ * Verifica se uma data de validade é implausível (> 5 anos a partir da data de processamento em America/Sao_Paulo).
+ * Retorna true se a data for inválida ou superior a 5 anos no futuro (ex: 2076, 2035).
+ * Datas dentro de 5 anos (como 2027, 2028) retornam false (são plausíveis).
+ */
+export function isDataImplausivel(validadeISO: string, refDateISO?: string): boolean {
+  if (!validadeISO) return true
+  const v = new Date(validadeISO + 'T00:00:00Z')
+  if (isNaN(v.getTime())) return true
+
+  const hojeStr = refDateISO || getTodaySaoPaulo()
+  const hoje = new Date(hojeStr + 'T00:00:00Z')
+  if (isNaN(hoje.getTime())) return true
+
+  const limite5Anos = new Date(hoje.getTime())
+  limite5Anos.setUTCFullYear(limite5Anos.getUTCFullYear() + 5)
+
+  return v.getTime() > limite5Anos.getTime()
+}
+
+/**
+ * Calcula dias restantes até a validade a partir de uma data ISO no fuso America/Sao_Paulo.
+ * Dias restantes = Validade - hoje em America/Sao_Paulo.
+ */
+export function calcularDiasRestantes(validadeISO: string, refDateISO?: string): number {
   const v = new Date(validadeISO + 'T00:00:00Z')
   if (isNaN(v.getTime())) return 0
-  const today = new Date(
-    Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth(), refDate.getUTCDate()),
-  )
+  const hojeStr = refDateISO || getTodaySaoPaulo()
+  const today = new Date(hojeStr + 'T00:00:00Z')
   return Math.floor((v.getTime() - today.getTime()) / 86400000)
 }
 
 /** Deriva status operacional a partir dos dias restantes (faixas TradePro). */
 export function deriveStatus(diasRestantes: number): ValidadeStatus {
-  if (diasRestantes <= 0) return 'Vencido'
+  if (diasRestantes < 0) return 'Vencido'
   if (diasRestantes <= 15) return 'Crítico'
-  if (diasRestantes <= 25) return 'Atenção'
-  if (diasRestantes <= 35) return 'Moderado'
+  if (diasRestantes <= 20) return 'Atenção'
+  if (diasRestantes <= 29) return 'Moderado'
   return 'Normal'
 }
 
@@ -212,19 +248,30 @@ export function mapRecord(
   }
   if (!category) category = 'Mercearia'
 
-  // --- Campos obrigatórios do modelo TradePro (7) ---
-  // Razão Social, Realizado, Cliente, Produto, Quantidade, Validade, Fornecedor
+  const statusOperacionalArquivo =
+    parseString(get('statusOperacionalArquivo')) || parseString(get('statusOperacional'))
+  const dataEntradaArquivo = parseDate(get('dataEntradaArquivo')) || parseDate(get('dataEntrada'))
+
+  // --- Campos obrigatórios do modelo de Validades (9):
+  // Razão Social, Realizado, Produto, Cliente, Quantidade, Validade, Dias p/ Vencimento, Status Operacional, Data Entrada
   if (!razaoSocial) errors.push('Razão Social ausente')
   if (!realizado) errors.push('Realizado (data da coleta) ausente ou inválido')
-  if (!cliente) errors.push('Cliente ausente')
   if (!produto) errors.push('Produto ausente')
+  if (!cliente) errors.push('Cliente ausente')
   if (quantidade == null) errors.push('Quantidade ausente')
   else if (quantidade < 0) errors.push('Quantidade negativa é rejeitada')
   if (!validade) errors.push('Validade ausente ou inválida')
-  if (!fornecedor) errors.push('Fornecedor ausente')
+  if (diasVencimentoArquivo == null) errors.push('Dias p/ Vencimento ausente')
+  if (!statusOperacionalArquivo) errors.push('Status Operacional ausente')
+  if (!dataEntradaArquivo) errors.push('Data Entrada ausente ou inválida')
 
   if (errors.length > 0) {
     return { item: { ...item }, errors }
+  }
+
+  // Validação de data implausível (> 5 anos)
+  if (isDataImplausivel(validade!)) {
+    errors.push('DATA_IMPLAUSIVEL')
   }
 
   const diasRestantes = calcularDiasRestantes(validade!)
@@ -233,7 +280,7 @@ export function mapRecord(
   // Extrai loja da Razão Social quando possível (código - nome)
   let loja: string | undefined
   let codigoLoja: string | undefined
-  const m = razaoSocial.match(/^(\S{1,20})\s+-\s+(.+)$/)
+  const m = razaoSocial.match(/^(\d{1,10})\s*[-•·–]\s*(.+)$/)
   if (m) {
     codigoLoja = m[1].trim()
     loja = m[2].trim()

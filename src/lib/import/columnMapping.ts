@@ -176,10 +176,17 @@ export const EXPECTED_COLUMNS: ExpectedColumn[] = [
   {
     key: 'diasVencimentoArquivo',
     label: 'Dias p/ Vencimento',
-    description: 'Preservado do arquivo para auditoria',
-    required: false,
+    description: 'Preservado do arquivo para auditoria (Dias p/Vencimento)',
+    required: true,
     type: 'number',
-    aliases: ['dias p/ vencimento', 'dias p vencimento', 'dias para vencimento', 'dias vencimento'],
+    aliases: [
+      'dias p/ vencimento',
+      'dias p/vencimento',
+      'dias p vencimento',
+      'dias pvencimento',
+      'dias para vencimento',
+      'dias vencimento',
+    ],
   },
   {
     key: 'validade',
@@ -188,6 +195,22 @@ export const EXPECTED_COLUMNS: ExpectedColumn[] = [
     required: true,
     type: 'date',
     aliases: ['validade', 'vencimento', 'data de validade', 'data vencimento', 'val', 'shelf life'],
+  },
+  {
+    key: 'statusOperacionalArquivo',
+    label: 'Status Operacional',
+    description: 'Status operacional constante do arquivo',
+    required: true,
+    type: 'string',
+    aliases: ['status operacional', 'status operacao', 'status', 'situacao operacional'],
+  },
+  {
+    key: 'dataEntradaArquivo',
+    label: 'Data Entrada',
+    description: 'Data de entrada ou registro inicial',
+    required: true,
+    type: 'date',
+    aliases: ['data entrada', 'data de entrada', 'dt entrada', 'entrada'],
   },
   {
     key: 'numeroLote',
@@ -214,7 +237,7 @@ export const EXPECTED_COLUMNS: ExpectedColumn[] = [
   {
     key: 'fornecedor',
     label: 'Fornecedor',
-    required: true,
+    required: false,
     type: 'string',
     aliases: ['fornecedor', 'industria', 'fabricante', 'marca', 'supplier'],
   },

@@ -232,9 +232,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         }
 
         // Filtro de fotografia Base Atual:
-        // - Ativas: quantidade > 0, data válida e dias > 0
-        // - Auditoria: dias <= 0 OU data inválida
-        if (parsedDate && dias !== null && dias > 0 && quantidade > 0) {
+        // - Ativas: quantidade > 0, data válida e dias >= 0
+        // - Auditoria: dias < 0 OU data inválida
+        if (parsedDate && dias !== null && dias >= 0 && quantidade > 0) {
           validadesAtivas.push(item)
         } else {
           const motivo: 'Vencido' | 'Data inválida' = !parsedDate ? 'Data inválida' : 'Vencido'

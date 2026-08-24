@@ -84,7 +84,6 @@ export function validateRequiredFields(
     { field: 'product', label: 'Produto' },
     { field: 'validade', label: 'Validade' },
     { field: 'cliente', label: 'Cliente' },
-    { field: 'industria', label: 'Fornecedor' },
     { field: 'loja', label: 'Razão Social' },
     { field: 'ultimaAtualizacao', label: 'Realizado' },
   ]
@@ -148,7 +147,16 @@ export function validateDates(item: Partial<ValidadeItem>, rowIndex: number): Va
       message: `Data de validade no passado distante (${iso}). Verifique se está correta.`,
     })
   }
-  if (diffDays > MAX_FUTURE_DAYS) {
+  // Validação de data implausível (> 5 anos no futuro): Auditoria DATA_IMPLAUSIVEL
+  const MAX_PLAUSIBLE_FUTURE_DAYS = 365 * 5 + 30 // ~5 anos
+  if (diffDays > MAX_PLAUSIBLE_FUTURE_DAYS) {
+    issues.push({
+      rowIndex,
+      severity: 'error',
+      field: 'validade',
+      message: `DATA_IMPLAUSIVEL: Data de validade (${iso}) excede o limite de 5 anos a partir de hoje.`,
+    })
+  } else if (diffDays > MAX_FUTURE_DAYS) {
     issues.push({
       rowIndex,
       severity: 'warning',

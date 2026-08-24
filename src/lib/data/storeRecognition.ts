@@ -41,19 +41,21 @@ export function extractStoreFromRazaoSocial(razaoSocial: string | undefined): St
     return { razaoSocialOriginal: original, origemReconhecimento: 'nao_reconhecido' }
   }
 
-  // Padrão: dígitos/código curto, seguido de " - ", seguido do nome.
-  // O separador é EXATAMENTE " - " (espaço, hífen, espaço) para evitar
-  // falsos positivos em nomes que contenham travessões.
-  const m = original.match(/^(\S{1,20})\s+-\s+(.+)$/)
+  // Padrão: 00000 - Nome Loja ou 00000 • Nome Loja ou 00000 · Nome Loja
+  // Preserva zeros à esquerda como string. NUNCA inventa código.
+  const m = original.match(/^(\d{1,10})\s*[-•·–]\s*(.+)$/)
   if (m) {
-    const codigoLoja = m[1].trim()
-    const nomeLoja = m[2].trim()
-    // código externo reconhecido com segurança
-    return {
-      codigoLoja,
-      nomeLoja,
-      razaoSocialOriginal: original,
-      origemReconhecimento: 'codigo_externo',
+    const rawDigits = m[1].trim()
+    // Se não for só zeros (ex: "000", "0")
+    if (!/^0+$/.test(rawDigits)) {
+      const codigoLoja = rawDigits // preserva zeros à esquerda como string original
+      const nomeLoja = m[2].trim()
+      return {
+        codigoLoja,
+        nomeLoja,
+        razaoSocialOriginal: original,
+        origemReconhecimento: 'codigo_externo',
+      }
     }
   }
 
@@ -92,56 +94,125 @@ export interface StoreRecognitionInput {
   cidade?: string
   cpfCnpj?: string
   cnpj?: string
+  knownStores?: Array<{ codigo: string; nome: string; cidade?: string; cnpj?: string }>
 }
 
 /**
  * Ordem de identificação da loja/rede:
- * 1. Loja reconhecida pelo código externo
- * 2. Loja reconhecida por alias
- * 3. CNPJ/identificador confirmado no Cadastro Mestre
- * 4. Razão Social normalizada + Cidade
- * 5. Mapeamento confirmado de Fantasia para Rede
- * 6. Revisão manual
- *
- * As etapas 2/3/4 dependem de cadastros (stores/networks/store_aliases) que
- * são populados no backend. Aqui fazemos o reconhecimento best-effort no
- * frontend; o enriquecimento definitivo pode ser feito posteriormente.
+ * 1. Código no campo / prefixo "00000 - " / "00000 • " / "00000 · " (preservando zeros à esquerda como string)
+ * 2. Sem código: match normalizado por nome + cidade usando cadastro mestre se fornecido
+ *    - Match único -> resolve
+ *    - Ambíguo -> Auditoria LOJA_AMBIGUA
+ *    - Não encontrado -> Auditoria LOJA_NAO_RESOLVIDA
+ * 3. Nunca inventar código.
  */
-export function recognizeStore(input: StoreRecognitionInput): StoreRecognition {
+export function resolveStoreMatch(input: StoreRecognitionInput): {
+  status: 'com_codigo' | 'resolvida' | 'LOJA_AMBIGUA' | 'LOJA_NAO_RESOLVIDA'
+  recognition: StoreRecognition
+} {
+  // 1. Código explícito no prefixo
   const base = extractStoreFromRazaoSocial(input.razaoSocial)
-
-  // 1. Código externo reconhecido
   if (base.origemReconhecimento === 'codigo_externo') {
-    return base
+    return {
+      status: 'com_codigo',
+      recognition: base,
+    }
   }
 
-  // 5. Mapeamento de Fantasia -> Rede (apenas candidato)
+  const cleanRazao = (input.razaoSocial ?? '').trim()
+  const cleanCity = (input.cidade ?? '').trim()
+
+  if (!cleanRazao) {
+    return {
+      status: 'LOJA_NAO_RESOLVIDA',
+      recognition: { ...base, origemReconhecimento: 'nao_reconhecido' },
+    }
+  }
+
+  const known = input.knownStores
+  if (known && known.length > 0) {
+    const normName = norm(cleanRazao)
+    const normCity = norm(cleanCity)
+
+    // Filtra correspondências
+    const matches = known.filter((s) => {
+      const sNorm = norm(s.nome)
+      const cNorm = norm(s.cidade)
+      const nameMatch = sNorm === normName || sNorm.includes(normName) || normName.includes(sNorm)
+      if (!nameMatch) return false
+      if (normCity && cNorm) {
+        return cNorm === normCity
+      }
+      return true
+    })
+
+    if (matches.length === 1) {
+      const m = matches[0]
+      return {
+        status: 'resolvida',
+        recognition: {
+          codigoLoja: m.codigo,
+          nomeLoja: m.nome,
+          razaoSocialOriginal: cleanRazao,
+          origemReconhecimento: 'razao_cidade',
+        },
+      }
+    } else if (matches.length > 1) {
+      return {
+        status: 'LOJA_AMBIGUA',
+        recognition: {
+          nomeLoja: cleanRazao,
+          razaoSocialOriginal: cleanRazao,
+          origemReconhecimento: 'nao_reconhecido',
+        },
+      }
+    } else {
+      return {
+        status: 'LOJA_NAO_RESOLVIDA',
+        recognition: {
+          nomeLoja: cleanRazao,
+          razaoSocialOriginal: cleanRazao,
+          origemReconhecimento: 'nao_reconhecido',
+        },
+      }
+    }
+  }
+
+  // Sem lista mestre fornecida: se tem razão social + cidade, trata como tentativa
+  if (cleanRazao && cleanCity) {
+    return {
+      status: 'LOJA_NAO_RESOLVIDA',
+      recognition: {
+        ...base,
+        nomeLoja: cleanRazao,
+        origemReconhecimento: 'razao_cidade',
+      },
+    }
+  }
+
+  return {
+    status: 'LOJA_NAO_RESOLVIDA',
+    recognition: {
+      ...base,
+      nomeLoja: cleanRazao || undefined,
+      origemReconhecimento: 'nao_reconhecido',
+    },
+  }
+}
+
+/**
+ * Wrapper de compatibilidade que chama extractStoreFromRazaoSocial / resolveStoreMatch.
+ */
+export function recognizeStore(input: StoreRecognitionInput): StoreRecognition {
+  const res = resolveStoreMatch(input)
   const net = detectNetworkFromFantasia(input.fantasia)
   if (net.redeDetectada) {
     return {
-      ...base,
+      ...res.recognition,
       rede: net.redeDetectada,
-      origemReconhecimento: 'fantasia_rede',
     }
   }
-
-  // 4. Razão Social normalizada + Cidade (fallback de reconhecimento)
-  if (input.razaoSocial && input.cidade) {
-    return {
-      ...base,
-      origemReconhecimento: 'razao_cidade',
-    }
-  }
-
-  // 3. CNPJ/identificador presente (será confirmado no cadastro mestre)
-  if (input.cnpj || input.cpfCnpj) {
-    return {
-      ...base,
-      origemReconhecimento: 'cnpj',
-    }
-  }
-
-  return base
+  return res.recognition
 }
 
 /** Normaliza um identificador textual (preserva zeros à esquerda). */

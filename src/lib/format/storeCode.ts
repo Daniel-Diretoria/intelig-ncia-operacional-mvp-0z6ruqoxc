@@ -44,11 +44,13 @@ export function normalizeStoreCode(raw: string | number | null | undefined): str
   // Se for apenas repetição de zeros (ex: "0", "00", "000"), não é código real
   if (/^0+$/.test(str)) return ''
 
-  // Remove zeros à esquerda para descobrir a base e re-aplica padStart(3, '0')
-  const stripped = str.replace(/^0+/, '')
-  if (!stripped) return ''
+  // Preserva zeros à esquerda como string original (ou padStart se < 3 dígitos numéricos puros)
+  if (str.length < 3) {
+    const stripped = str.replace(/^0+/, '')
+    return stripped.padStart(3, '0')
+  }
 
-  return stripped.padStart(3, '0')
+  return str
 }
 
 /**

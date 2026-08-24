@@ -166,19 +166,19 @@ export function toOperationalIsoDate(value: unknown): string | null {
 }
 
 /**
- * Classificação operacional de validade segundo as faixas estritas:
- * - <= 0: Vencido
- * - 1 a 15: Crítico
- * - 16 a 25: Atenção
- * - 26 a 35: Moderado
- * - 36+: Normal
+ * Classificação operacional de validade segundo as faixas oficiais GLOBAIS:
+ * - < 0: Vencido
+ * - 0 a 15: Crítico
+ * - 16 a 20: Atenção
+ * - 21 a 29: Moderado
+ * - >= 30: Normal
  */
 export type StatusOperacionalFaixa = 'Vencido' | 'Crítico' | 'Atenção' | 'Moderado' | 'Normal'
 
 export function classifyOperationalStatus(dias: number | null): StatusOperacionalFaixa {
-  if (dias === null || isNaN(dias) || dias <= 0) return 'Vencido'
+  if (dias === null || isNaN(dias) || dias < 0) return 'Vencido'
   if (dias <= 15) return 'Crítico'
-  if (dias <= 25) return 'Atenção'
-  if (dias <= 35) return 'Moderado'
+  if (dias <= 20) return 'Atenção'
+  if (dias <= 29) return 'Moderado'
   return 'Normal'
 }

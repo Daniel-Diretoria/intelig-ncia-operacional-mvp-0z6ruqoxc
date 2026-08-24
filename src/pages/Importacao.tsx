@@ -107,6 +107,9 @@ interface FileInfo {
   size: number
   selectedAt: string
   hash?: string
+  declaredPhysicalRows?: number
+  usefulRows?: number
+  ignoredBlankRows?: number
 }
 
 type ImportType = 'validades' | 'rupturas'
@@ -459,6 +462,9 @@ export const ImportacaoPage: React.FC = () => {
           size: file.size,
           selectedAt: new Date().toISOString(),
           hash,
+          declaredPhysicalRows: parsed?.declaredPhysicalRows ?? rupRows?.length ?? 0,
+          usefulRows: parsed?.usefulRows ?? rupRows?.length ?? 0,
+          ignoredBlankRows: parsed?.ignoredBlankRows ?? 0,
         })
 
         if (isRup && rupRows) {
@@ -596,6 +602,57 @@ export const ImportacaoPage: React.FC = () => {
     setMappedItems([])
     setStage('parsed')
   }, [])
+
+  // Estatísticas de Resolução de Loja e Auditoria para a Prévia
+  const previewStats = useMemo(() => {
+    if (stage === 'idle' || rawRows.length === 0) return null
+
+    let comCodigo = 0
+    let resolvidas = 0
+    let ambiguas = 0
+    let naoResolvidas = 0
+    let emAuditoria = 0
+
+    // Avalia mapeamento ou campos brutos
+    const mapped = mapRecords(rawRows, mapping)
+    const validRowsCount = mapped.filter((m) => m.errors.length === 0).length
+    const auditoriaRowsCount = mapped.filter((m) => m.errors.length > 0).length
+
+    for (const m of mapped) {
+      if (m.errors.length > 0) {
+        emAuditoria++
+      }
+      const rawRazao = String(m.item.loja || '').trim()
+      const rawCidade = String(m.item.cidade || '').trim()
+
+      const storeRes = resolveStoreMatch({
+        razaoSocial: rawRazao,
+        cidade: rawCidade,
+      })
+
+      if (storeRes.status === 'com_codigo') {
+        comCodigo++
+      } else if (storeRes.status === 'resolvida') {
+        resolvidas++
+      } else if (storeRes.status === 'LOJA_AMBIGUA') {
+        ambiguas++
+      } else {
+        naoResolvidas++
+      }
+    }
+
+    return {
+      declaredPhysicalRows: fileInfo?.declaredPhysicalRows ?? rawRows.length,
+      usefulRows: fileInfo?.usefulRows ?? rawRows.length,
+      ignoredBlankRows: fileInfo?.ignoredBlankRows ?? 0,
+      comCodigo,
+      resolvidas,
+      ambiguas,
+      naoResolvidas,
+      validas: validRowsCount,
+      emAuditoria: auditoriaRowsCount || emAuditoria,
+    }
+  }, [stage, rawRows, mapping, fileInfo])
 
   const runValidation = useCallback(() => {
     const mapped = mapRecords(rawRows, mapping)
@@ -1188,7 +1245,7 @@ export const ImportacaoPage: React.FC = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 truncate">{fileInfo.name}</p>
                     <p className="text-xs text-slate-500">
-                      {fmtBytes(fileInfo.size)} • {rawRows.length} linhas • selecionado em{' '}
+                      {fmtBytes(fileInfo.size)} • {rawRows.length} linhas úteis • selecionado em{' '}
                       {fmtDate(fileInfo.selectedAt)}
                     </p>
                   </div>
@@ -1213,6 +1270,92 @@ export const ImportacaoPage: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Novos totais da prévia detalhada (Parser Esparso, Resolução de Loja e Auditoria) */}
+              {previewStats && (
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                      Prévia do Arquivo & Reconhecimento de Lojas
+                    </h5>
+                    <span className="text-[11px] text-slate-400">
+                      Parser esparso de alta performance
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2 text-center">
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                        Declaradas
+                      </p>
+                      <p className="text-base font-bold text-slate-900 tabular-nums">
+                        {previewStats.declaredPhysicalRows.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-indigo-50 border border-indigo-200">
+                      <p className="text-[10px] font-semibold text-indigo-700 uppercase">Úteis</p>
+                      <p className="text-base font-bold text-indigo-800 tabular-nums">
+                        {previewStats.usefulRows.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                        Vazias Ignoradas
+                      </p>
+                      <p className="text-base font-bold text-slate-600 tabular-nums">
+                        {previewStats.ignoredBlankRows.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <p className="text-[10px] font-semibold text-emerald-700 uppercase">
+                        Com Código
+                      </p>
+                      <p className="text-base font-bold text-emerald-800 tabular-nums">
+                        {previewStats.comCodigo.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-teal-50 border border-teal-200">
+                      <p className="text-[10px] font-semibold text-teal-700 uppercase">
+                        Resolvidas
+                      </p>
+                      <p className="text-base font-bold text-teal-800 tabular-nums">
+                        {previewStats.resolvidas.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                      <p className="text-[10px] font-semibold text-amber-700 uppercase">Ambíguas</p>
+                      <p className="text-base font-bold text-amber-800 tabular-nums">
+                        {previewStats.ambiguas.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-orange-50 border border-orange-200">
+                      <p className="text-[10px] font-semibold text-orange-700 uppercase">
+                        Não Resolvidas
+                      </p>
+                      <p className="text-base font-bold text-orange-800 tabular-nums">
+                        {previewStats.naoResolvidas.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-emerald-50/70 border border-emerald-300">
+                      <p className="text-[10px] font-semibold text-emerald-800 uppercase">
+                        Válidas
+                      </p>
+                      <p className="text-base font-bold text-emerald-700 tabular-nums">
+                        {previewStats.validas.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-rose-50 border border-rose-200">
+                      <p className="text-[10px] font-semibold text-rose-700 uppercase">
+                        Em Auditoria
+                      </p>
+                      <p className="text-base font-bold text-rose-800 tabular-nums">
+                        {previewStats.emAuditoria.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Alerta preventivo de arquivo grande (>20MB ou >10.000 linhas) com confirmação explícita */}
               {largeFileWarning && (

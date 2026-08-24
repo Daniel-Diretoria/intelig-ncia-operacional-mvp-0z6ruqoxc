@@ -246,7 +246,6 @@ export function isOperacional(raw: TradeProRawRecord): { ok: boolean; motivo?: s
   if (raw.quantidade == null) return { ok: false, motivo: 'Quantidade ausente' }
   if (raw.quantidade < 0) return { ok: false, motivo: 'Quantidade negativa' }
   if (!raw.validade) return { ok: false, motivo: 'Validade ausente' }
-  if (!raw.fornecedor) return { ok: false, motivo: 'Fornecedor ausente' }
   return { ok: true }
 }
 
