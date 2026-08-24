@@ -4,6 +4,8 @@ import {
   sanitizeInput,
   parseIntent,
   executeIntent,
+  pluralize,
+  formatActionEvidence,
   type AssistantResponse,
 } from '../operationalAssistantEngine'
 import type { BaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
@@ -244,9 +246,10 @@ describe('operationalAssistantEngine', () => {
       expect(p2?.intent).toBe('TOP_PRODUCTS')
     })
 
-    it('deve identificar TOP_BRANDS com variações', () => {
-      const p1 = parseIntent('quais marcas exigem ação imediata?')
+    it('deve identificar TOP_BRANDS com variações e precedência correta', () => {
+      const p1 = parseIntent('Quais marcas exigem ação imediata?')
       expect(p1?.intent).toBe('TOP_BRANDS')
+      expect(p1?.confidence).toBeGreaterThanOrEqual(0.8)
 
       const p2 = parseIntent('quais as industrias mais criticas')
       expect(p2?.intent).toBe('TOP_BRANDS')
@@ -294,12 +297,18 @@ describe('operationalAssistantEngine', () => {
       expect(p2?.params.brand).toBe('CASA KUNZLER')
     })
 
-    it('deve identificar RECOMMENDED_ACTIONS com variações', () => {
+    it('deve identificar RECOMMENDED_ACTIONS com variações explícitas', () => {
       const p1 = parseIntent('quais as ações recomendadas?')
       expect(p1?.intent).toBe('RECOMMENDED_ACTIONS')
 
       const p2 = parseIntent('o que fazer com as lojas prioritárias e recolhimento urgente?')
       expect(p2?.intent).toBe('RECOMMENDED_ACTIONS')
+
+      const p3 = parseIntent('O que devo fazer agora?')
+      expect(p3?.intent).toBe('RECOMMENDED_ACTIONS')
+
+      const p4 = parseIntent('Quais ações recomendadas?')
+      expect(p4?.intent).toBe('RECOMMENDED_ACTIONS')
     })
 
     it('deve identificar CONFRONT_EVIDENCE com variações', () => {
@@ -411,6 +420,93 @@ describe('operationalAssistantEngine', () => {
       expect(res.intent).toBe('EXPIRING_SOON')
       expect(res.filtersApplied[0].value).toContain('1 a 3 dias')
       expect(res.metrics[0].value).toBe(1) // apenas o de 3 dias no mock
+    })
+
+    it('deve formatar evidências de RECOMMENDED_ACTIONS em PT-BR sem chaves técnicas ou undefined', () => {
+      const parsed = parseIntent('quais as ações recomendadas?')
+      const res = executeIntent(parsed, snapshot, mockCrossEvidences)
+
+      expect(res.intent).toBe('RECOMMENDED_ACTIONS')
+      expect(res.evidence.length).toBeGreaterThan(0)
+
+      res.evidence.forEach((ev) => {
+        if (ev.details) {
+          ev.details.forEach((d) => {
+            // Não deve conter chaves técnicas brutas como labels
+            expect(d.label).not.toBe('productName')
+            expect(d.label).not.toBe('productCode')
+            expect(d.label).not.toBe('storesWithRuptureCount')
+            expect(d.label).not.toBe('storesWithValidadeCount')
+            expect(d.label).not.toBe('validadesCriticalCount')
+            expect(d.label).not.toBe('rupturasCount')
+            expect(d.label).not.toBe('diasEmRuptura')
+            expect(d.label).not.toBe('daysRemaining')
+            expect(d.label).not.toBe('storeCode')
+            expect(d.label).not.toBe('storeName')
+            expect(d.label).not.toBe('storeId')
+            // Não deve conter "undefined" ou "null" como valor
+            expect(String(d.value)).not.toContain('undefined')
+            expect(String(d.value)).not.toContain('null')
+          })
+        }
+      })
+    })
+
+    it('deve tratar lote em EXPIRING_SOON omitindo quando vazio e exibindo quando preenchido', () => {
+      const customSnapshot = createMockSnapshot()
+      // val_1 tem lote 'L123'
+      // criamos um item sem lote
+      customSnapshot.validadesAtivas.push({
+        id: 'val_no_lote',
+        cliente: 'FRUTAP',
+        industria: 'FRUTAP',
+        rede: 'FORT ATACADISTA',
+        loja: 'FORT ATACADISTA 240',
+        codigoLoja: '240',
+        cidade: 'FLORIANOPOLIS',
+        uf: 'SC',
+        product: 'PRODUTO SEM LOTE 500G',
+        category: 'Não informada',
+        sku: '12345',
+        lote: '', // vazio
+        quantidade: 10,
+        estoque: 10,
+        unidade: 'UN',
+        validade: '2025-05-08',
+        diasRestantes: 1,
+        status: 'Crítico',
+        promotor: '',
+      })
+
+      const parsed = parseIntent('quais produtos vencem nos próximos 3 dias?')
+      const res = executeIntent(parsed, customSnapshot, mockCrossEvidences)
+
+      expect(res.intent).toBe('EXPIRING_SOON')
+      const itemSemLote = res.evidence.find((e) => e.title === 'PRODUTO SEM LOTE 500G')
+      expect(itemSemLote).toBeDefined()
+      expect(itemSemLote?.details?.some((d) => d.label === 'Lote')).toBe(false)
+
+      const itemComLote = res.evidence.find((e) => e.title === 'IOGURTE FRUTAP MORANGO 900G')
+      expect(itemComLote).toBeDefined()
+      const loteDetail = itemComLote?.details?.find((d) => d.label === 'Lote')
+      expect(loteDetail?.value).toBe('L123')
+
+      // Verificar que não existe "Não informado" ou "N/D" no lote
+      res.evidence.forEach((ev) => {
+        const lot = ev.details?.find((d) => d.label === 'Lote')
+        if (lot) {
+          expect(lot.value).not.toBe('Não informado')
+          expect(lot.value).not.toBe('N/D')
+        }
+      })
+    })
+
+    it('deve tratar pluralização corretamente com pluralize helper', () => {
+      expect(pluralize(1, 'dia', 'dias')).toBe('1 dia')
+      expect(pluralize(2, 'dia', 'dias')).toBe('2 dias')
+      expect(pluralize(0, 'dia', 'dias')).toBe('0 dias')
+      expect(pluralize(1, 'loja', 'lojas')).toBe('1 loja')
+      expect(pluralize(5, 'loja', 'lojas')).toBe('5 lojas')
     })
 
     it('deve retornar evidências de confronto de ruptura x validade', () => {

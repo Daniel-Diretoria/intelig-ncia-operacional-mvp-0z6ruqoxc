@@ -55,6 +55,64 @@ export interface MetricItem {
   status?: 'critical' | 'warning' | 'normal' | 'neutral'
 }
 
+/**
+ * Helper determinístico de pluralização para rótulos e textos operacionais.
+ * Ex: pluralize(1, 'dia', 'dias') => "1 dia"
+ *     pluralize(2, 'dia', 'dias') => "2 dias"
+ */
+export function pluralize(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`
+}
+
+/**
+ * Mapeamento e formatação humana PT-BR para evidências de ações recomendadas.
+ * Omite campos cujo valor seja undefined, null ou string vazia.
+ */
+const ACTION_EVIDENCE_KEY_LABELS: Record<string, string> = {
+  storeId: 'Loja',
+  storeCode: 'Código da loja',
+  storeName: 'Nome da loja',
+  brand: 'Marca',
+  productName: 'Produto',
+  productCode: 'Código do produto',
+  quantity: 'Quantidade',
+  daysRemaining: 'Dias restantes',
+  storesWithRuptureCount: 'Lojas em ruptura',
+  storesWithValidadeCount: 'Lojas com validade',
+  validadesCriticalCount: 'Validades críticas',
+  rupturasCount: 'Rupturas',
+  diasEmRuptura: 'Dias em ruptura',
+  severity: 'Severidade',
+  score: 'Score',
+}
+
+export function formatActionEvidence(
+  evidence: Record<string, unknown> | undefined | null,
+): Array<{ label: string; value: string | number }> {
+  if (!evidence) return []
+
+  const formatted: Array<{ label: string; value: string | number }> = []
+
+  for (const [rawKey, rawValue] of Object.entries(evidence)) {
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      continue
+    }
+
+    const label = ACTION_EVIDENCE_KEY_LABELS[rawKey] || rawKey
+    let valueStr: string | number = String(rawValue)
+
+    if (rawKey === 'daysRemaining' && typeof rawValue === 'number') {
+      valueStr = pluralize(rawValue, 'dia', 'dias')
+    } else if (rawKey === 'diasEmRuptura' && typeof rawValue === 'number') {
+      valueStr = pluralize(rawValue, 'dia', 'dias')
+    }
+
+    formatted.push({ label, value: valueStr })
+  }
+
+  return formatted
+}
+
 export interface EvidenceItem {
   iconType?: 'store' | 'product' | 'calendar' | 'alert' | 'link' | 'info'
   title: string
@@ -226,8 +284,12 @@ export const INTENT_CATALOG: IntentPattern[] = [
     patterns: [
       /\b(acoes|acao|recomenda|recomendacoes|recomendadas?|prioridades?|sugestoes|plano\s*de\s*acao)\b/i,
       /\bo\s*que\s*fazer\b/i,
+      /\bo\s*que\s*devo\s*fazer\b/i,
       /\bquais\s*acoes\b/i,
-      /\bmarcas\s*exigem\s*acao\s*imediata\b/i,
+      /\bquais\s*providencias\b/i,
+      /\bo\s*que\s*fazer\s*com\s*as\s*lojas\s*prioritarias\b/i,
+      /\brecomenda(coes|cao)\b/i,
+      /\bsugestoes\s*operacionais\b/i,
       /\brecolhimento\s*urgente\b/i,
       /\bvisita\s*prioritaria\b/i,
     ],
@@ -264,7 +326,8 @@ export const INTENT_CATALOG: IntentPattern[] = [
     patterns: [
       /\b(top|5|10|principais|mais)\s*(marcas?|industrias?|clientes?)\s*(criticas?|risco|afetadas?|prioritarias?)\b/i,
       /\b(marcas?|industrias?|clientes?)\s*(mais\s*criticas?|com\s*maior\s*risco)\b/i,
-      /\bquais\s*(sao\s*as\s*)?(\d{1,2}\s*)?marcas\s*(mais\s*criticas|exigem\s*acao)\b/i,
+      /\bquais\s*(sao\s*as\s*)?(\d{1,2}\s*)?marcas\s*(mais\s*criticas|exigem\s*acao|exigem\s*acao\s*imediata)\b/i,
+      /\bmarcas\s*exigem\s*acao\s*imediata\b/i,
       /\branking\s*(de\s*)?(marcas|industrias|clientes)\b/i,
     ],
   },
@@ -778,24 +841,27 @@ export function executeIntent(
           p.severity === 'Crítico' ? 'critical' : p.severity === 'Alto' ? 'warning' : 'normal',
       }))
 
-      const evidence: EvidenceItem[] = top5.map((p) => ({
-        iconType: 'product',
-        title: p.productName,
-        subtitle: `Marca: ${p.brand} ${p.productCode ? `• SKU: ${p.productCode}` : ''}`,
-        badge: `${p.severity} (${p.score} pts)`,
-        badgeVariant:
-          p.severity === 'Crítico' ? 'critical' : p.severity === 'Alto' ? 'warning' : 'neutral',
-        details: [
-          { label: 'Validades ativas', value: p.validadesCount },
-          { label: 'Unidades em risco', value: `${p.validadesQuantityInRisk} un` },
-          { label: 'Lojas com validade', value: p.storesWithValidadeCount },
-          { label: 'Lojas com ruptura', value: p.storesWithRuptureCount },
-          { label: 'Rupturas específicas', value: p.rupturasSpecificCount },
-          { label: 'Rupturas derivadas', value: p.rupturasDerivedCount },
-        ],
-        navigationPath: '/validades',
-        navigationLabel: 'Ver no Painel de Validades',
-      }))
+      const evidence: EvidenceItem[] = top5.map((p) => {
+        const cleanSku = p.productCode && p.productCode.trim() !== '' ? p.productCode.trim() : null
+        return {
+          iconType: 'product',
+          title: p.productName,
+          subtitle: cleanSku ? `Marca: ${p.brand} • SKU: ${cleanSku}` : `Marca: ${p.brand}`,
+          badge: `${p.severity} (${p.score} pts)`,
+          badgeVariant:
+            p.severity === 'Crítico' ? 'critical' : p.severity === 'Alto' ? 'warning' : 'neutral',
+          details: [
+            { label: 'Validades ativas', value: p.validadesCount },
+            { label: 'Unidades em risco', value: `${p.validadesQuantityInRisk} un` },
+            { label: 'Lojas com validade', value: p.storesWithValidadeCount },
+            { label: 'Lojas com ruptura', value: p.storesWithRuptureCount },
+            { label: 'Rupturas específicas', value: p.rupturasSpecificCount },
+            { label: 'Rupturas derivadas', value: p.rupturasDerivedCount },
+          ],
+          navigationPath: '/validades',
+          navigationLabel: 'Ver no Painel de Validades',
+        }
+      })
 
       return {
         intent: 'TOP_PRODUCTS',
@@ -919,17 +985,25 @@ export function executeIntent(
 
       const topEvidence = filteredValidades.slice(0, 6).map((v) => {
         const storeIdent = formatStoreIdentity({ codigo_loja: v.codigoLoja, nome_loja: v.loja })
+        const details: Array<{ label: string; value: string | number }> = [
+          { label: 'Quantidade', value: `${v.quantidade ?? v.estoque} un` },
+        ]
+
+        if (v.lote && v.lote.trim() !== '') {
+          details.push({ label: 'Lote', value: v.lote.trim() })
+        }
+
+        if (v.promotor && v.promotor.trim() !== '') {
+          details.push({ label: 'Promotor', value: v.promotor.trim() })
+        }
+
         return {
           iconType: 'calendar' as const,
           title: v.product,
           subtitle: `${storeIdent} • ${v.cliente}`,
-          badge: `${v.diasRestantes} dia(s) (${formatDisplayDate(v.validade)})`,
+          badge: `${pluralize(v.diasRestantes, 'dia', 'dias')} (${formatDisplayDate(v.validade)})`,
           badgeVariant: (v.diasRestantes <= 3 ? 'critical' : 'warning') as 'critical' | 'warning',
-          details: [
-            { label: 'Quantidade', value: `${v.quantidade ?? v.estoque} un` },
-            { label: 'Lote', value: v.lote || 'Não informado' },
-            { label: 'Promotor', value: v.promotor || 'Não informado' },
-          ],
+          details,
           navigationPath: '/validades',
           navigationLabel: 'Ver no Painel de Validades',
         }
@@ -959,32 +1033,42 @@ export function executeIntent(
 
       const top5 = sortedRuptures.slice(0, 5)
 
-      const metrics: MetricItem[] = top5.map((r, idx) => ({
-        label: `#${idx + 1} - ${r.produto.slice(0, 24)}`,
-        value: `${r.dias_em_ruptura ?? 0} dias`,
-        detail: `${formatStoreIdentity({ codigo_loja: r.codigo_loja, nome_loja: r.nome_loja })} • ${r.cliente}`,
-        status: (r.dias_em_ruptura ?? 0) >= 15 ? 'critical' : 'warning',
-      }))
+      const metrics: MetricItem[] = top5.map((r, idx) => {
+        const dias = r.dias_em_ruptura ?? 0
+        return {
+          label: `#${idx + 1} - ${r.produto.slice(0, 24)}`,
+          value: pluralize(dias, 'dia', 'dias'),
+          detail: `${formatStoreIdentity({ codigo_loja: r.codigo_loja, nome_loja: r.nome_loja })} • ${r.cliente}`,
+          status: dias >= 15 ? 'critical' : 'warning',
+        }
+      })
 
       const evidence: EvidenceItem[] = top5.map((r) => {
         const storeIdent = formatStoreIdentity({
           codigo_loja: r.codigo_loja,
           nome_loja: r.nome_loja,
         })
+        const dias = r.dias_em_ruptura ?? 0
+
+        const details: Array<{ label: string; value: string | number }> = [
+          { label: 'Motivo informado', value: r.motivo || 'Ruptura Total' },
+          {
+            label: 'Data da 1ª visita',
+            value: formatDisplayDate(r.data_entrada || r.data_visita),
+          },
+        ]
+
+        if (r.colaborador && r.colaborador.trim() !== '') {
+          details.push({ label: 'Promotor responsável', value: r.colaborador.trim() })
+        }
+
         return {
           iconType: 'alert',
           title: r.produto,
           subtitle: `${storeIdent} • Cliente: ${r.cliente}`,
-          badge: `${r.dias_em_ruptura ?? 0} dias em ruptura`,
-          badgeVariant: (r.dias_em_ruptura ?? 0) >= 15 ? 'critical' : 'warning',
-          details: [
-            { label: 'Motivo informado', value: r.motivo || 'Ruptura Total' },
-            {
-              label: 'Data da 1ª visita',
-              value: formatDisplayDate(r.data_entrada || r.data_visita),
-            },
-            { label: 'Promotor responsável', value: r.colaborador || 'Não informado' },
-          ],
+          badge: `${pluralize(dias, 'dia', 'dias')} em ruptura`,
+          badgeVariant: dias >= 15 ? 'critical' : 'warning',
+          details,
           navigationPath: '/rupturas',
           navigationLabel: 'Ir para Rupturas',
         }
@@ -1100,35 +1184,45 @@ export function executeIntent(
         },
       ]
 
-      const topValidades = matchedValidades.slice(0, 4).map((v) => ({
-        iconType: 'calendar' as const,
-        title: v.product,
-        subtitle: `Marca: ${v.cliente} • Lote: ${v.lote || 'N/D'}`,
-        badge: `${v.diasRestantes} dia(s) (${v.status})`,
-        badgeVariant: (v.status === 'Crítico' ? 'critical' : 'warning') as 'critical' | 'warning',
-        details: [
+      const topValidades = matchedValidades.slice(0, 4).map((v) => {
+        const hasLote = v.lote && v.lote.trim() !== ''
+        const subtitle = hasLote
+          ? `Marca: ${v.cliente} • Lote: ${v.lote.trim()}`
+          : `Marca: ${v.cliente}`
+
+        const details: Array<{ label: string; value: string | number }> = [
           { label: 'Quantidade', value: `${v.quantidade ?? v.estoque} un` },
           { label: 'Vencimento', value: formatDisplayDate(v.validade) },
-        ],
-        navigationPath: `/lojas/${effectiveCode}`,
-        navigationLabel: 'Abrir Ficha da Loja',
-      }))
+        ]
 
-      const topRup = matchedRupturas.slice(0, 3).map((r) => ({
-        iconType: 'alert' as const,
-        title: r.produto,
-        subtitle: `Cliente: ${r.cliente} • Motivo: ${r.motivo || 'Ruptura Total'}`,
-        badge: `${r.dias_em_ruptura ?? 0} dias em falta`,
-        badgeVariant: ((r.dias_em_ruptura ?? 0) >= 15 ? 'critical' : 'warning') as
-          | 'critical'
-          | 'warning',
-        details: [
-          { label: 'Situação', value: r.situacao_atual },
-          { label: 'Data visita', value: formatDisplayDate(r.data_visita) },
-        ],
-        navigationPath: `/lojas/${effectiveCode}`,
-        navigationLabel: 'Abrir Ficha da Loja',
-      }))
+        return {
+          iconType: 'calendar' as const,
+          title: v.product,
+          subtitle,
+          badge: `${pluralize(v.diasRestantes, 'dia', 'dias')} (${v.status})`,
+          badgeVariant: (v.status === 'Crítico' ? 'critical' : 'warning') as 'critical' | 'warning',
+          details,
+          navigationPath: `/lojas/${effectiveCode}`,
+          navigationLabel: 'Abrir Ficha da Loja',
+        }
+      })
+
+      const topRup = matchedRupturas.slice(0, 3).map((r) => {
+        const dias = r.dias_em_ruptura ?? 0
+        return {
+          iconType: 'alert' as const,
+          title: r.produto,
+          subtitle: `Cliente: ${r.cliente} • Motivo: ${r.motivo || 'Ruptura Total'}`,
+          badge: `${pluralize(dias, 'dia', 'dias')} em falta`,
+          badgeVariant: (dias >= 15 ? 'critical' : 'warning') as 'critical' | 'warning',
+          details: [
+            { label: 'Situação', value: r.situacao_atual },
+            { label: 'Data visita', value: formatDisplayDate(r.data_visita) },
+          ],
+          navigationPath: `/lojas/${effectiveCode}`,
+          navigationLabel: 'Abrir Ficha da Loja',
+        }
+      })
 
       return {
         intent: 'STORE_DETAIL',
@@ -1212,32 +1306,44 @@ export function executeIntent(
       ]
 
       const evidence: EvidenceItem[] = [
-        ...matchedValidades.slice(0, 3).map((v) => ({
-          iconType: 'calendar' as const,
-          title: v.product,
-          subtitle: formatStoreIdentity({ codigo_loja: v.codigoLoja, nome_loja: v.loja }),
-          badge: `${v.diasRestantes} dias (${v.status})`,
-          badgeVariant: (v.status === 'Crítico' ? 'critical' : 'warning') as 'critical' | 'warning',
-          details: [
+        ...matchedValidades.slice(0, 3).map((v) => {
+          const details: Array<{ label: string; value: string | number }> = [
             { label: 'Quantidade', value: `${v.quantidade ?? v.estoque} un` },
             { label: 'Validade', value: formatDisplayDate(v.validade) },
-          ],
-          navigationPath: '/validades',
-          navigationLabel: 'Ver Validades',
-        })),
-        ...matchedRupturas.slice(0, 3).map((r) => ({
-          iconType: 'alert' as const,
-          title: r.produto,
-          subtitle: formatStoreIdentity({ codigo_loja: r.codigo_loja, nome_loja: r.nome_loja }),
-          badge: `${r.dias_em_ruptura ?? 0} dias em ruptura`,
-          badgeVariant: 'warning' as const,
-          details: [
-            { label: 'Motivo', value: r.motivo || 'Ruptura Total' },
-            { label: 'Data', value: formatDisplayDate(r.data_visita) },
-          ],
-          navigationPath: '/rupturas',
-          navigationLabel: 'Ver Rupturas',
-        })),
+          ]
+          if (v.lote && v.lote.trim() !== '') {
+            details.push({ label: 'Lote', value: v.lote.trim() })
+          }
+
+          return {
+            iconType: 'calendar' as const,
+            title: v.product,
+            subtitle: formatStoreIdentity({ codigo_loja: v.codigoLoja, nome_loja: v.loja }),
+            badge: `${pluralize(v.diasRestantes, 'dia', 'dias')} (${v.status})`,
+            badgeVariant: (v.status === 'Crítico' ? 'critical' : 'warning') as
+              | 'critical'
+              | 'warning',
+            details,
+            navigationPath: '/validades',
+            navigationLabel: 'Ver Validades',
+          }
+        }),
+        ...matchedRupturas.slice(0, 3).map((r) => {
+          const dias = r.dias_em_ruptura ?? 0
+          return {
+            iconType: 'alert' as const,
+            title: r.produto,
+            subtitle: formatStoreIdentity({ codigo_loja: r.codigo_loja, nome_loja: r.nome_loja }),
+            badge: `${pluralize(dias, 'dia', 'dias')} em ruptura`,
+            badgeVariant: 'warning' as const,
+            details: [
+              { label: 'Motivo', value: r.motivo || 'Ruptura Total' },
+              { label: 'Data', value: formatDisplayDate(r.data_visita) },
+            ],
+            navigationPath: '/rupturas',
+            navigationLabel: 'Ver Rupturas',
+          }
+        }),
       ]
 
       return {
@@ -1338,10 +1444,7 @@ export function executeIntent(
         subtitle: `Regra acionada: ${act.rule_id}`,
         badge: act.rule_id.replace(/_/g, ' '),
         badgeVariant: act.rule_id === 'RECOLHIMENTO_URGENTE' ? 'critical' : 'warning',
-        details: Object.entries(act.evidence).map(([k, v]) => ({
-          label: k,
-          value: String(v),
-        })),
+        details: formatActionEvidence(act.evidence),
         navigationPath: act.rule_id === 'VISITA_PRIORITARIA' ? '/lojas' : '/validades',
         navigationLabel: 'Analisar Ocorrência',
       }))
@@ -1410,7 +1513,7 @@ export function executeIntent(
           { label: 'Ruptura detectada em', value: formatDisplayDate(c.rupture_detected_at) },
           { label: 'Validade encontrada em', value: formatDisplayDate(c.stock_evidence_at) },
           { label: 'Estoque auditado', value: `${c.quantity_found} un` },
-          { label: 'Dias até evidência', value: `${c.resolution_days} dias` },
+          { label: 'Dias até evidência', value: pluralize(c.resolution_days, 'dia', 'dias') },
         ],
         navigationPath: '/rupturas',
         navigationLabel: 'Ir para Confronto de Rupturas',
