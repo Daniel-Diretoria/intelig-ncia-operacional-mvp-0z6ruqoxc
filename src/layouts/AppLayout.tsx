@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Upload,
   Store,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
@@ -57,6 +58,11 @@ const NAV_ITEMS = [
     to: '/relatorios',
     label: 'Relatórios',
     icon: FileBarChart,
+  },
+  {
+    to: '/assistente',
+    label: 'Assistente',
+    icon: Sparkles,
   },
   {
     to: '/importacao',
