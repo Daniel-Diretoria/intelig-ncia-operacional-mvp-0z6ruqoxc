@@ -68,7 +68,11 @@ import {
   type ColumnMapping,
   type DatasetValidationReport,
 } from '@/lib/import'
-import { submitProcessValidades, checkFileHash } from '@/lib/import/importClient'
+import {
+  submitProcessValidades,
+  checkFileHash,
+  type ImportProgressState,
+} from '@/lib/import/importClient'
 import {
   executarPipeline,
   calcularHashArquivo,
@@ -232,10 +236,13 @@ export const ImportacaoPage: React.FC = () => {
   const [, setMappedItems] = useState<ValidadeItem[]>([])
 
   const [importProgress, setImportProgress] = useState(0)
+  const [progressState, setProgressState] = useState<ImportProgressState | null>(null)
+  const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{
     imported: number
     skipped: number
     errors: number
+    errorDetails?: string
   } | null>(null)
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null)
   const [resultModalOpen, setResultModalOpen] = useState(false)
@@ -326,6 +333,8 @@ export const ImportacaoPage: React.FC = () => {
     setValidationReport(null)
     setMappedItems([])
     setImportProgress(0)
+    setProgressState(null)
+    setLargeFileWarning(null)
     setImportResult(null)
     setPipelineResult(null)
     setDuplicateHash(null)
@@ -339,6 +348,7 @@ export const ImportacaoPage: React.FC = () => {
       setParseError(null)
       setDuplicateHash(null)
       setForceReprocess(false)
+      setLargeFileWarning(null)
       setSelectedFile(file)
       try {
         const hash = await calcularHashArquivo(file)
@@ -436,6 +446,14 @@ export const ImportacaoPage: React.FC = () => {
           }
           setValidationReport(report)
           setStage('validated')
+
+          // Preflight de volume para Rupturas (> 20MB ou > 10.000 linhas)
+          if (file.size > 20 * 1024 * 1024 || rupRows.length > 10000) {
+            setLargeFileWarning(
+              `Este arquivo é volumoso (${fmtBytes(file.size)}, ~${rupRows.length.toLocaleString('pt-BR')} linhas) e pode levar alguns minutos para processar.`,
+            )
+          }
+
           toast({
             title: 'Arquivo de Rupturas detectado',
             description: `${rupRows.length} linhas lidas da aba "${parsed?.sheetName || 'Rupturas'}".`,
@@ -462,6 +480,14 @@ export const ImportacaoPage: React.FC = () => {
           setStage('parsed')
           setValidationReport(null)
           setMappedItems([])
+
+          // Preflight de volume para Validades (> 20MB ou > 10.000 linhas)
+          if (file.size > 20 * 1024 * 1024 || parsed.rows.length > 10000) {
+            setLargeFileWarning(
+              `Este arquivo é volumoso (${fmtBytes(file.size)}, ~${parsed.rows.length.toLocaleString('pt-BR')} linhas) e pode levar alguns minutos para processar.`,
+            )
+          }
+
           toast({
             title: 'Arquivo de Validades carregado',
             description: `${parsed.rows.length} linhas detectadas em "${parsed.sheetName}"${
@@ -518,19 +544,28 @@ export const ImportacaoPage: React.FC = () => {
     if (!validationReport || !fileInfo) return
     setStage('importing')
     setImportProgress(5)
-
-    // progresso simulado em etapas para feedback visual
-    setImportProgress(20)
-    const tick = setInterval(() => {
-      setImportProgress((p) => Math.min(p + Math.random() * 15, 85))
-    }, 250)
+    setProgressState({
+      stage: 'validating',
+      message: 'Iniciando validação e preparação do pipeline...',
+      processed: 0,
+      total: validationReport.validRows,
+      failuresCount: 0,
+    })
 
     try {
       if (importType === 'rupturas') {
         // Pipeline de Rupturas
         if (!selectedFile) throw new Error('Arquivo não encontrado para processar rupturas.')
+        setImportProgress(20)
+        setProgressState({
+          stage: 'saving_base',
+          message: 'Processando deduplicação e gravando rupturas na Base Atual...',
+          processed: 0,
+          total: validationReport.validRows,
+          failuresCount: 0,
+        })
+
         const rupRes = await processRupturasImport(selectedFile, 'tenant-default', forceReprocess)
-        clearInterval(tick)
         setImportProgress(100)
         setRupturasResult(rupRes)
 
@@ -541,6 +576,13 @@ export const ImportacaoPage: React.FC = () => {
             errors: rupRes.total_rows_invalid,
           })
           setStage('done')
+          setProgressState({
+            stage: 'done',
+            message: 'Importação de Rupturas concluída com sucesso.',
+            processed: rupRes.total_occurrences_generated,
+            total: rupRes.total_rows_read,
+            failuresCount: rupRes.total_rows_invalid,
+          })
           setResultModalOpen(true)
           refetchHistory()
           import('@/lib/data/dataSourceFactory').then(({ DataSourceFactory }) => {
@@ -568,6 +610,14 @@ export const ImportacaoPage: React.FC = () => {
         }
       } else {
         // Pipeline de Validades (TradePro)
+        setProgressState({
+          stage: 'validating',
+          message: 'Executando pipeline de 30 regras e deduplicação...',
+          processed: 0,
+          total: rawRows.length,
+          failuresCount: 0,
+        })
+
         const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
         const pipeline = executarPipeline({
           rawRecords: rawRows,
@@ -577,7 +627,7 @@ export const ImportacaoPage: React.FC = () => {
           importId: undefined,
         })
         setPipelineResult(pipeline)
-        setImportProgress(70)
+        setImportProgress(15)
 
         const result = await submitProcessValidades({
           fileName: fileInfo.name,
@@ -597,9 +647,20 @@ export const ImportacaoPage: React.FC = () => {
             baseAtual: pipeline.summary.baseAtual,
             maiorDataArquivo: pipeline.summary.maiorDataArquivo,
           },
+          onProgress: (pState) => {
+            setProgressState(pState)
+            if (pState.stage === 'saving_raw') {
+              const rawRatio = pState.total > 0 ? pState.processed / pState.total : 0
+              setImportProgress(15 + Math.round(rawRatio * 35)) // 15% -> 50%
+            } else if (pState.stage === 'saving_base') {
+              const baseRatio = pState.total > 0 ? pState.processed / pState.total : 0
+              setImportProgress(50 + Math.round(baseRatio * 45)) // 50% -> 95%
+            } else if (pState.stage === 'finalizing' || pState.stage === 'done') {
+              setImportProgress(100)
+            }
+          },
         })
 
-        clearInterval(tick)
         setImportProgress(100)
 
         if (result.success) {
@@ -634,16 +695,24 @@ export const ImportacaoPage: React.FC = () => {
           })
           setStage('validated')
         } else {
+          const actionSummary = `${result.rawRows || rawTradePro.length} registros brutos, ${
+            result.errorRows
+          } falha(s) na etapa de gravação.`
           toast({
             title: 'Falha no processamento',
-            description: result.error || 'Não foi possível concluir o processamento.',
+            description: `${result.error || 'Não foi possível concluir o processamento.'} (${actionSummary})`,
             variant: 'destructive',
+          })
+          setImportResult({
+            imported: result.importedRows,
+            skipped: result.skippedRows,
+            errors: result.errorRows,
+            errorDetails: result.error,
           })
           setStage('validated')
         }
       }
     } catch (err) {
-      clearInterval(tick)
       toast({
         title: 'Erro inesperado',
         description: err instanceof Error ? err.message : 'Falha na comunicação com o servidor.',
@@ -667,10 +736,9 @@ export const ImportacaoPage: React.FC = () => {
   const canValidate =
     (importType === 'validades' && structure.isStructureValid && stage === 'parsed') ||
     (importType === 'rupturas' && stage === 'validated')
+  const isImporting = stage === 'importing'
   const canImport =
-    (stage === 'validated' || stage === 'importing') &&
-    !!validationReport &&
-    validationReport.validRows > 0
+    !isImporting && stage === 'validated' && !!validationReport && validationReport.validRows > 0
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -900,16 +968,29 @@ export const ImportacaoPage: React.FC = () => {
           {/* Upload area */}
           {stage === 'idle' && !parseError && (
             <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              className="border-2 border-dashed border-slate-300 rounded-2xl bg-white p-8 sm:p-12 text-center hover:border-indigo-400 hover:bg-indigo-50/30 transition-colors cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                if (!isImporting && !isParsing) e.preventDefault()
+              }}
+              onDrop={(e) => {
+                if (isImporting || isParsing) return
+                handleDrop(e)
+              }}
+              className={cn(
+                'border-2 border-dashed rounded-2xl bg-white p-8 sm:p-12 text-center transition-colors',
+                isImporting || isParsing
+                  ? 'border-slate-200 opacity-60 cursor-not-allowed'
+                  : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/30 cursor-pointer',
+              )}
+              onClick={() => {
+                if (!isImporting && !isParsing) fileInputRef.current?.click()
+              }}
             >
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls"
                 className="hidden"
+                disabled={isImporting || isParsing}
                 onChange={handleInputChange}
               />
               <div className="flex flex-col items-center gap-3">
@@ -937,7 +1018,7 @@ export const ImportacaoPage: React.FC = () => {
                   variant="default"
                   size="sm"
                   className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white h-9 gap-1.5"
-                  disabled={isParsing}
+                  disabled={isParsing || isImporting}
                 >
                   <Upload className="w-4 h-4" />
                   Selecionar arquivo
@@ -984,6 +1065,17 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Alerta preventivo de arquivo grande (>20MB ou >10.000 linhas) */}
+              {largeFileWarning && (
+                <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/70">
+                  <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-blue-900 leading-relaxed">
+                    <p className="font-semibold text-blue-950 mb-0.5">Aviso de volume</p>
+                    <p>{largeFileWarning}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Alerta de colunas obrigatórias ausentes */}
               {structure.missingRequired.length > 0 && (
                 <AlertBanner
@@ -994,7 +1086,6 @@ export const ImportacaoPage: React.FC = () => {
                     .join(', ')}. Mapeie manualmente abaixo se existirem com outro nome.`}
                 />
               )}
-
               {/* Mapeamento de colunas (apenas para Validades) */}
               {importType === 'validades' && (
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -1134,12 +1225,29 @@ export const ImportacaoPage: React.FC = () => {
 
                     {/* Barra de progresso (importação) */}
                     {stage === 'importing' && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs text-slate-600">
-                          <span className="font-medium">Processando pipeline (30 passos)...</span>
-                          <span className="tabular-nums">{Math.round(importProgress)}%</span>
+                      <div className="space-y-2 p-3 bg-indigo-50/40 rounded-lg border border-indigo-100">
+                        <div className="flex items-center justify-between text-xs text-slate-700">
+                          <span className="font-semibold flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                            {progressState?.message || 'Processando pipeline...'}
+                          </span>
+                          <span className="tabular-nums font-bold text-indigo-700">
+                            {Math.round(importProgress)}%
+                          </span>
                         </div>
                         <Progress value={importProgress} className="h-2" />
+                        {progressState && progressState.total > 0 && (
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                            <span>
+                              Processados: {progressState.processed} de {progressState.total}
+                            </span>
+                            {progressState.failuresCount > 0 && (
+                              <span className="text-red-600 font-semibold">
+                                Falhas detectadas: {progressState.failuresCount}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1193,10 +1301,10 @@ export const ImportacaoPage: React.FC = () => {
                       <Button
                         size="sm"
                         onClick={handleImport}
-                        disabled={!canImport || (!!duplicateHash && !forceReprocess)}
+                        disabled={isImporting || !canImport || (!!duplicateHash && !forceReprocess)}
                         className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
                       >
-                        {stage === 'importing' ? (
+                        {isImporting ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Processando...
@@ -1204,7 +1312,8 @@ export const ImportacaoPage: React.FC = () => {
                         ) : (
                           <>
                             <Download className="w-4 h-4" />
-                            Processar {validationReport.validRows} registro(s)
+                            Processar {validationReport.validRows.toLocaleString('pt-BR')}{' '}
+                            registro(s)
                           </>
                         )}
                       </Button>
@@ -1286,12 +1395,19 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Resultado (done) */}
+              {/* Resultado (done ou falha com detalhes) */}
               {stage === 'done' && importResult && (
                 <AlertBanner
                   type="success"
                   title="Processamento concluído"
                   message={`${importResult.imported} ocorrência(s) na Base Atual, ${importResult.skipped} rejeitada(s) na validação, ${importResult.errors} com erro.`}
+                />
+              )}
+              {stage === 'validated' && importResult && importResult.errorDetails && (
+                <AlertBanner
+                  type="error"
+                  title="Falha na gravação"
+                  message={`O processamento anterior falhou: ${importResult.errorDetails}. O status no histórico foi gravado como Falhou.`}
                 />
               )}
             </div>

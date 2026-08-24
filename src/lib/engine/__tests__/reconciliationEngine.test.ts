@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
   reconcileRuptureValidity,
+  fetchAllPaginated,
   type RupturaRecord,
   type ValidadeRecord,
 } from '../ruptureValidityReconciliationEngine'
 import { buildStoreCanonicalKey, buildProductCanonicalKey } from '../reconciliationKeys'
+import type PocketBase from 'pocketbase'
+import { vi } from 'vitest'
 
 describe('Motor de Confronto Rupturas × Validades (Reconciliation Engine)', () => {
   const baseRuptura: RupturaRecord = {
@@ -298,5 +301,72 @@ describe('Motor de Confronto Rupturas × Validades (Reconciliation Engine)', () 
 
     const res = reconcileRuptureValidity(baseRuptura, validades)
     expect(res).toBeNull()
+  })
+
+  // Teste d) solicitado no briefing:
+  // Teste da função fetchAllPaginated: com mock de getList retornando 2 páginas
+  // de 200 itens cada e totalItems: 350, acumula exatamente 350 itens e faz 2 chamadas.
+  describe('fetchAllPaginated', () => {
+    it('d) deve acumular exatamente 350 itens e fazer 2 chamadas com totalItems: 350', async () => {
+      const page1Items = Array.from({ length: 200 }, (_, i) => ({ id: `rec_${i + 1}` }))
+      const page2Items = Array.from({ length: 150 }, (_, i) => ({ id: `rec_${200 + i + 1}` }))
+
+      const getListMock = vi.fn().mockImplementation((page: number, perPage: number) => {
+        if (page === 1) {
+          return Promise.resolve({
+            page: 1,
+            perPage: 200,
+            totalItems: 350,
+            totalPages: 2,
+            items: page1Items,
+          })
+        }
+        if (page === 2) {
+          return Promise.resolve({
+            page: 2,
+            perPage: 200,
+            totalItems: 350,
+            totalPages: 2,
+            items: page2Items,
+          })
+        }
+        return Promise.resolve({
+          page,
+          perPage,
+          totalItems: 350,
+          totalPages: 2,
+          items: [],
+        })
+      })
+
+      const mockPb = {
+        collection: vi.fn().mockReturnValue({
+          getList: getListMock,
+        }),
+      } as unknown as PocketBase
+
+      const results = await fetchAllPaginated<{ id: string }>(
+        mockPb,
+        'validades_base',
+        'is_base_atual = true',
+        '-realizado',
+        200,
+      )
+
+      expect(results).toHaveLength(350)
+      expect(results[0].id).toBe('rec_1')
+      expect(results[349].id).toBe('rec_350')
+      expect(getListMock).toHaveBeenCalledTimes(2)
+      expect(getListMock).toHaveBeenNthCalledWith(1, 1, 200, {
+        filter: 'is_base_atual = true',
+        sort: '-realizado',
+        fields: undefined,
+      })
+      expect(getListMock).toHaveBeenNthCalledWith(2, 2, 200, {
+        filter: 'is_base_atual = true',
+        sort: '-realizado',
+        fields: undefined,
+      })
+    })
   })
 })

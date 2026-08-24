@@ -252,6 +252,45 @@ export function reconcileRuptureValidity(
  * 3. Cruza ocorrências de forma idempotente em lotes de 50.
  * 4. Persiste evidências SOMENTE em operational_cross_evidence.
  */
+/**
+ * Helper interno paginado que consome registros de uma coleção usando `getList`
+ * em lotes controlados até cobrir `totalItems` ou esgotar páginas.
+ */
+export async function fetchAllPaginated<T>(
+  pb: PocketBase,
+  collection: string,
+  filter?: string,
+  sort?: string,
+  pageSize = 200,
+  fields?: string,
+): Promise<T[]> {
+  const results: T[] = []
+  let page = 1
+
+  while (true) {
+    const list = await pb.collection(collection).getList<T>(page, pageSize, {
+      filter: filter || undefined,
+      sort: sort || undefined,
+      fields: fields || undefined,
+    })
+
+    results.push(...list.items)
+
+    // Se a página retornou menos itens que o pageSize ou atingiu o totalItems, encerra
+    if (
+      list.items.length < pageSize ||
+      results.length >= list.totalItems ||
+      list.page >= list.totalPages
+    ) {
+      break
+    }
+
+    page++
+  }
+
+  return results
+}
+
 export async function runShadowReconciliation(
   pb: PocketBase,
   options?: { storeCode?: string; force?: boolean },
@@ -270,39 +309,47 @@ export async function runShadowReconciliation(
   }
 
   try {
-    // 1. Buscar rupturas ativas oficiais
+    // 1. Buscar rupturas ativas oficiais com paginação controlada
     let ruptureFilter = "is_base_atual = true && situacao_atual = 'Ativo'"
     if (options?.storeCode) {
       ruptureFilter += ` && (codigo_loja = '${options.storeCode}' || nome_loja ~ '${options.storeCode}')`
     }
 
-    const rupturas = await pb.collection('rupturas_base').getFullList<RupturaRecord>({
-      filter: ruptureFilter,
-      sort: '-data_visita',
-    })
+    const rupturas = await fetchAllPaginated<RupturaRecord>(
+      pb,
+      'rupturas_base',
+      ruptureFilter,
+      '-data_visita',
+      200,
+    )
 
     result.rupturasAnalisadas = rupturas.length
 
-    // 2. Buscar validades ativas com quantidade > 0
+    // 2. Buscar validades ativas com quantidade > 0 com paginação controlada
     let validadesFilter = 'is_base_atual = true && quantidade > 0'
     if (options?.storeCode) {
       validadesFilter += ` && (codigo_loja = '${options.storeCode}' || razao_social ~ '${options.storeCode}')`
     }
 
-    const validades = await pb.collection('validades_base').getFullList<ValidadeRecord>({
-      filter: validadesFilter,
-      sort: '-realizado',
-    })
+    const validades = await fetchAllPaginated<ValidadeRecord>(
+      pb,
+      'validades_base',
+      validadesFilter,
+      '-realizado',
+      200,
+    )
 
     result.validadesAnalisadas = validades.length
 
-    // 3. Buscar evidências já existentes para evitar duplicações / verificar idempotência
-    const existingEvidences = await pb
-      .collection('operational_cross_evidence')
-      .getFullList<CrossEvidence>({
-        fields:
-          'id,evidence_key,rupture_record_id,validity_record_id,review_status,store_key,product_key,client_or_brand,proposed_status',
-      })
+    // 3. Buscar evidências já existentes com paginação controlada
+    const existingEvidences = await fetchAllPaginated<CrossEvidence>(
+      pb,
+      'operational_cross_evidence',
+      undefined,
+      undefined,
+      200,
+      'id,evidence_key,rupture_record_id,validity_record_id,review_status,store_key,product_key,client_or_brand,proposed_status',
+    )
 
     const existingKeysMap = new Map<string, CrossEvidence>()
     const confirmedEvidencesMap = new Map<string, CrossEvidence>() // chave store_key|product_key|brand_key
