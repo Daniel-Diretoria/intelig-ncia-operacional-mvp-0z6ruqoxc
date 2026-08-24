@@ -19,6 +19,30 @@ import {
   type PersistenceTaskError,
 } from './persistenceQueue'
 
+export type ImportReconciliationState =
+  | 'NEW'
+  | 'RAW_PARTIAL'
+  | 'RAW_COMPLETE_CONSOLIDATION_PENDING'
+  | 'CONSOLIDATION_PARTIAL'
+  | 'COMPLETED'
+  | 'BLOCKED_UNSAFE'
+  | 'FAILED_FINAL'
+
+export interface ImportReconciliation {
+  state: ImportReconciliationState
+  importId?: string
+  receivedExpected: number // total de linhas esperadas (rawExpected do histórico)
+  rawPersisted: number // chaves reais existentes em validades_raw (contadas do banco, não do histórico)
+  rawPending: number // receivedExpected - rawPersisted
+  validExpected: number // linhas válidas esperadas (do summary/pipeline)
+  auditExpected: number // linhas de auditoria esperadas
+  basePersisted: number // chaves reais existentes em validades_base com este import_id
+  auditPersisted: number // registros reais em auditoria com este import_id
+  consolidationPending: number // (validExpected + auditExpected) - (basePersisted + auditPersisted)
+  blockedReason?: string
+  retries?: number
+}
+
 export interface ImportPayload {
   fileName: string
   fileSize: number
@@ -94,6 +118,7 @@ export interface ProcessValidadesPayload {
   dataArquivo?: string
   force?: boolean
   previousImportId?: string
+  reconciliation?: ImportReconciliation
   rawRecords: Partial<TradeProRawRecord>[]
   baseAtual: Partial<ProcessedValidade>[]
   summary: {
@@ -376,6 +401,44 @@ export async function loadAlreadyPersistedRawKeys(importId: string): Promise<Set
 }
 
 /**
+ * Consulta `validades_base` paginada (50 por página) para extrair chaves já persistidas com o importId.
+ * Retorna um Set<string> com as chaves operacionais.
+ */
+export async function loadAlreadyPersistedBaseKeys(importId: string): Promise<Set<string>> {
+  const persistedKeys = new Set<string>()
+  if (!importId) return persistedKeys
+
+  let page = 1
+  const perPage = 50
+  let hasMore = true
+
+  while (hasMore) {
+    try {
+      const res = await pb.collection('validades_base').getList(page, perPage, {
+        filter: `import_id = "${importId}"`,
+        sort: '+created',
+      })
+
+      for (const item of res.items) {
+        const chave = (item as unknown as { chave_operacional?: string }).chave_operacional
+        if (chave) {
+          persistedKeys.add(chave)
+        }
+      }
+
+      if (res.items.length < perPage || page * perPage >= res.totalItems) {
+        hasMore = false
+      } else {
+        page++
+      }
+    } catch {
+      hasMore = false
+    }
+  }
+
+  return persistedKeys
+}
+/**
  * Compatibilidade com testes legados e chamadas que usam persistConcurrent:
  * Agora redirecionado internamente para `runPersistenceQueue` com throttleMs=0 (sem throttle extra) e retry seguro.
  */
@@ -425,6 +488,7 @@ export async function submitProcessValidades(
     dataArquivo,
     force = false,
     previousImportId,
+    reconciliation,
     rawRecords,
     baseAtual,
     summary,
@@ -493,13 +557,22 @@ export async function submitProcessValidades(
     }
   }
 
+  // Identifica se estamos em modo de retomada por etapa (RAW já completo)
+  const isRawCompleteResume =
+    reconciliation?.state === 'RAW_COMPLETE_CONSOLIDATION_PENDING' ||
+    reconciliation?.state === 'CONSOLIDATION_PARTIAL'
+
   // Todo o fluxo a partir daqui é envolvido em try/catch para garantir status honesto
   try {
     let existingRawKeys = new Set<string>()
     let existingHistoryId: string | null = null
 
-    // Se previousImportId foi passado E force === true, ou buscando tentativa anterior pelo fileHash
-    if (previousImportId && force) {
+    if (isRawCompleteResume && reconciliation.importId) {
+      // Pula criação de novo histórico, usa o importId ativo da reconciliation
+      importId = reconciliation.importId
+      existingHistoryId = reconciliation.importId
+    } else if (previousImportId && force) {
+      // Se previousImportId foi passado E force === true, ou buscando tentativa anterior pelo fileHash
       existingHistoryId = previousImportId
       existingRawKeys = await loadAlreadyPersistedRawKeys(previousImportId)
     } else if (fileHash) {
@@ -524,7 +597,14 @@ export async function submitProcessValidades(
     // --- 1. Criar ou Reutilizar registro em import_history (status: processing) --------------
     reportProgress('validating', 'Criando registro de histórico de importação...', 0, rawCount, 0)
     try {
-      if (existingHistoryId && force) {
+      if (isRawCompleteResume && importId) {
+        await pb.collection('import_history').update(importId, {
+          status: 'processing',
+          data_importacao: now,
+          error_rows: 0,
+          errors_json: '[]',
+        })
+      } else if (existingHistoryId && force) {
         importId = existingHistoryId
         await pb.collection('import_history').update(importId, {
           status: 'processing',
@@ -557,11 +637,6 @@ export async function submitProcessValidades(
 
         const hist = await pb.collection('import_history').create(historyPayload)
         importId = (hist as unknown as { id: string }).id
-
-        // Se tínhamos chaves de um importId anterior mas criamos novo, atualizamos existingRawKeys se importId mudou
-        if (existingHistoryId && existingHistoryId !== importId && existingRawKeys.size > 0) {
-          // As chaves estavam no importId antigo, aqui novo histórico foi criado
-        }
       }
     } catch (err) {
       const eMsg = errMsg(err, { collection: 'import_history', operation: 'create' })
@@ -584,142 +659,155 @@ export async function submitProcessValidades(
       }
     }
 
-    // Se importId já existia antes ou foi atribuído, tenta recarregar chaves dele se ainda vazio
-    if (importId && existingRawKeys.size === 0) {
-      existingRawKeys = await loadAlreadyPersistedRawKeys(importId)
-    }
-
-    // --- 2. Persistir dados brutos em validades_raw via persistenceQueue --------
-    const allRawPayloads: AnyRec[] = rawRecords.map((rec, idx) => {
-      const data = buildSnake(rec as AnyRec, RAW_FIELDS)
-      data.import_id = importId
-      if (currentUserId) data.created_by = currentUserId
-      data._rowNumber = idx + 1
-      return data
-    })
-
-    // Filtra itens já persistidos (Idempotência / Retomada)
-    const pendingRawPayloads = allRawPayloads.filter((p) => {
-      const key = `raw_row_${p._rowNumber}`
-      return !existingRawKeys.has(key)
-    })
-
-    const alreadyPersistedRawCount = allRawPayloads.length - pendingRawPayloads.length
-
-    if (alreadyPersistedRawCount > 0) {
-      reportProgress(
-        'saving_raw',
-        `Retomando importação: ${alreadyPersistedRawCount} já persistidos, ${pendingRawPayloads.length} pendentes...`,
-        alreadyPersistedRawCount,
-        rawCount,
-        0,
-      )
-    } else {
-      reportProgress('saving_raw', `Gravando dados brutos (0 de ${rawCount})...`, 0, rawCount, 0)
-    }
-
-    let rawNewlyPersisted = 0
+    let totalRawPersisted = 0
     let rawRetriesRecovered = 0
 
-    if (pendingRawPayloads.length > 0) {
-      const rawQueueResult = await runPersistenceQueue(
-        pendingRawPayloads,
-        async (data, _idx, taskSignal) => {
-          if (taskSignal?.aborted) throw new Error('Operação cancelada.')
-          return pb.collection('validades_raw').create(data)
-        },
-        {
-          concurrency: PERSIST_CONCURRENCY,
-          signal,
-          stage: 'raw',
-          getKey: (item) => `raw_row_${item._rowNumber}`,
-          getRowNumber: (item) => (item._rowNumber as number) || undefined,
-          extractErrorMessage: (e) =>
-            errMsg(e, { collection: 'validades_raw', operation: 'create' }),
-          onProgress: (p) => {
-            totalRetriesAccumulated = p.retries
-            const waitMsg = p.isRateLimited
-              ? ' • Aguardando o banco liberar novas gravações...'
-              : ''
-            const currentTotalProcessed = alreadyPersistedRawCount + p.processed
-            const progressMsg =
-              alreadyPersistedRawCount > 0
-                ? `${alreadyPersistedRawCount} já persistidos. Gravando ${pendingRawPayloads.length} pendentes (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
-                : `Gravando dados brutos (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
-
-            reportProgress('saving_raw', progressMsg, currentTotalProcessed, rawCount, p.failed, {
-              retriesCount: p.retries,
-              isRateLimited: p.isRateLimited,
-              rateLimitWaitMs: p.rateLimitWaitMs,
-            })
-          },
-        },
-      )
-
-      totalRetriesAccumulated += rawQueueResult.totalRetries
-      rawRetriesRecovered = rawQueueResult.retriesRecovered
-      rawNewlyPersisted = rawQueueResult.successCount
-      errors.push(...rawQueueResult.errors)
-    }
-
-    const totalRawPersisted = alreadyPersistedRawCount + rawNewlyPersisted
-
-    // REGRA DE INTEGRIDADE: Se falhar qualquer registro na gravação do raw, o job é FAILED e NÃO avança para a base.
-    if (totalRawPersisted !== rawCount || errors.length > 0) {
-      const firstErr = errors[0]?.message || 'Erro desconhecido na gravação de dados brutos.'
-      const failCount = rawCount - totalRawPersisted
-      const failMessage = `Falha na etapa de gravação de dados brutos: ${failCount} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
-
-      reportProgress('failed', failMessage, totalRawPersisted, rawCount, errors.length)
-
-      const metaErrors = {
-        _meta: {
-          rawPersisted: totalRawPersisted,
-          rawExpected: rawCount,
-          baseAttempted: 0,
-          retriesRecovered: rawRetriesRecovered,
-          isPartial: totalRawPersisted > 0,
-        },
-        errors,
+    // --- 2. Persistir dados brutos em validades_raw (PULAR SE isRawCompleteResume) --------
+    if (isRawCompleteResume) {
+      totalRawPersisted = reconciliation.rawPersisted
+    } else {
+      // Se importId já existia antes ou foi atribuído, tenta recarregar chaves dele se ainda vazio
+      if (importId && existingRawKeys.size === 0) {
+        existingRawKeys = await loadAlreadyPersistedRawKeys(importId)
       }
 
-      await pb
-        .collection('import_history')
-        .update(importId, {
-          imported_rows: 0,
-          raw_count: totalRawPersisted,
-          skipped_rows: summary.rejeitados ?? 0,
-          error_rows: errors.length,
-          status: 'failed',
-          errors_json: JSON.stringify(metaErrors),
-        })
-        .catch(() => null)
+      const allRawPayloads: AnyRec[] = rawRecords.map((rec, idx) => {
+        const data = buildSnake(rec as AnyRec, RAW_FIELDS)
+        data.import_id = importId
+        if (currentUserId) data.created_by = currentUserId
+        data._rowNumber = idx + 1
+        return data
+      })
 
-      return {
-        success: false,
-        importId,
-        importedRows: 0,
-        rawRows: totalRawPersisted,
-        skippedRows: summary.rejeitados ?? 0,
-        errorRows: errors.length,
-        summary,
-        error: failMessage,
-        errorsDetails: errors,
-        retriesCount: totalRetriesAccumulated,
+      // Filtra itens já persistidos (Idempotência / Retomada)
+      const pendingRawPayloads = allRawPayloads.filter((p) => {
+        const key = `raw_row_${p._rowNumber}`
+        return !existingRawKeys.has(key)
+      })
+
+      const alreadyPersistedRawCount = allRawPayloads.length - pendingRawPayloads.length
+
+      if (alreadyPersistedRawCount > 0) {
+        reportProgress(
+          'saving_raw',
+          `Retomando importação: ${alreadyPersistedRawCount} já persistidos, ${pendingRawPayloads.length} pendentes...`,
+          alreadyPersistedRawCount,
+          rawCount,
+          0,
+        )
+      } else {
+        reportProgress('saving_raw', `Gravando dados brutos (0 de ${rawCount})...`, 0, rawCount, 0)
+      }
+
+      let rawNewlyPersisted = 0
+
+      if (pendingRawPayloads.length > 0) {
+        const rawQueueResult = await runPersistenceQueue(
+          pendingRawPayloads,
+          async (data, _idx, taskSignal) => {
+            if (taskSignal?.aborted) throw new Error('Operação cancelada.')
+            return pb.collection('validades_raw').create(data)
+          },
+          {
+            concurrency: PERSIST_CONCURRENCY,
+            signal,
+            stage: 'raw',
+            getKey: (item) => `raw_row_${item._rowNumber}`,
+            getRowNumber: (item) => (item._rowNumber as number) || undefined,
+            extractErrorMessage: (e) =>
+              errMsg(e, { collection: 'validades_raw', operation: 'create' }),
+            onProgress: (p) => {
+              totalRetriesAccumulated = p.retries
+              const waitMsg = p.isRateLimited
+                ? ' • Aguardando o banco liberar novas gravações...'
+                : ''
+              const currentTotalProcessed = alreadyPersistedRawCount + p.processed
+              const progressMsg =
+                alreadyPersistedRawCount > 0
+                  ? `${alreadyPersistedRawCount} já persistidos. Gravando ${pendingRawPayloads.length} pendentes (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+                  : `Gravando dados brutos (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+
+              reportProgress('saving_raw', progressMsg, currentTotalProcessed, rawCount, p.failed, {
+                retriesCount: p.retries,
+                isRateLimited: p.isRateLimited,
+                rateLimitWaitMs: p.rateLimitWaitMs,
+              })
+            },
+          },
+        )
+
+        totalRetriesAccumulated += rawQueueResult.totalRetries
+        rawRetriesRecovered = rawQueueResult.retriesRecovered
+        rawNewlyPersisted = rawQueueResult.successCount
+        errors.push(...rawQueueResult.errors)
+      }
+
+      totalRawPersisted = alreadyPersistedRawCount + rawNewlyPersisted
+
+      // REGRA DE INTEGRIDADE: Se falhar qualquer registro na gravação do raw, o job é FAILED e NÃO avança para a base.
+      if (totalRawPersisted !== rawCount || errors.length > 0) {
+        const firstErr = errors[0]?.message || 'Erro desconhecido na gravação de dados brutos.'
+        const failCount = rawCount - totalRawPersisted
+        const failMessage = `Falha na etapa de gravação de dados brutos: ${failCount} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
+
+        reportProgress('failed', failMessage, totalRawPersisted, rawCount, errors.length)
+
+        const metaErrors = {
+          _meta: {
+            rawPersisted: totalRawPersisted,
+            rawExpected: rawCount,
+            baseAttempted: 0,
+            retriesRecovered: rawRetriesRecovered,
+            isPartial: totalRawPersisted > 0,
+          },
+          errors,
+        }
+
+        await pb
+          .collection('import_history')
+          .update(importId, {
+            imported_rows: 0,
+            raw_count: totalRawPersisted,
+            skipped_rows: summary.rejeitados ?? 0,
+            error_rows: errors.length,
+            status: 'failed',
+            errors_json: JSON.stringify(metaErrors),
+          })
+          .catch(() => null)
+
+        return {
+          success: false,
+          importId,
+          importedRows: 0,
+          rawRows: totalRawPersisted,
+          skippedRows: summary.rejeitados ?? 0,
+          errorRows: errors.length,
+          summary,
+          error: failMessage,
+          errorsDetails: errors,
+          retriesCount: totalRetriesAccumulated,
+        }
       }
     }
 
     // --- 3. Persistir Base Atual em validades_base (upsert por chave via queue) -
-    reportProgress(
-      'saving_base',
-      `Atualizando Base Atual (0 de ${baseCount})...`,
-      0,
-      baseCount,
-      errors.length,
-    )
+    const totalExpectedBase = isRawCompleteResume
+      ? reconciliation.validExpected + reconciliation.auditExpected
+      : baseCount
+
+    const baseProgressLabel = isRawCompleteResume
+      ? `Consolidando Base Atual (0 de ${baseCount})...`
+      : `Atualizando Base Atual (0 de ${baseCount})...`
+
+    reportProgress('saving_base', baseProgressLabel, 0, baseCount, errors.length)
+
+    let existingBaseKeys = new Set<string>()
+    if (reconciliation?.state === 'CONSOLIDATION_PARTIAL' && importId) {
+      existingBaseKeys = await loadAlreadyPersistedBaseKeys(importId)
+    }
 
     const baseRecords = baseAtual as AnyRec[]
-    const keyedEntries: Array<{ index: number; rec: AnyRec; chave?: string; _rowNumber: number }> =
+    let keyedEntries: Array<{ index: number; rec: AnyRec; chave?: string; _rowNumber: number }> =
       baseRecords.map((rec, index) => ({
         index,
         rec,
@@ -727,85 +815,109 @@ export async function submitProcessValidades(
         _rowNumber: index + 1,
       }))
 
+    // Se CONSOLIDATION_PARTIAL, pula registros cuja chave já exista com este importId
+    let alreadyPersistedBaseCount = 0
+    if (existingBaseKeys.size > 0) {
+      const pendingEntries = keyedEntries.filter((entry) => {
+        if (!entry.chave) return true
+        return !existingBaseKeys.has(entry.chave)
+      })
+      alreadyPersistedBaseCount = keyedEntries.length - pendingEntries.length
+      keyedEntries = pendingEntries
+    }
+
     // 3.1 Lookup de IDs existentes por chave com concurrency segura
     const existingIds = new Map<number, string>()
-    await runPersistenceQueue(
-      keyedEntries,
-      async (entry, _idx, taskSignal) => {
-        if (taskSignal?.aborted || !entry.chave) return
-        try {
-          const found = await pb.collection('validades_base').getList(1, 1, {
-            filter: `chave_operacional = "${entry.chave}"`,
-          })
-          if (found.items.length > 0) {
-            existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
+    if (keyedEntries.length > 0) {
+      await runPersistenceQueue(
+        keyedEntries,
+        async (entry, _idx, taskSignal) => {
+          if (taskSignal?.aborted || !entry.chave) return
+          try {
+            const found = await pb.collection('validades_base').getList(1, 1, {
+              filter: `chave_operacional = "${entry.chave}"`,
+            })
+            if (found.items.length > 0) {
+              existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
+            }
+          } catch {
+            // Ignora falha de lookup e prossegue para tentar criação
           }
-        } catch {
-          // Ignora falha de lookup e prossegue para tentar criação
-        }
-      },
-      {
-        concurrency: PERSIST_CONCURRENCY,
-        signal,
-        stage: 'base_lookup',
-        extractErrorMessage: (e) =>
-          errMsg(e, { collection: 'validades_base', operation: 'lookup' }),
-      },
-    )
+        },
+        {
+          concurrency: PERSIST_CONCURRENCY,
+          signal,
+          stage: 'base_lookup',
+          extractErrorMessage: (e) =>
+            errMsg(e, { collection: 'validades_base', operation: 'lookup' }),
+        },
+      )
+    }
 
     // 3.2 Upsert dos registros de validades_base via persistenceQueue
     let baseRetriesRecovered = 0
-    const baseQueueResult = await runPersistenceQueue(
-      keyedEntries,
-      async (entry, _idx, taskSignal) => {
-        if (taskSignal?.aborted) throw new Error('Operação cancelada.')
-        const data = buildSnake(entry.rec, BASE_FIELDS)
-        data.import_id = importId
-        if (currentUserId) data.created_by = currentUserId
+    let baseNewlyPersisted = 0
+    if (keyedEntries.length > 0) {
+      const baseQueueResult = await runPersistenceQueue(
+        keyedEntries,
+        async (entry, _idx, taskSignal) => {
+          if (taskSignal?.aborted) throw new Error('Operação cancelada.')
+          const data = buildSnake(entry.rec, BASE_FIELDS)
+          data.import_id = importId
+          if (currentUserId) data.created_by = currentUserId
 
-        const existingId = existingIds.get(entry.index)
-        if (existingId) {
-          return pb.collection('validades_base').update(existingId, data)
-        } else {
-          return pb.collection('validades_base').create(data)
-        }
-      },
-      {
-        concurrency: PERSIST_CONCURRENCY,
-        signal,
-        stage: 'base',
-        getKey: (entry) => entry.chave || `base_idx_${entry.index}`,
-        getRowNumber: (entry) => entry._rowNumber,
-        extractErrorMessage: (e) =>
-          errMsg(e, { collection: 'validades_base', operation: 'upsert' }),
-        onProgress: (p) => {
-          const waitMsg = p.isRateLimited ? ' • Aguardando o banco liberar novas gravações...' : ''
-          reportProgress(
-            'saving_base',
-            `Atualizando Base Atual (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`,
-            p.processed,
-            p.total,
-            errors.length + p.failed,
-            {
-              retriesCount: totalRetriesAccumulated + p.retries,
-              isRateLimited: p.isRateLimited,
-              rateLimitWaitMs: p.rateLimitWaitMs,
-            },
-          )
+          const existingId = existingIds.get(entry.index)
+          if (existingId) {
+            return pb.collection('validades_base').update(existingId, data)
+          } else {
+            return pb.collection('validades_base').create(data)
+          }
         },
-      },
-    )
+        {
+          concurrency: PERSIST_CONCURRENCY,
+          signal,
+          stage: 'base',
+          getKey: (entry) => entry.chave || `base_idx_${entry.index}`,
+          getRowNumber: (entry) => entry._rowNumber,
+          extractErrorMessage: (e) =>
+            errMsg(e, { collection: 'validades_base', operation: 'upsert' }),
+          onProgress: (p) => {
+            const waitMsg = p.isRateLimited
+              ? ' • Aguardando o banco liberar novas gravações...'
+              : ''
+            const currentBaseProcessed = alreadyPersistedBaseCount + p.processed
+            const progressMsg = isRawCompleteResume
+              ? `Consolidando Base Atual (${currentBaseProcessed} de ${baseCount}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+              : `Atualizando Base Atual (${currentBaseProcessed} de ${baseCount}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+            reportProgress(
+              'saving_base',
+              progressMsg,
+              currentBaseProcessed,
+              baseCount,
+              errors.length + p.failed,
+              {
+                retriesCount: totalRetriesAccumulated + p.retries,
+                isRateLimited: p.isRateLimited,
+                rateLimitWaitMs: p.rateLimitWaitMs,
+              },
+            )
+          },
+        },
+      )
 
-    totalRetriesAccumulated += baseQueueResult.totalRetries
-    baseRetriesRecovered = baseQueueResult.retriesRecovered
-    const basePersisted = baseQueueResult.successCount
-    errors.push(...baseQueueResult.errors)
+      totalRetriesAccumulated += baseQueueResult.totalRetries
+      baseRetriesRecovered = baseQueueResult.retriesRecovered
+      baseNewlyPersisted = baseQueueResult.successCount
+      errors.push(...baseQueueResult.errors)
+    }
+
+    const basePersisted = alreadyPersistedBaseCount + baseNewlyPersisted
 
     // REGRA DE INTEGRIDADE: Se qualquer registro falhar na Base Atual, o job é FAILED.
-    if (baseQueueResult.failureCount > 0 || basePersisted !== baseCount) {
-      const firstErr =
-        baseQueueResult.errors[0]?.message || 'Erro desconhecido na atualização da base.'
-      const failMessage = `Falha na etapa de atualização da Base Atual: ${baseQueueResult.failureCount} de ${baseCount} registros falharam. Primeiro erro: ${firstErr}`
+    if (errors.length > 0 || basePersisted !== baseCount) {
+      const firstErr = errors[0]?.message || 'Erro desconhecido na atualização da base.'
+      const failCount = baseCount - basePersisted
+      const failMessage = `Falha na etapa de atualização da Base Atual: ${failCount} de ${baseCount} registros falharam. Primeiro erro: ${firstErr}`
 
       reportProgress('failed', failMessage, basePersisted, baseCount, errors.length)
 
@@ -862,10 +974,12 @@ export async function submitProcessValidades(
         : Math.max(rawCount - baseCount, 0)
 
     // REGRA DE OURO: completed SOMENTE se totalRawPersisted === rawCount E basePersisted === baseCount E errors.length === 0
+    // No caso de retomada de consolidação, totalRawPersisted é conferido com reconciliation.receivedExpected
+    const expectedRawCount = isRawCompleteResume ? reconciliation.receivedExpected : rawCount
     const isSuccess =
-      rawCount > 0 &&
+      expectedRawCount > 0 &&
       baseCount > 0 &&
-      totalRawPersisted === rawCount &&
+      totalRawPersisted === expectedRawCount &&
       basePersisted === baseCount &&
       errors.length === 0
 
@@ -980,6 +1094,264 @@ export async function submitProcessValidades(
   }
 }
 
+/**
+ * Reconcilia o estado atual da importação inspecionando o banco de dados.
+ * NUNCA faz create ou update — apenas leitura (getList).
+ */
+export async function reconcileImportState(
+  importId: string,
+  receivedExpectedParam?: number,
+  validExpectedParam?: number,
+  auditExpectedParam?: number,
+): Promise<ImportReconciliation> {
+  if (!importId) {
+    return {
+      state: 'NEW',
+      receivedExpected: 0,
+      rawPersisted: 0,
+      rawPending: 0,
+      validExpected: 0,
+      auditExpected: 0,
+      basePersisted: 0,
+      auditPersisted: 0,
+      consolidationPending: 0,
+    }
+  }
+
+  try {
+    // 2. Busca histórico pelo id
+    let historyRecord: Record<string, unknown> | null = null
+    try {
+      historyRecord = (await pb.collection('import_history').getOne(importId)) as unknown as Record<
+        string,
+        unknown
+      >
+    } catch {
+      // Tenta buscar por getList com id se getOne falhar
+      try {
+        const histList = await pb.collection('import_history').getList(1, 1, {
+          filter: `id = "${importId}"`,
+        })
+        if (histList.items.length > 0) {
+          historyRecord = histList.items[0] as unknown as Record<string, unknown>
+        }
+      } catch {
+        historyRecord = null
+      }
+    }
+
+    if (!historyRecord) {
+      return {
+        state: 'BLOCKED_UNSAFE',
+        importId,
+        receivedExpected: receivedExpectedParam ?? 0,
+        rawPersisted: 0,
+        rawPending: receivedExpectedParam ?? 0,
+        validExpected: validExpectedParam ?? 0,
+        auditExpected: auditExpectedParam ?? 0,
+        basePersisted: 0,
+        auditPersisted: 0,
+        consolidationPending: 0,
+        blockedReason: `Histórico de importação ${importId} não foi encontrado.`,
+      }
+    }
+
+    // Extrai meta do errors_json se houver
+    let metaRawPersisted: number | undefined
+    let metaRawExpected: number | undefined
+    let metaBasePersisted: number | undefined
+    let metaRetries: number | undefined
+
+    if (historyRecord.errors_json) {
+      try {
+        const parsed =
+          typeof historyRecord.errors_json === 'string'
+            ? JSON.parse(historyRecord.errors_json)
+            : historyRecord.errors_json
+        if (parsed && typeof parsed === 'object' && parsed._meta) {
+          metaRawPersisted = parsed._meta.rawPersisted
+          metaRawExpected = parsed._meta.rawExpected
+          metaBasePersisted = parsed._meta.basePersisted
+          metaRetries = parsed._meta.retriesRecovered
+        }
+      } catch {
+        // ignorar erro de parse
+      }
+    }
+
+    // Determina receivedExpected
+    const histTotalRows =
+      typeof historyRecord.total_rows === 'number'
+        ? (historyRecord.total_rows as number)
+        : undefined
+    const receivedExpected = receivedExpectedParam ?? histTotalRows ?? metaRawExpected
+
+    // 4. Conta quantas chaves reais existem em validades_raw via getList totalItems
+    let rawPersisted = 0
+    try {
+      const rawRes = await pb.collection('validades_raw').getList(1, 1, {
+        filter: `import_id = "${importId}"`,
+      })
+      if (typeof rawRes.totalItems === 'number' && rawRes.totalItems > 0) {
+        rawPersisted = rawRes.totalItems
+      } else if (metaRawPersisted !== undefined && metaRawPersisted > 0) {
+        rawPersisted = metaRawPersisted
+      }
+    } catch {
+      if (metaRawPersisted !== undefined && metaRawPersisted > 0) {
+        rawPersisted = metaRawPersisted
+      }
+    }
+
+    // 5. Se rawPersisted > 0 mas não for possível determinar receivedExpected com segurança
+    if (rawPersisted > 0 && (receivedExpected === undefined || receivedExpected === 0)) {
+      return {
+        state: 'BLOCKED_UNSAFE',
+        importId,
+        receivedExpected: 0,
+        rawPersisted,
+        rawPending: 0,
+        validExpected: validExpectedParam ?? 0,
+        auditExpected: auditExpectedParam ?? 0,
+        basePersisted: 0,
+        auditPersisted: 0,
+        consolidationPending: 0,
+        blockedReason: 'Não foi possível determinar o total esperado de registros.',
+        retries: metaRetries,
+      }
+    }
+
+    const finalReceivedExpected = receivedExpected ?? 0
+    const rawPending = Math.max(0, finalReceivedExpected - rawPersisted)
+
+    // 7. Conta chaves reais em validades_base
+    let basePersisted = 0
+    try {
+      const baseRes = await pb.collection('validades_base').getList(1, 1, {
+        filter: `import_id = "${importId}"`,
+      })
+      if (typeof baseRes.totalItems === 'number' && baseRes.totalItems > 0) {
+        basePersisted = baseRes.totalItems
+      } else if (metaBasePersisted !== undefined && metaBasePersisted > 0) {
+        basePersisted = metaBasePersisted
+      }
+    } catch {
+      if (metaBasePersisted !== undefined && metaBasePersisted > 0) {
+        basePersisted = metaBasePersisted
+      }
+    }
+
+    // 8. Conta registros em auditoria (se coleção existir)
+    let auditPersisted = 0
+    try {
+      const auditRes = await pb.collection('auditoria_pendencias').getList(1, 1, {
+        filter: `import_id = "${importId}"`,
+      })
+      if (typeof auditRes.totalItems === 'number') {
+        auditPersisted = auditRes.totalItems
+      }
+    } catch {
+      try {
+        const auditRes2 = await pb.collection('validades_auditoria').getList(1, 1, {
+          filter: `import_id = "${importId}"`,
+        })
+        if (typeof auditRes2.totalItems === 'number') {
+          auditPersisted = auditRes2.totalItems
+        }
+      } catch {
+        auditPersisted = 0
+      }
+    }
+
+    // Determina validExpected e auditExpected
+    const validExpected =
+      validExpectedParam ??
+      (typeof historyRecord.base_count === 'number'
+        ? (historyRecord.base_count as number)
+        : finalReceivedExpected)
+    const auditExpected =
+      auditExpectedParam ??
+      (typeof historyRecord.skipped_rows === 'number' ? (historyRecord.skipped_rows as number) : 0)
+
+    // 9. Calcula consolidationPending
+    const totalExpectedConsolidation = validExpected + auditExpected
+    const totalPersistedConsolidation = basePersisted + auditPersisted
+    const consolidationPending = Math.max(
+      0,
+      totalExpectedConsolidation - totalPersistedConsolidation,
+    )
+
+    // 10. Determina o estado
+    let state: ImportReconciliationState = 'NEW'
+
+    if (finalReceivedExpected === 0) {
+      state = 'BLOCKED_UNSAFE'
+      return {
+        state,
+        importId,
+        receivedExpected: 0,
+        rawPersisted,
+        rawPending,
+        validExpected,
+        auditExpected,
+        basePersisted,
+        auditPersisted,
+        consolidationPending,
+        blockedReason: 'Não foi possível determinar o total esperado de registros.',
+        retries: metaRetries,
+      }
+    }
+
+    if (rawPersisted < finalReceivedExpected) {
+      state = 'RAW_PARTIAL'
+    } else if (
+      rawPersisted === finalReceivedExpected &&
+      basePersisted === 0 &&
+      auditPersisted === 0
+    ) {
+      state = 'RAW_COMPLETE_CONSOLIDATION_PENDING'
+    } else if (
+      rawPersisted === finalReceivedExpected &&
+      (basePersisted > 0 || auditPersisted > 0) &&
+      consolidationPending > 0
+    ) {
+      state = 'CONSOLIDATION_PARTIAL'
+    } else if (rawPersisted === finalReceivedExpected && consolidationPending === 0) {
+      state = 'COMPLETED'
+    } else {
+      state = 'FAILED_FINAL'
+    }
+
+    return {
+      state,
+      importId,
+      receivedExpected: finalReceivedExpected,
+      rawPersisted,
+      rawPending,
+      validExpected,
+      auditExpected,
+      basePersisted,
+      auditPersisted,
+      consolidationPending,
+      retries: metaRetries,
+    }
+  } catch (err) {
+    return {
+      state: 'FAILED_FINAL',
+      importId,
+      receivedExpected: receivedExpectedParam ?? 0,
+      rawPersisted: 0,
+      rawPending: receivedExpectedParam ?? 0,
+      validExpected: validExpectedParam ?? 0,
+      auditExpected: auditExpectedParam ?? 0,
+      basePersisted: 0,
+      auditPersisted: 0,
+      consolidationPending: 0,
+      blockedReason: errMsg(err),
+    }
+  }
+}
+
 export interface PreviousAttemptResult {
   found: boolean
   importId?: string
@@ -987,11 +1359,12 @@ export interface PreviousAttemptResult {
   rawCount?: number
   rawExpected?: number
   created?: string
+  reconciliation?: ImportReconciliation | null
 }
 
 /**
  * Busca histórico anterior por file_hash sem filtrar por status.
- * Retorna o registro mais recente com contagens extraídas de _meta.
+ * Retorna o registro mais recente com contagens extraídas de _meta e reconciliation populado.
  */
 export async function findPreviousAttempt(fileHash: string): Promise<PreviousAttemptResult> {
   if (!fileHash) return { found: false }
@@ -1023,14 +1396,22 @@ export async function findPreviousAttempt(fileHash: string): Promise<PreviousAtt
         }
       }
 
-      return {
+      const result: PreviousAttemptResult = {
         found: true,
         importId: r.id as string,
         status: (r.status as string) || undefined,
         rawCount: rawPersisted,
         rawExpected: rawExpected,
         created: (r.created as string) || undefined,
+        reconciliation: null,
       }
+
+      if (r.status === 'failed' || r.status === 'processing') {
+        const totalRows = typeof r.total_rows === 'number' ? (r.total_rows as number) : undefined
+        result.reconciliation = await reconcileImportState(r.id as string, totalRows)
+      }
+
+      return result
     }
     return { found: false }
   } catch {
@@ -1041,7 +1422,7 @@ export async function findPreviousAttempt(fileHash: string): Promise<PreviousAtt
 /**
  * Verifica se um hash de arquivo já foi importado (proteção contra reenvio).
  * Se o job anterior for `completed` → duplicate: true.
- * Se for `failed` → duplicate: false, previousFailed: true + detalhes da tentativa.
+ * Se for `failed` → duplicate: false, previousFailed: true + detalhes da tentativa e reconciliation.
  */
 export async function checkFileHash(fileHash: string): Promise<{
   duplicate: boolean
@@ -1052,6 +1433,7 @@ export async function checkFileHash(fileHash: string): Promise<{
   previousImportId?: string
   previousRawPersisted?: number
   previousRawExpected?: number
+  previousReconciliation?: ImportReconciliation | null
 }> {
   if (!fileHash) return { duplicate: false }
   try {
@@ -1064,6 +1446,7 @@ export async function checkFileHash(fileHash: string): Promise<{
         importId: prev.importId,
         created: prev.created,
         status: prev.status,
+        previousReconciliation: prev.reconciliation,
       }
     }
 
@@ -1077,6 +1460,7 @@ export async function checkFileHash(fileHash: string): Promise<{
         previousImportId: prev.importId,
         previousRawPersisted: prev.rawCount,
         previousRawExpected: prev.rawExpected,
+        previousReconciliation: prev.reconciliation,
       }
     }
 
@@ -1085,6 +1469,7 @@ export async function checkFileHash(fileHash: string): Promise<{
       importId: prev.importId,
       created: prev.created,
       status: prev.status,
+      previousReconciliation: prev.reconciliation,
     }
   } catch {
     return { duplicate: false }

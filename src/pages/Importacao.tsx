@@ -72,7 +72,9 @@ import { resolveStoreMatch } from '@/lib/data/storeRecognition'
 import {
   submitProcessValidades,
   checkFileHash,
+  reconcileImportState,
   type ImportProgressState,
+  type ImportReconciliation,
 } from '@/lib/import/importClient'
 import { exportErrorsCSV, exportErrorsXLSX } from '@/lib/export/errorReportExport'
 import {
@@ -284,6 +286,7 @@ export const ImportacaoPage: React.FC = () => {
     rawExpected?: number
   } | null>(null)
   const [forceReprocess, setForceReprocess] = useState(false)
+  const [reconciliation, setReconciliation] = useState<ImportReconciliation | null>(null)
 
   const { history, isLoading: historyLoading, refetch: refetchHistory } = useImportHistory()
   const [isExportingHistory, setIsExportingHistory] = useState(false)
@@ -404,6 +407,7 @@ export const ImportacaoPage: React.FC = () => {
     setPipelineResult(null)
     setDuplicateHash(null)
     setForceReprocess(false)
+    setReconciliation(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
 
@@ -426,6 +430,7 @@ export const ImportacaoPage: React.FC = () => {
       setLargeFileWarning(null)
       setIsLargeFileConfirmed(false)
       setErrorsList([])
+      setReconciliation(null)
       setSelectedFile(file)
       try {
         const hash = await calcularHashArquivo(file)
@@ -555,14 +560,23 @@ export const ImportacaoPage: React.FC = () => {
               status: dupCheck.status || 'completed',
             })
             setForceReprocess(false)
+            setReconciliation(dupCheck.previousReconciliation || null)
           } else if (dupCheck.previousFailed) {
+            let recon = dupCheck.previousReconciliation || null
+            if (!recon && dupCheck.previousImportId) {
+              recon = await reconcileImportState(
+                dupCheck.previousImportId,
+                dupCheck.previousRawExpected || parsed.rows.length,
+              )
+            }
+            setReconciliation(recon)
             setDuplicateHash({
               hash,
               importId: dupCheck.previousImportId,
               created: dupCheck.created,
               status: dupCheck.status || 'failed',
-              rawPersisted: dupCheck.previousRawPersisted,
-              rawExpected: dupCheck.previousRawExpected,
+              rawPersisted: recon?.rawPersisted ?? dupCheck.previousRawPersisted,
+              rawExpected: recon?.receivedExpected ?? dupCheck.previousRawExpected,
             })
             setForceReprocess(true)
           }
@@ -681,11 +695,26 @@ export const ImportacaoPage: React.FC = () => {
     const validItems = mapped
       .filter((m) => m.errors.length === 0)
       .map((m) => m.item as ValidadeItem)
+    const invalidItemsCount = mapped.filter((m) => m.errors.length > 0).length
     const report = validateDataset(validItems)
     setMappedItems(validItems)
     setValidationReport(report)
     setStage('validated')
-  }, [rawRows, mapping])
+
+    // Se houver tentativa anterior com falha, re-reconcilia com os números reais de válidos e auditoria
+    if (duplicateHash?.importId && duplicateHash.status === 'failed') {
+      reconcileImportState(
+        duplicateHash.importId,
+        duplicateHash.rawExpected || rawRows.length,
+        report.validRows,
+        invalidItemsCount,
+      )
+        .then((rec) => {
+          setReconciliation(rec)
+        })
+        .catch(() => null)
+    }
+  }, [rawRows, mapping, duplicateHash])
 
   const handleImport = useCallback(async () => {
     if (!validationReport || !fileInfo) return
@@ -823,6 +852,7 @@ export const ImportacaoPage: React.FC = () => {
           dataArquivo,
           force: forceReprocess,
           previousImportId: duplicateHash?.status === 'failed' ? duplicateHash.importId : undefined,
+          reconciliation: reconciliation || undefined,
           rawRecords: rawTradePro,
           baseAtual: pipeline.baseAtual,
           signal: controller.signal,
@@ -930,6 +960,7 @@ export const ImportacaoPage: React.FC = () => {
     mapping,
     dataArquivo,
     forceReprocess,
+    reconciliation,
     toast,
     refetchHistory,
   ])
@@ -1170,42 +1201,270 @@ export const ImportacaoPage: React.FC = () => {
             />
           )}
 
-          {/* Alerta de tentativa parcial ou reenvio */}
+          {/* Alerta de máquina de estados / reconciliação / reenvio */}
           {duplicateHash &&
-            stage === 'parsed' &&
-            (duplicateHash.status === 'failed' && (duplicateHash.rawPersisted || 0) > 0 ? (
-              <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-400 bg-amber-50 shadow-xs">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="flex-1 text-xs text-slate-700 leading-relaxed">
-                  <p className="font-semibold text-amber-900 mb-1">Tentativa parcial encontrada</p>
-                  <p className="text-amber-900">
-                    Tentativa parcial encontrada —{' '}
-                    {duplicateHash.rawPersisted?.toLocaleString('pt-BR')} já persistidos,{' '}
-                    {Math.max(
-                      0,
-                      (duplicateHash.rawExpected || rawRows.length) -
-                        (duplicateHash.rawPersisted || 0),
-                    ).toLocaleString('pt-BR')}{' '}
-                    pendentes. Reprocesse para concluir apenas os pendentes.
-                  </p>
-                  <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={forceReprocess}
-                      onChange={(e) => setForceReprocess(e.target.checked)}
-                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4"
-                    />
-                    <span className="font-semibold text-amber-950">
-                      Reprocessar{' '}
+            (stage === 'parsed' || stage === 'validated') &&
+            (reconciliation?.state === 'RAW_COMPLETE_CONSOLIDATION_PENDING' ? (
+              <div className="flex flex-col gap-3 p-4 rounded-xl border border-blue-300 bg-blue-50 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-blue-950 leading-relaxed">
+                    <p className="font-bold text-blue-900 text-sm mb-0.5">
+                      Dados brutos completos — {reconciliation.rawPersisted.toLocaleString('pt-BR')}{' '}
+                      seguros
+                    </p>
+                    <p className="text-blue-800">
+                      Consolidação pendente: {reconciliation.validExpected.toLocaleString('pt-BR')}{' '}
+                      válidos + {reconciliation.auditExpected.toLocaleString('pt-BR')} Auditoria.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Cards informativos: 6 cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-blue-700 uppercase">
+                      Brutos Seguros
+                    </p>
+                    <p className="text-base font-bold text-blue-900 tabular-nums">
+                      {reconciliation.rawPersisted.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                      Pendentes Brutos
+                    </p>
+                    <p className="text-base font-bold text-slate-700 tabular-nums">
+                      {reconciliation.rawPending.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">
+                      Base Consolidada
+                    </p>
+                    <p className="text-base font-bold text-emerald-800 tabular-nums">
+                      {reconciliation.basePersisted.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-indigo-700 uppercase">
+                      Pend. Consolidação
+                    </p>
+                    <p className="text-base font-bold text-indigo-800 tabular-nums">
+                      {reconciliation.consolidationPending.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-rose-700 uppercase">
+                      Auditoria Pendente
+                    </p>
+                    <p className="text-base font-bold text-rose-800 tabular-nums">
                       {Math.max(
                         0,
-                        (duplicateHash.rawExpected || rawRows.length) -
-                          (duplicateHash.rawPersisted || 0),
-                      ).toLocaleString('pt-BR')}{' '}
-                      pendentes
-                    </span>
-                  </label>
+                        reconciliation.auditExpected - reconciliation.auditPersisted,
+                      ).toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-blue-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-teal-700 uppercase">
+                      Duplicações Evitadas
+                    </p>
+                    <p className="text-base font-bold text-teal-800 tabular-nums">
+                      {reconciliation.rawPersisted.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
                 </div>
+              </div>
+            ) : reconciliation?.state === 'CONSOLIDATION_PARTIAL' ? (
+              <div className="flex flex-col gap-3 p-4 rounded-xl border border-indigo-300 bg-indigo-50 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <RefreshCw className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-indigo-950 leading-relaxed">
+                    <p className="font-bold text-indigo-900 text-sm mb-0.5">
+                      Consolidação parcial em andamento —{' '}
+                      {reconciliation.basePersisted.toLocaleString('pt-BR')} consolidados
+                    </p>
+                    <p className="text-indigo-800">
+                      Restam {reconciliation.consolidationPending.toLocaleString('pt-BR')} registros
+                      pendentes de consolidação. Os dados brutos já estão 100% seguros (
+                      {reconciliation.rawPersisted.toLocaleString('pt-BR')}).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Cards informativos: 6 cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-indigo-700 uppercase">
+                      Brutos Seguros
+                    </p>
+                    <p className="text-base font-bold text-indigo-900 tabular-nums">
+                      {reconciliation.rawPersisted.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                      Pendentes Brutos
+                    </p>
+                    <p className="text-base font-bold text-slate-700 tabular-nums">
+                      {reconciliation.rawPending.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">
+                      Base Consolidada
+                    </p>
+                    <p className="text-base font-bold text-emerald-800 tabular-nums">
+                      {reconciliation.basePersisted.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-amber-700 uppercase">
+                      Pend. Consolidação
+                    </p>
+                    <p className="text-base font-bold text-amber-800 tabular-nums">
+                      {reconciliation.consolidationPending.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-rose-700 uppercase">
+                      Auditoria Pendente
+                    </p>
+                    <p className="text-base font-bold text-rose-800 tabular-nums">
+                      {Math.max(
+                        0,
+                        reconciliation.auditExpected - reconciliation.auditPersisted,
+                      ).toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-center shadow-2xs">
+                    <p className="text-[10px] font-semibold text-teal-700 uppercase">
+                      Duplicações Evitadas
+                    </p>
+                    <p className="text-base font-bold text-teal-800 tabular-nums">
+                      {(reconciliation.rawPersisted + reconciliation.basePersisted).toLocaleString(
+                        'pt-BR',
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : reconciliation?.state === 'BLOCKED_UNSAFE' ? (
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-red-400 bg-red-50 shadow-xs">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs text-red-950 leading-relaxed">
+                  <p className="font-bold text-red-900 text-sm mb-0.5">
+                    Operação Bloqueada por Inconsistência
+                  </p>
+                  <p className="text-red-800">
+                    {reconciliation.blockedReason ||
+                      'Identidade insuficiente ou total de registros incerto para retomar com segurança.'}
+                  </p>
+                </div>
+              </div>
+            ) : duplicateHash.status === 'failed' && (duplicateHash.rawPersisted || 0) > 0 ? (
+              <div className="flex flex-col gap-3 p-4 rounded-xl border border-amber-400 bg-amber-50 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+                    <p className="font-semibold text-amber-900 mb-1">
+                      Tentativa parcial encontrada
+                    </p>
+                    <p className="text-amber-900">
+                      Tentativa parcial encontrada —{' '}
+                      {(reconciliation?.rawPersisted ?? duplicateHash.rawPersisted)?.toLocaleString(
+                        'pt-BR',
+                      )}{' '}
+                      já persistidos,{' '}
+                      {(
+                        reconciliation?.rawPending ??
+                        Math.max(
+                          0,
+                          (duplicateHash.rawExpected || rawRows.length) -
+                            (duplicateHash.rawPersisted || 0),
+                        )
+                      ).toLocaleString('pt-BR')}{' '}
+                      pendentes. Reprocesse para concluir apenas os pendentes.
+                    </p>
+                    <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={forceReprocess}
+                        onChange={(e) => setForceReprocess(e.target.checked)}
+                        className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4"
+                      />
+                      <span className="font-semibold text-amber-950">
+                        Reprocessar{' '}
+                        {(
+                          reconciliation?.rawPending ??
+                          Math.max(
+                            0,
+                            (duplicateHash.rawExpected || rawRows.length) -
+                              (duplicateHash.rawPersisted || 0),
+                          )
+                        ).toLocaleString('pt-BR')}{' '}
+                        pendentes
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Cards informativos quando reconciliation disponível */}
+                {reconciliation && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-amber-700 uppercase">
+                        Brutos Seguros
+                      </p>
+                      <p className="text-base font-bold text-amber-900 tabular-nums">
+                        {reconciliation.rawPersisted.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                        Pendentes Brutos
+                      </p>
+                      <p className="text-base font-bold text-slate-700 tabular-nums">
+                        {reconciliation.rawPending.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-emerald-700 uppercase">
+                        Base Consolidada
+                      </p>
+                      <p className="text-base font-bold text-emerald-800 tabular-nums">
+                        {reconciliation.basePersisted.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-indigo-700 uppercase">
+                        Pend. Consolidação
+                      </p>
+                      <p className="text-base font-bold text-indigo-800 tabular-nums">
+                        {reconciliation.consolidationPending.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-rose-700 uppercase">
+                        Auditoria Pendente
+                      </p>
+                      <p className="text-base font-bold text-rose-800 tabular-nums">
+                        {Math.max(
+                          0,
+                          reconciliation.auditExpected - reconciliation.auditPersisted,
+                        ).toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/90 border border-amber-200 text-center shadow-2xs">
+                      <p className="text-[10px] font-semibold text-teal-700 uppercase">
+                        Duplicações Evitadas
+                      </p>
+                      <p className="text-base font-bold text-teal-800 tabular-nums">
+                        {reconciliation.rawPersisted.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50">
@@ -1693,6 +1952,7 @@ export const ImportacaoPage: React.FC = () => {
                         disabled={
                           isImporting ||
                           !canImport ||
+                          reconciliation?.state === 'BLOCKED_UNSAFE' ||
                           (!!duplicateHash && !forceReprocess && duplicateHash.status !== 'failed')
                         }
                         className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
@@ -1702,6 +1962,33 @@ export const ImportacaoPage: React.FC = () => {
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Processando...
                           </>
+                        ) : duplicateHash?.status === 'failed' && reconciliation ? (
+                          reconciliation.state === 'RAW_PARTIAL' ? (
+                            <>
+                              <RefreshCw className="w-4 h-4" />
+                              Reprocessar {reconciliation.rawPending.toLocaleString('pt-BR')}{' '}
+                              pendentes
+                            </>
+                          ) : reconciliation.state === 'RAW_COMPLETE_CONSOLIDATION_PENDING' ||
+                            reconciliation.state === 'CONSOLIDATION_PARTIAL' ? (
+                            <>
+                              <RefreshCw className="w-4 h-4" />
+                              Continuar consolidação de{' '}
+                              {reconciliation.consolidationPending.toLocaleString('pt-BR')}{' '}
+                              registro(s)
+                            </>
+                          ) : reconciliation.state === 'BLOCKED_UNSAFE' ? (
+                            <>
+                              <AlertCircle className="w-4 h-4" />
+                              Importação Bloqueada
+                            </>
+                          ) : (
+                            <>
+                              <Download className="w-4 h-4" />
+                              Processar {validationReport.validRows.toLocaleString('pt-BR')}{' '}
+                              registro(s)
+                            </>
+                          )
                         ) : duplicateHash?.status === 'failed' &&
                           (duplicateHash.rawPersisted || 0) > 0 ? (
                           <>
@@ -2035,10 +2322,46 @@ export const ImportacaoPage: React.FC = () => {
                     {history.map((h) => {
                       const statusStr = String(h.status)
                       const isFailed = statusStr === 'failed' || statusStr === 'error'
-                      const errorReason =
-                        (h as unknown as { error_message?: string; erro?: string }).error_message ||
-                        (h as unknown as { error_message?: string; erro?: string }).erro ||
-                        (isFailed ? 'Erro desconhecido' : '—')
+
+                      // Tenta extrair informação útil do errors_json._meta
+                      let errorReason = '—'
+                      if (isFailed) {
+                        const raw = (h as unknown as { errors_json?: unknown }).errors_json
+                        if (raw) {
+                          try {
+                            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+                            const meta = parsed?._meta
+                            if (meta) {
+                              const rp = meta.rawPersisted
+                              const re = meta.rawExpected
+                              if (typeof rp === 'number' && typeof re === 'number') {
+                                if (rp === re) {
+                                  errorReason = `Brutos completos (${rp}/${re}); consolidação pendente`
+                                } else if (rp > 0) {
+                                  errorReason = `Brutos: ${rp}/${re} persistidos; consolidação pendente`
+                                } else {
+                                  errorReason = `Falha na gravação bruta: 0/${re}`
+                                }
+                              }
+                            }
+                          } catch {
+                            // ignora erro de parse
+                          }
+                        }
+                        if (
+                          errorReason === '—' &&
+                          (h as unknown as { error_message?: string; erro?: string }).error_message
+                        ) {
+                          errorReason = (h as unknown as { error_message?: string }).error_message!
+                        } else if (
+                          errorReason === '—' &&
+                          (h as unknown as { erro?: string }).erro
+                        ) {
+                          errorReason = (h as unknown as { erro?: string }).erro!
+                        } else if (errorReason === '—') {
+                          errorReason = 'Erro desconhecido'
+                        }
+                      }
 
                       return (
                         <TableRow key={h.id}>
