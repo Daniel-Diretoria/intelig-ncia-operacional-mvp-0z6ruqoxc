@@ -255,9 +255,18 @@ export class TradeProApiAdapter implements IOperationalDataSource {
       const categoryDistribution: ChartCategoryData[] = categories.map((cat) => {
         const catItems = items.filter((i) => i.category === cat)
         const c = catItems.filter((i) => i.status === 'Vencido' || i.status === 'Crítico').length
-        const p = catItems.filter((i) => i.status === 'Atenção' || i.status === 'Moderado').length
+        const at = catItems.filter((i) => i.status === 'Atenção').length
+        const mo = catItems.filter((i) => i.status === 'Moderado').length
         const o = catItems.filter((i) => i.status === 'Normal').length
-        return { category: cat, critico: c, proximo: p, ok: o, total: catItems.length }
+        return {
+          category: cat,
+          critico: c,
+          atencao: at,
+          moderado: mo,
+          proximo: at + mo,
+          ok: o,
+          total: catItems.length,
+        }
       })
 
       // Contagem real de alertas: mesmos critérios de `listAlertas` — validades

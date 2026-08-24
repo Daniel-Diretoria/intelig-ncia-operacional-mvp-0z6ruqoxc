@@ -283,17 +283,23 @@ export const DashboardPage: React.FC = () => {
                   <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                   <Bar
                     dataKey="critico"
-                    name="Crítico (1-15d)"
+                    name="Crítico (0-15d)"
                     fill="#EF4444"
                     radius={[4, 4, 0, 0]}
                   />
                   <Bar
-                    dataKey="proximo"
-                    name="Atenção/Moderado (16-35d)"
+                    dataKey="atencao"
+                    name="Atenção (16-20d)"
                     fill="#F59E0B"
                     radius={[4, 4, 0, 0]}
                   />
-                  <Bar dataKey="ok" name="Normal (36+d)" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="moderado"
+                    name="Moderado (21-29d)"
+                    fill="#3B82F6"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar dataKey="ok" name="Normal (30+d)" fill="#10B981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -425,12 +425,15 @@ export class MockOperationalAdapter implements IOperationalDataSource {
     const categoryDistribution: ChartCategoryData[] = categories.map((cat) => {
       const items = MOCK_VALIDADES.filter((v) => v.category === cat)
       const c = items.filter((v) => v.status === 'Vencido' || v.status === 'Crítico').length
-      const p = items.filter((v) => v.status === 'Atenção' || v.status === 'Moderado').length
+      const at = items.filter((v) => v.status === 'Atenção').length
+      const mo = items.filter((v) => v.status === 'Moderado').length
       const o = items.filter((v) => v.status === 'Normal').length
       return {
         category: cat,
         critico: c,
-        proximo: p,
+        atencao: at,
+        moderado: mo,
+        proximo: at + mo,
         ok: o,
         total: items.length,
       }

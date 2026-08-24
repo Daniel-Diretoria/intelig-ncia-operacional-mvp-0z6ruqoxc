@@ -285,6 +285,8 @@ export interface KpiSummary {
 export interface ChartCategoryData {
   category: string
   critico: number
+  atencao: number
+  moderado: number
   proximo: number
   ok: number
   total: number

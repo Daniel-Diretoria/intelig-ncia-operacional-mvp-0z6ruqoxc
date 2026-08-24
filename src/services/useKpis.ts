@@ -29,28 +29,43 @@ export function useKpis(): UseKpisResult {
       // Distribuição por status operacional (em vez de categoria inventada)
       const distributionMap: Record<
         string,
-        { critico: number; proximo: number; ok: number; total: number }
+        {
+          critico: number
+          atencao: number
+          moderado: number
+          proximo: number
+          ok: number
+          total: number
+        }
       > = {
-        '0 a 15 dias (Crítico)': {
+        '0-15 dias (Crítico)': {
           critico: kpis.validadesCriticas,
+          atencao: 0,
+          moderado: 0,
           proximo: 0,
           ok: 0,
           total: kpis.validadesCriticas,
         },
-        '16 a 25 dias (Atenção)': {
+        '16-20 dias (Atenção)': {
           critico: 0,
-          proximo: kpis.validadesAtencao,
+          atencao: kpis.validadesAtencao,
+          moderado: 0,
+          proximo: 0,
           ok: 0,
           total: kpis.validadesAtencao,
         },
-        '26 a 35 dias (Moderado)': {
+        '21-29 dias (Moderado)': {
           critico: 0,
-          proximo: kpis.validadesModerado,
+          atencao: 0,
+          moderado: kpis.validadesModerado,
+          proximo: 0,
           ok: 0,
           total: kpis.validadesModerado,
         },
-        '36+ dias (Normal)': {
+        '30+ dias (Normal)': {
           critico: 0,
+          atencao: 0,
+          moderado: 0,
           proximo: 0,
           ok: kpis.validadesNormal,
           total: kpis.validadesNormal,
@@ -61,6 +76,8 @@ export function useKpis(): UseKpisResult {
         ([statusName, counts]) => ({
           category: statusName as unknown as import('@/types').ValidadeItem['category'],
           critico: counts.critico,
+          atencao: counts.atencao,
+          moderado: counts.moderado,
           proximo: counts.proximo,
           ok: counts.ok,
           total: counts.total,
