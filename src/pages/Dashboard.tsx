@@ -576,11 +576,14 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
   const handleExportCentral = async () => {
     setIsExporting(true)
     try {
-      const snapshot = getBaseAtualSnapshot()
-      if (validades?.length) snapshot.validades = validades
-      if (rupturas?.length) snapshot.rupturas = rupturas
+      const snapshot = await getBaseAtualSnapshot()
+      const exportSnapshot = {
+        ...snapshot,
+        validades: validades?.length ? validades : snapshot.validadesAtivas,
+        rupturas: rupturas?.length ? rupturas : snapshot.rupturasAtivas,
+      }
 
-      downloadCentralEstrategicaXLSX(snapshot)
+      downloadCentralEstrategicaXLSX(exportSnapshot)
       toast({
         title: 'Exportação concluída',
         description: 'Central Estratégica exportada em XLSX (4 abas + Metadados).',

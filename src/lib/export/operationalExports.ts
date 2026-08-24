@@ -30,11 +30,30 @@ import {
   computeBrandRiskScore,
   generateRecommendedActions,
 } from '@/lib/engine/strategicRankings'
-import { reconcileRuptureValidity } from '@/lib/engine/ruptureValidityReconciliationEngine'
+import {
+  reconcileRuptureValidity,
+  type RupturaRecord,
+  type ValidadeRecord,
+} from '@/lib/engine/ruptureValidityReconciliationEngine'
 import type { BaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
 import type { ValidadeItem, Ruptura } from '@/types'
 import type { AuditoriaOcorrencia } from '@/services/useAuditoria'
 import type { ImportHistoryItem } from '@/services/useImportHistory'
+
+export interface ImportHistoryExportItem {
+  id?: string
+  file_name?: string
+  file_hash?: string
+  tipo?: 'validades' | 'rupturas'
+  status?: string
+  total_rows?: number
+  total_rows_read?: number
+  imported_rows?: number
+  skipped_rows?: number
+  error_rows?: number
+  created?: string
+  [key: string]: unknown
+}
 import type { CrossEvidence } from '@/types'
 
 export const OPERATIONAL_EXPORT_VERSION = 'v0.0.47'
@@ -502,7 +521,10 @@ export interface PendenciasAuditoriaRow {
 }
 
 export function buildPendenciasAuditoria(
-  snapshot: Partial<BaseAtualSnapshot> & { validades?: ValidadeItem[]; auditoria_pendencias?: AuditoriaOcorrencia[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    validades?: ValidadeItem[]
+    auditoria_pendencias?: AuditoriaOcorrencia[]
+  },
   filtros?: Record<string, unknown>,
 ): {
   data: PendenciasAuditoriaRow[]
@@ -591,7 +613,10 @@ export function buildPendenciasAuditoria(
 }
 
 export function downloadPendenciasAuditoriaXLSX(
-  snapshot: Partial<BaseAtualSnapshot> & { validades?: ValidadeItem[]; auditoria_pendencias?: AuditoriaOcorrencia[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    validades?: ValidadeItem[]
+    auditoria_pendencias?: AuditoriaOcorrencia[]
+  },
   filtros?: Record<string, unknown>,
 ): void {
   const { data, metadata } = buildPendenciasAuditoria(snapshot, filtros)
@@ -624,7 +649,10 @@ export function downloadPendenciasAuditoriaXLSX(
 }
 
 export function downloadPendenciasAuditoriaCSV(
-  snapshot: Partial<BaseAtualSnapshot> & { validades?: ValidadeItem[]; auditoria_pendencias?: AuditoriaOcorrencia[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    validades?: ValidadeItem[]
+    auditoria_pendencias?: AuditoriaOcorrencia[]
+  },
   filtros?: Record<string, unknown>,
 ): void {
   const { data, headers } = buildPendenciasAuditoria(snapshot, filtros)
@@ -683,21 +711,49 @@ export function buildConfrontoRupturaValidade(
   ]
 
   // Se houver snapshot.confronto / crossEvidence pré-carregado usamos, senão executamos a reconciliação pura
-  let crossEvidences: CrossEvidence[] =
-    snapshot.crossEvidence || (snapshot as any).confronto || []
+  let crossEvidences: CrossEvidence[] = snapshot.crossEvidence || (snapshot as any).confronto || []
 
   const valList = snapshot.validades || (snapshot as any).validadesAtivas || []
   const rupList = snapshot.rupturas || (snapshot as any).rupturasAtivas || []
 
   if (crossEvidences.length === 0 && rupList.length > 0 && valList.length > 0) {
     // Reconciliação direta em memória
+    const valRecords: ValidadeRecord[] = valList.map((v) => ({
+      id: v.id,
+      cliente: v.cliente,
+      fornecedor: v.industria,
+      loja: v.loja,
+      codigo_loja: v.codigoLoja,
+      razao_social: v.loja,
+      cidade: v.cidade,
+      estado: v.uf,
+      produto: v.product,
+      cod_produto: v.sku,
+      quantidade: v.quantidade ?? v.estoque,
+      validade_efetiva: v.validade,
+      realizado: v.dataEntrada || v.validade,
+      status: v.status,
+    }))
+
     for (const r of rupList) {
       if (r.situacao_atual !== 'Ativo') continue
-      for (const v of valList) {
-        const result = reconcileRuptureValidity(r, v)
-        if (result.matched && result.evidence) {
-          crossEvidences.push(result.evidence)
-        }
+      const rupRecord: RupturaRecord = {
+        id: r.id,
+        cliente: r.cliente,
+        nome_loja: r.nome_loja,
+        codigo_loja: r.codigo_loja,
+        cidade: r.cidade,
+        estado: r.estado,
+        produto: r.produto,
+        cod_produto: r.codigo_cliente || (r as any).cod_produto,
+        data_visita: r.data_visita,
+        situacao_atual: r.situacao_atual,
+        motivo: r.motivo,
+      }
+
+      const evidence = reconcileRuptureValidity(rupRecord, valRecords)
+      if (evidence) {
+        crossEvidences.push(evidence)
       }
     }
   }
@@ -867,10 +923,12 @@ export interface CentralEstrategicaData {
   }>
 }
 
-export function buildCentralEstrategica(snapshot: Partial<BaseAtualSnapshot> & {
-  validades?: ValidadeItem[]
-  rupturas?: Ruptura[]
-}): {
+export function buildCentralEstrategica(
+  snapshot: Partial<BaseAtualSnapshot> & {
+    validades?: ValidadeItem[]
+    rupturas?: Ruptura[]
+  },
+): {
   data: CentralEstrategicaData
   metadata: Array<{ Campo: string; Valor: string | number }>
 } {
@@ -1034,10 +1092,12 @@ export function buildCentralEstrategica(snapshot: Partial<BaseAtualSnapshot> & {
   }
 }
 
-export function downloadCentralEstrategicaXLSX(snapshot: Partial<BaseAtualSnapshot> & {
-  validades?: ValidadeItem[]
-  rupturas?: Ruptura[]
-}): void {
+export function downloadCentralEstrategicaXLSX(
+  snapshot: Partial<BaseAtualSnapshot> & {
+    validades?: ValidadeItem[]
+    rupturas?: Ruptura[]
+  },
+): void {
   const { data, metadata } = buildCentralEstrategica(snapshot)
 
   const total =
@@ -1139,7 +1199,9 @@ export interface HistoricoImportacoesRow {
 }
 
 export function buildHistoricoImportacoes(
-  snapshot: Partial<BaseAtualSnapshot> & { importHistory?: ImportHistoryItem[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    importHistory?: (ImportHistoryItem | ImportHistoryExportItem)[]
+  },
   errorsList?: Array<{
     linha: number | string
     chave: string
@@ -1176,7 +1238,7 @@ export function buildHistoricoImportacoes(
 
   const historyItems = ((snapshot as any).importHistory ||
     (snapshot as any).history ||
-    []) as ImportHistoryItem[]
+    []) as ImportHistoryExportItem[]
 
   const data: HistoricoImportacoesRow[] = historyItems.map((h) => {
     const rawHash = safeStr(h.file_hash || (h as any).hash || '')
@@ -1242,7 +1304,9 @@ export function buildHistoricoImportacoes(
 }
 
 export function downloadHistoricoImportacoesXLSX(
-  snapshot: Partial<BaseAtualSnapshot> & { importHistory?: ImportHistoryItem[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    importHistory?: (ImportHistoryItem | ImportHistoryExportItem)[]
+  },
   errorsList?: Array<{
     linha: number | string
     chave: string
@@ -1294,7 +1358,9 @@ export function downloadHistoricoImportacoesXLSX(
 }
 
 export function downloadHistoricoImportacoesCSV(
-  snapshot: Partial<BaseAtualSnapshot> & { importHistory?: ImportHistoryItem[] },
+  snapshot: Partial<BaseAtualSnapshot> & {
+    importHistory?: (ImportHistoryItem | ImportHistoryExportItem)[]
+  },
 ): void {
   const { data, headers } = buildHistoricoImportacoes(snapshot)
   if (data.length === 0) {

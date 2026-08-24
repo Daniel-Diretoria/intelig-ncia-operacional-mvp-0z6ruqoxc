@@ -139,37 +139,37 @@ export const RelatoriosPage: React.FC = () => {
   const [exportingCard, setExportingCard] = useState<string | null>(null)
 
   const handleExportOperational = async (
-  key: string,
-  action: (snap: any) => Promise<void> | void,
-  successMsg: string,
-) => {
-  setExportingCard(key)
-  try {
-    const snap = await getBaseAtualSnapshot()
-    const snapshot = {
-      ...snap,
-      validades: allValidades?.length ? allValidades : snap.validadesAtivas,
-      rupturas: rupturas?.length ? rupturas : snap.rupturasAtivas,
-      importHistory: importHistory || [],
-      auditoria_pendencias: auditoriaOcorrencias || [],
-      crossEvidence: crossEvidences || [],
-    }
+    key: string,
+    action: (snap: any) => Promise<void> | void,
+    successMsg: string,
+  ) => {
+    setExportingCard(key)
+    try {
+      const snap = await getBaseAtualSnapshot()
+      const snapshot = {
+        ...snap,
+        validades: allValidades?.length ? allValidades : snap.validadesAtivas,
+        rupturas: rupturas?.length ? rupturas : snap.rupturasAtivas,
+        importHistory: importHistory || [],
+        auditoria_pendencias: auditoriaOcorrencias || [],
+        crossEvidence: crossEvidences || [],
+      }
 
-    await action(snapshot)
-    toast({
-      title: 'Exportação concluída',
-      description: successMsg,
-    })
-  } catch (err) {
-    toast({
-      title: 'Erro na exportação',
-      description: err instanceof Error ? err.message : 'Falha ao gerar o arquivo de exportação.',
-      variant: 'destructive',
-    })
-  } finally {
-    setExportingCard(null)
+      await action(snapshot)
+      toast({
+        title: 'Exportação concluída',
+        description: successMsg,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro na exportação',
+        description: err instanceof Error ? err.message : 'Falha ao gerar o arquivo de exportação.',
+        variant: 'destructive',
+      })
+    } finally {
+      setExportingCard(null)
+    }
   }
-}
 
   // Listen to header refresh
   useEffect(() => {
