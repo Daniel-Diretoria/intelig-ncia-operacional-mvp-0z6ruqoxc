@@ -334,8 +334,49 @@ export interface FailureDetail {
 }
 
 /**
+ * Consulta `validades_raw` paginada (50 por página) para extrair chaves já persistidas.
+ * Retorna um Set<string> com as chaves no formato "raw_row_${rowNumber}".
+ */
+export async function loadAlreadyPersistedRawKeys(importId: string): Promise<Set<string>> {
+  const persistedKeys = new Set<string>()
+  if (!importId) return persistedKeys
+
+  let page = 1
+  const perPage = 50
+  let hasMore = true
+
+  while (hasMore) {
+    try {
+      const res = await pb.collection('validades_raw').getList(page, perPage, {
+        filter: `import_id = "${importId}"`,
+        sort: '+created',
+      })
+
+      for (const item of res.items) {
+        const rowNum =
+          (item as unknown as { _rowNumber?: number; numero_linha?: number })._rowNumber ||
+          (item as unknown as { numero_linha?: number }).numero_linha
+        if (rowNum !== undefined && rowNum !== null) {
+          persistedKeys.add(`raw_row_${rowNum}`)
+        }
+      }
+
+      if (res.items.length < perPage || page * perPage >= res.totalItems) {
+        hasMore = false
+      } else {
+        page++
+      }
+    } catch {
+      hasMore = false
+    }
+  }
+
+  return persistedKeys
+}
+
+/**
  * Compatibilidade com testes legados e chamadas que usam persistConcurrent:
- * Agora redirecionado internamente para `runPersistenceQueue` com concorrência baixa e retry seguro.
+ * Agora redirecionado internamente para `runPersistenceQueue` com throttleMs=0 (sem throttle extra) e retry seguro.
  */
 export async function persistConcurrent<T>(
   items: T[],
@@ -346,11 +387,13 @@ export async function persistConcurrent<T>(
     onChunkProgress?: (processed: number, total: number, failures: number) => void
     context?: { collection?: string; operation?: string }
     concurrency?: number
+    throttleMs?: number
     signal?: AbortSignal
   },
 ): Promise<FailureDetail[]> {
   const qResult = await runPersistenceQueue(items, (item, index, sig) => fn(item, index, sig), {
     concurrency: options?.concurrency ?? PERSIST_CONCURRENCY,
+    throttleMs: options?.throttleMs ?? 0,
     signal: options?.signal,
     getKey: options?.getKey,
     getRowNumber: options?.getRowNumber,
@@ -450,33 +493,71 @@ export async function submitProcessValidades(
 
   // Todo o fluxo a partir daqui é envolvido em try/catch para garantir status honesto
   try {
-    // --- 1. Criar registro em import_history (status: processing) --------------
+    let existingRawKeys = new Set<string>()
+    let existingHistoryId: string | null = null
+
+    // Se reprocessando (force) ou buscando tentativa anterior pelo fileHash
+    if (fileHash) {
+      try {
+        const prevHist = await pb.collection('import_history').getList(1, 1, {
+          filter: `file_hash = "${fileHash}"`,
+          sort: '-created',
+        })
+        if (prevHist.items.length > 0) {
+          const prev = prevHist.items[0] as unknown as { id: string; status: string }
+          // Se for reprocessamento com force ou importação incompleta anterior
+          if (force || prev.status === 'failed' || prev.status === 'processing') {
+            existingHistoryId = prev.id
+            existingRawKeys = await loadAlreadyPersistedRawKeys(prev.id)
+          }
+        }
+      } catch {
+        // Prossegue criando novo histórico se der erro na busca
+      }
+    }
+
+    // --- 1. Criar ou Reutilizar registro em import_history (status: processing) --------------
     reportProgress('validating', 'Criando registro de histórico de importação...', 0, rawCount, 0)
     try {
-      const historyPayload: Record<string, unknown> = {
-        file_name: fileName,
-        file_size: fileSize,
-        file_hash: fileHash,
-        arquivo_tipo: arquivoTipo,
-        data_arquivo: dataArquivo || undefined,
-        data_importacao: now,
-        total_rows: summary.totalBrutos,
-        imported_rows: 0,
-        skipped_rows: 0,
-        error_rows: 0,
-        raw_count: rawCount,
-        filtered_count: summary.filtrados90Dias,
-        base_count: baseCount,
-        status: 'processing',
-        errors_json: '[]',
-        source: 'tradepro',
-      }
-      if (currentUserId) {
-        historyPayload.created_by = currentUserId
-      }
+      if (existingHistoryId && force) {
+        importId = existingHistoryId
+        await pb.collection('import_history').update(importId, {
+          status: 'processing',
+          data_importacao: now,
+          error_rows: 0,
+          errors_json: '[]',
+        })
+      } else {
+        const historyPayload: Record<string, unknown> = {
+          file_name: fileName,
+          file_size: fileSize,
+          file_hash: fileHash,
+          arquivo_tipo: arquivoTipo,
+          data_arquivo: dataArquivo || undefined,
+          data_importacao: now,
+          total_rows: summary.totalBrutos,
+          imported_rows: 0,
+          skipped_rows: 0,
+          error_rows: 0,
+          raw_count: existingRawKeys.size, // Inicialmente chaves já conhecidas se houver
+          filtered_count: summary.filtrados90Dias,
+          base_count: baseCount,
+          status: 'processing',
+          errors_json: '[]',
+          source: 'tradepro',
+        }
+        if (currentUserId) {
+          historyPayload.created_by = currentUserId
+        }
 
-      const hist = await pb.collection('import_history').create(historyPayload)
-      importId = (hist as unknown as { id: string }).id
+        const hist = await pb.collection('import_history').create(historyPayload)
+        importId = (hist as unknown as { id: string }).id
+
+        // Se tínhamos chaves de um importId anterior mas criamos novo, atualizamos existingRawKeys se importId mudou
+        if (existingHistoryId && existingHistoryId !== importId && existingRawKeys.size > 0) {
+          // As chaves estavam no importId antigo, aqui novo histórico foi criado
+        }
+      }
     } catch (err) {
       const eMsg = errMsg(err, { collection: 'import_history', operation: 'create' })
       const initialErr: PersistenceTaskError = {
@@ -489,7 +570,7 @@ export async function submitProcessValidades(
         success: false,
         importId: '',
         importedRows: 0,
-        rawRows: rawCount,
+        rawRows: 0,
         skippedRows: 0,
         errorRows: 1,
         summary,
@@ -498,10 +579,13 @@ export async function submitProcessValidades(
       }
     }
 
-    // --- 2. Persistir dados brutos em validades_raw via persistenceQueue --------
-    reportProgress('saving_raw', `Gravando dados brutos (0 de ${rawCount})...`, 0, rawCount, 0)
+    // Se importId já existia antes ou foi atribuído, tenta recarregar chaves dele se ainda vazio
+    if (importId && existingRawKeys.size === 0) {
+      existingRawKeys = await loadAlreadyPersistedRawKeys(importId)
+    }
 
-    const rawPayloads: AnyRec[] = rawRecords.map((rec, idx) => {
+    // --- 2. Persistir dados brutos em validades_raw via persistenceQueue --------
+    const allRawPayloads: AnyRec[] = rawRecords.map((rec, idx) => {
       const data = buildSnake(rec as AnyRec, RAW_FIELDS)
       data.import_id = importId
       if (currentUserId) data.created_by = currentUserId
@@ -509,57 +593,100 @@ export async function submitProcessValidades(
       return data
     })
 
-    const rawQueueResult = await runPersistenceQueue(
-      rawPayloads,
-      async (data, _idx, taskSignal) => {
-        if (taskSignal?.aborted) throw new Error('Operação cancelada.')
-        return pb.collection('validades_raw').create(data)
-      },
-      {
-        concurrency: PERSIST_CONCURRENCY,
-        signal,
-        stage: 'raw',
-        getKey: (_item, idx) => `raw_row_${idx + 1}`,
-        getRowNumber: (item) => (item._rowNumber as number) || undefined,
-        extractErrorMessage: (e) => errMsg(e, { collection: 'validades_raw', operation: 'create' }),
-        onProgress: (p) => {
-          totalRetriesAccumulated = p.retries
-          const waitMsg = p.isRateLimited ? ' • Aguardando o banco liberar novas gravações...' : ''
-          reportProgress(
-            'saving_raw',
-            `Gravando dados brutos (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`,
-            p.processed,
-            p.total,
-            p.failed,
-            {
+    // Filtra itens já persistidos (Idempotência / Retomada)
+    const pendingRawPayloads = allRawPayloads.filter((p) => {
+      const key = `raw_row_${p._rowNumber}`
+      return !existingRawKeys.has(key)
+    })
+
+    const alreadyPersistedRawCount = allRawPayloads.length - pendingRawPayloads.length
+
+    if (alreadyPersistedRawCount > 0) {
+      reportProgress(
+        'saving_raw',
+        `Retomando importação: ${alreadyPersistedRawCount} já persistidos, ${pendingRawPayloads.length} pendentes...`,
+        alreadyPersistedRawCount,
+        rawCount,
+        0,
+      )
+    } else {
+      reportProgress('saving_raw', `Gravando dados brutos (0 de ${rawCount})...`, 0, rawCount, 0)
+    }
+
+    let rawNewlyPersisted = 0
+    let rawRetriesRecovered = 0
+
+    if (pendingRawPayloads.length > 0) {
+      const rawQueueResult = await runPersistenceQueue(
+        pendingRawPayloads,
+        async (data, _idx, taskSignal) => {
+          if (taskSignal?.aborted) throw new Error('Operação cancelada.')
+          return pb.collection('validades_raw').create(data)
+        },
+        {
+          concurrency: PERSIST_CONCURRENCY,
+          signal,
+          stage: 'raw',
+          getKey: (item) => `raw_row_${item._rowNumber}`,
+          getRowNumber: (item) => (item._rowNumber as number) || undefined,
+          extractErrorMessage: (e) =>
+            errMsg(e, { collection: 'validades_raw', operation: 'create' }),
+          onProgress: (p) => {
+            totalRetriesAccumulated = p.retries
+            const waitMsg = p.isRateLimited
+              ? ' • Aguardando o banco liberar novas gravações...'
+              : ''
+            const currentTotalProcessed = alreadyPersistedRawCount + p.processed
+            const progressMsg =
+              alreadyPersistedRawCount > 0
+                ? `${alreadyPersistedRawCount} já persistidos. Gravando ${pendingRawPayloads.length} pendentes (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+                : `Gravando dados brutos (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`
+
+            reportProgress('saving_raw', progressMsg, currentTotalProcessed, rawCount, p.failed, {
               retriesCount: p.retries,
               isRateLimited: p.isRateLimited,
               rateLimitWaitMs: p.rateLimitWaitMs,
-            },
-          )
+            })
+          },
         },
-      },
-    )
+      )
 
-    totalRetriesAccumulated += rawQueueResult.totalRetries
-    const rawPersisted = rawQueueResult.successCount
-    errors.push(...rawQueueResult.errors)
+      totalRetriesAccumulated += rawQueueResult.totalRetries
+      rawRetriesRecovered = rawQueueResult.retriesRecovered
+      rawNewlyPersisted = rawQueueResult.successCount
+      errors.push(...rawQueueResult.errors)
+    }
+
+    const totalRawPersisted = alreadyPersistedRawCount + rawNewlyPersisted
 
     // REGRA DE INTEGRIDADE: Se falhar qualquer registro na gravação do raw, o job é FAILED e NÃO avança para a base.
-    if (rawQueueResult.failureCount > 0 || rawPersisted !== rawCount) {
+    if (totalRawPersisted !== rawCount || errors.length > 0) {
       const firstErr = errors[0]?.message || 'Erro desconhecido na gravação de dados brutos.'
-      const failMessage = `Falha na etapa de gravação de dados brutos: ${rawQueueResult.failureCount} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
+      const failCount = rawCount - totalRawPersisted
+      const failMessage = `Falha na etapa de gravação de dados brutos: ${failCount} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
 
-      reportProgress('failed', failMessage, rawPersisted, rawCount, errors.length)
+      reportProgress('failed', failMessage, totalRawPersisted, rawCount, errors.length)
+
+      const metaErrors = {
+        _meta: {
+          rawPersisted: totalRawPersisted,
+          rawExpected: rawCount,
+          baseAttempted: 0,
+          retriesRecovered: rawRetriesRecovered,
+          isPartial: totalRawPersisted > 0,
+        },
+        errors,
+      }
 
       await pb
         .collection('import_history')
         .update(importId, {
           imported_rows: 0,
+          raw_count: totalRawPersisted,
           skipped_rows: summary.rejeitados ?? 0,
           error_rows: errors.length,
           status: 'failed',
-          errors_json: JSON.stringify(errors),
+          errors_json: JSON.stringify(metaErrors),
         })
         .catch(() => null)
 
@@ -567,7 +694,7 @@ export async function submitProcessValidades(
         success: false,
         importId,
         importedRows: 0,
-        rawRows: rawPersisted,
+        rawRows: totalRawPersisted,
         skippedRows: summary.rejeitados ?? 0,
         errorRows: errors.length,
         summary,
@@ -622,6 +749,7 @@ export async function submitProcessValidades(
     )
 
     // 3.2 Upsert dos registros de validades_base via persistenceQueue
+    let baseRetriesRecovered = 0
     const baseQueueResult = await runPersistenceQueue(
       keyedEntries,
       async (entry, _idx, taskSignal) => {
@@ -664,6 +792,7 @@ export async function submitProcessValidades(
     )
 
     totalRetriesAccumulated += baseQueueResult.totalRetries
+    baseRetriesRecovered = baseQueueResult.retriesRecovered
     const basePersisted = baseQueueResult.successCount
     errors.push(...baseQueueResult.errors)
 
@@ -675,14 +804,27 @@ export async function submitProcessValidades(
 
       reportProgress('failed', failMessage, basePersisted, baseCount, errors.length)
 
+      const metaErrors = {
+        _meta: {
+          rawPersisted: totalRawPersisted,
+          rawExpected: rawCount,
+          baseAttempted: baseCount,
+          basePersisted,
+          retriesRecovered: rawRetriesRecovered + baseRetriesRecovered,
+          isPartial: basePersisted > 0 || totalRawPersisted > 0,
+        },
+        errors,
+      }
+
       await pb
         .collection('import_history')
         .update(importId, {
           imported_rows: basePersisted,
+          raw_count: totalRawPersisted,
           skipped_rows: summary.rejeitados ?? 0,
           error_rows: errors.length,
           status: 'failed',
-          errors_json: JSON.stringify(errors),
+          errors_json: JSON.stringify(metaErrors),
         })
         .catch(() => null)
 
@@ -690,7 +832,7 @@ export async function submitProcessValidades(
         success: false,
         importId,
         importedRows: basePersisted,
-        rawRows: rawPersisted,
+        rawRows: totalRawPersisted,
         skippedRows: summary.rejeitados ?? 0,
         errorRows: errors.length,
         summary,
@@ -714,23 +856,39 @@ export async function submitProcessValidades(
         ? summary.rejeitados
         : Math.max(rawCount - baseCount, 0)
 
-    // REGRA DE OURO: completed SOMENTE se rawPersisted === rawCount E basePersisted === baseCount E errors.length === 0
+    // REGRA DE OURO: completed SOMENTE se totalRawPersisted === rawCount E basePersisted === baseCount E errors.length === 0
     const isSuccess =
       rawCount > 0 &&
       baseCount > 0 &&
-      rawPersisted === rawCount &&
+      totalRawPersisted === rawCount &&
       basePersisted === baseCount &&
       errors.length === 0
 
     const finalStatus: 'completed' | 'failed' = isSuccess ? 'completed' : 'failed'
 
+    const metaErrors =
+      errors.length > 0
+        ? {
+            _meta: {
+              rawPersisted: totalRawPersisted,
+              rawExpected: rawCount,
+              baseAttempted: baseCount,
+              basePersisted,
+              retriesRecovered: rawRetriesRecovered + baseRetriesRecovered,
+              isPartial: totalRawPersisted > 0 || basePersisted > 0,
+            },
+            errors,
+          }
+        : null
+
     try {
       await pb.collection('import_history').update(importId, {
         imported_rows: basePersisted,
+        raw_count: totalRawPersisted,
         skipped_rows: skippedRows,
         error_rows: errors.length,
         status: finalStatus,
-        errors_json: errors.length > 0 ? JSON.stringify(errors) : '[]',
+        errors_json: metaErrors ? JSON.stringify(metaErrors) : '[]',
       })
     } catch (histErr) {
       console.error('[importClient] Falha ao atualizar import_history final:', histErr)
@@ -748,7 +906,7 @@ export async function submitProcessValidades(
         success: false,
         importId,
         importedRows: basePersisted,
-        rawRows: rawPersisted,
+        rawRows: totalRawPersisted,
         skippedRows,
         errorRows: errors.length,
         summary,
@@ -770,7 +928,7 @@ export async function submitProcessValidades(
       success: true,
       importId,
       importedRows: basePersisted,
-      rawRows: rawPersisted,
+      rawRows: totalRawPersisted,
       skippedRows,
       errorRows: 0,
       summary,
@@ -787,7 +945,15 @@ export async function submitProcessValidades(
         .update(importId, {
           status: 'failed',
           error_rows: errors.length,
-          errors_json: JSON.stringify(errors),
+          errors_json: JSON.stringify({
+            _meta: {
+              rawPersisted: 0,
+              rawExpected: rawCount,
+              baseAttempted: 0,
+              isPartial: false,
+            },
+            errors,
+          }),
         })
         .catch(() => null)
     }

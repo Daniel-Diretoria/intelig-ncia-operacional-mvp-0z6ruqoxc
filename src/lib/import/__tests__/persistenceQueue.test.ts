@@ -251,4 +251,196 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
     expect(rateLimitUpdates[0].isWaiting).toBe(true)
     expect(rateLimitUpdates[1].isWaiting).toBe(false)
   })
+
+  // Novos testes específicos solicitados no plano P0:
+  it('a) throttleMs=100: 5 itens com sleep injetável -> sleep chamado 4 vezes com 100ms para itens subsequentes', async () => {
+    const items = [1, 2, 3, 4, 5]
+    const sleepCalls: number[] = []
+    const sleepMock = vi.fn(async (ms: number) => {
+      sleepCalls.push(ms)
+    })
+
+    const result = await runPersistenceQueue(items, async (item) => item * 2, {
+      concurrency: 1, // 1 worker para sequência previsível
+      throttleMs: 100,
+      sleepFn: sleepMock,
+    })
+
+    expect(result.successCount).toBe(5)
+    expect(result.failureCount).toBe(0)
+    // 5 itens com 1 worker: item 0 não dorme, itens 1, 2, 3, 4 dormem 100ms = 4 sleeps
+    expect(sleepCalls.length).toBe(4)
+    expect(sleepCalls.every((ms) => ms === 100)).toBe(true)
+  })
+
+  it('b) 429 com retryAfter do data.headers / err.data.retryAfter -> calcula wait correto', () => {
+    // Caso 1: err.data.headers['retry-after']
+    const res1 = isTransientError({
+      data: {
+        code: 429,
+        headers: { 'retry-after': '5' },
+      },
+    })
+    expect(res1.isTransient).toBe(true)
+    expect(res1.statusCode).toBe(429)
+    expect(res1.retryAfterMs).toBe(5000)
+
+    // Caso 2: err.data.retryAfter direto
+    const res2 = isTransientError({
+      data: {
+        code: 429,
+        retryAfter: 4,
+      },
+    })
+    expect(res2.isTransient).toBe(true)
+    expect(res2.statusCode).toBe(429)
+    expect(res2.retryAfterMs).toBe(4000)
+
+    // Caso 3: err.originalError.status === 429
+    const res3 = isTransientError({
+      originalError: {
+        status: 429,
+      },
+    })
+    expect(res3.isTransient).toBe(true)
+    expect(res3.statusCode).toBe(429)
+
+    // Caso 4: fallback getRetryAfterFromError
+    const res4 = isTransientError({ message: 'Rate limited' }, () => 8)
+    expect(res4.isTransient).toBe(true)
+    expect(res4.statusCode).toBe(429)
+    expect(res4.retryAfterMs).toBe(8000)
+  })
+
+  it('c) 429 recupera no retry 3 -> retriesRecovered=1, failureCount=0, successCount=1', async () => {
+    const items = ['item-unico']
+    let attempts = 0
+    const sleepMock = vi.fn(async () => {})
+
+    const result = await runPersistenceQueue(
+      items,
+      async () => {
+        attempts++
+        if (attempts < 3) {
+          const err = new Error('Too Many Requests')
+          ;(err as unknown as { status: number }).status = 429
+          throw err
+        }
+        return 'sucesso-apos-retries'
+      },
+      {
+        concurrency: 1,
+        maxRetries: 5,
+        sleepFn: sleepMock,
+      },
+    )
+
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(0)
+    expect(result.totalRetries).toBe(2)
+    expect(result.retriesRecovered).toBe(1)
+    expect(attempts).toBe(3)
+  })
+
+  it('d) 400 sem retry -> failureCount=1 imediato', async () => {
+    let callCount = 0
+    const sleepMock = vi.fn(async () => {})
+
+    const result = await runPersistenceQueue(
+      ['invalido'],
+      async () => {
+        callCount++
+        const err = new Error('Bad Request 400')
+        ;(err as unknown as { status: number }).status = 400
+        throw err
+      },
+      {
+        concurrency: 1,
+        maxRetries: 5,
+        sleepFn: sleepMock,
+      },
+    )
+
+    expect(result.successCount).toBe(0)
+    expect(result.failureCount).toBe(1)
+    expect(result.totalRetries).toBe(0)
+    expect(result.retriesRecovered).toBe(0)
+    expect(callCount).toBe(1) // Sem retry
+    expect(sleepMock).not.toHaveBeenCalled()
+  })
+
+  it('e) throttle adaptativo: sobe com 429 e desce após 50 itens sem 429', async () => {
+    const sleepCalls: number[] = []
+    const sleepMock = vi.fn(async (ms: number) => {
+      sleepCalls.push(ms)
+    })
+
+    // 55 itens
+    const items = Array.from({ length: 55 }, (_, i) => `item_${i + 1}`)
+    let firstItemAttempt = 0
+
+    const result = await runPersistenceQueue(
+      items,
+      async (item) => {
+        // O primeiro item falha 1x com 429 e passa no retry
+        if (item === 'item_1' && firstItemAttempt === 0) {
+          firstItemAttempt++
+          const err = new Error('Too Many Requests')
+          ;(err as unknown as { status: number }).status = 429
+          throw err
+        }
+        return `done_${item}`
+      },
+      {
+        concurrency: 1,
+        throttleMs: 50,
+        initialBackoffMs: 10,
+        maxBackoffMs: 20,
+        sleepFn: sleepMock,
+      },
+    )
+
+    expect(result.successCount).toBe(55)
+    expect(result.failureCount).toBe(0)
+    expect(result.retriesRecovered).toBe(1)
+
+    // Ao tomar 429 no item 1, throttleMs sobe de 50 para 250ms
+    // Os itens subsequentes dormem 250ms até completar 50 itens sem 429 (ao redor do item 51), quando volta para 50ms
+    const throttle250Calls = sleepCalls.filter((ms) => ms === 250)
+    expect(throttle250Calls.length).toBeGreaterThanOrEqual(40)
+
+    // Verifica que após 50 itens sem erro, voltou a chamar com 50ms
+    const lastCalls = sleepCalls.slice(-4)
+    expect(lastCalls).toContain(50)
+  })
+
+  it('f) abort cancela workers e throttle', async () => {
+    const controller = new AbortController()
+    const sleepMock = vi.fn(async (_ms: number, sig?: AbortSignal) => {
+      if (sig?.aborted) throw new Error('Operação cancelada pelo usuário (AbortSignal).')
+    })
+
+    const items = [1, 2, 3, 4, 5, 6, 7, 8]
+    let processed = 0
+
+    const result = await runPersistenceQueue(
+      items,
+      async (item) => {
+        processed++
+        if (item === 2) {
+          controller.abort()
+        }
+        return item
+      },
+      {
+        concurrency: 1,
+        throttleMs: 100,
+        sleepFn: sleepMock,
+        signal: controller.signal,
+      },
+    )
+
+    expect(result.aborted).toBe(true)
+    expect(processed).toBeLessThanOrEqual(3)
+  })
 })

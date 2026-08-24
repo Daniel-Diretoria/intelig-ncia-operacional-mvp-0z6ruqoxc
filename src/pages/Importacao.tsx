@@ -263,6 +263,8 @@ export const ImportacaoPage: React.FC = () => {
 
   const [importResult, setImportResult] = useState<{
     imported: number
+    rawRows?: number
+    totalExpectedRaw?: number
     skipped: number
     errors: number
     errorDetails?: string
@@ -866,9 +868,9 @@ export const ImportacaoPage: React.FC = () => {
           })
           setStage('validated')
         } else {
-          const actionSummary = `${result.rawRows || rawTradePro.length} brutos, ${
-            result.errorRows
-          } falha(s) na etapa de gravação.`
+          const rawSuccessCount = result.rawRows ?? 0
+          const rawTotalCount = rawTradePro.length
+          const actionSummary = `${rawSuccessCount} de ${rawTotalCount} registros brutos persistidos.`
           toast({
             title: 'Falha na persistência',
             description: `${result.error || 'Não foi possível concluir a importação.'} (${actionSummary})`,
@@ -876,6 +878,8 @@ export const ImportacaoPage: React.FC = () => {
           })
           setImportResult({
             imported: result.importedRows,
+            rawRows: rawSuccessCount,
+            totalExpectedRaw: rawTotalCount,
             skipped: result.skippedRows,
             errors: result.errorRows,
             errorDetails: result.error,
@@ -1812,19 +1816,41 @@ export const ImportacaoPage: React.FC = () => {
               )}
 
               {stage === 'validated' && importResult && importResult.errorDetails && (
-                <div className="p-4 rounded-xl border border-red-300 bg-red-50/90 text-red-900 space-y-3">
+                <div className="p-4 rounded-xl border border-red-300 bg-red-50/90 text-red-900 space-y-3 shadow-xs">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-start gap-3">
                       <div className="w-9 h-9 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
                         <AlertCircle className="w-5 h-5" />
                       </div>
-                      <div>
+                      <div className="space-y-1.5">
                         <p className="font-bold text-sm text-red-950">
-                          Falha no processamento ({importResult.errors} registro(s) falharam)
+                          Falha na gravação:{' '}
+                          {importResult.rawRows !== undefined &&
+                          importResult.totalExpectedRaw !== undefined
+                            ? `${importResult.rawRows.toLocaleString('pt-BR')} de ${importResult.totalExpectedRaw.toLocaleString('pt-BR')} registros brutos foram persistidos.`
+                            : `${importResult.errors} registro(s) falharam.`}
                         </p>
-                        <p className="text-xs text-red-800 mt-1 leading-relaxed">
-                          {importResult.errorDetails}. O status no histórico foi registrado
-                          estritamente como <strong>Falhou</strong>.
+                        <p className="text-xs text-red-900 leading-relaxed">
+                          {importResult.errors} falharam após múltiplas tentativas de retry. Motivo
+                          principal:{' '}
+                          <span className="font-semibold">rate limit do banco (429)</span> ou
+                          instabilidade transitória.
+                        </p>
+                        {importResult.rawRows !== undefined && importResult.rawRows > 0 && (
+                          <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-xs text-red-950 space-y-1">
+                            <p className="font-semibold">
+                              ✓ Os {importResult.rawRows.toLocaleString('pt-BR')} registros já
+                              gravados estão seguros no banco.
+                            </p>
+                            <p className="text-red-800">
+                              Os registros brutos já persistidos <strong>NÃO</strong> serão
+                              perdidos. Marque &quot;Reprocessar&quot; e envie o mesmo arquivo para
+                              retomar apenas os pendentes de forma idempotente.
+                            </p>
+                          </div>
+                        )}
+                        <p className="text-[11px] text-red-700 italic">
+                          {importResult.errorDetails}
                         </p>
                       </div>
                     </div>
