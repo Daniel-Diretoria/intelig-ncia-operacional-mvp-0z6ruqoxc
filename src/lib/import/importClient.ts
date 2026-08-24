@@ -7,18 +7,17 @@
  *
  * REGRA DE OURO DE INTEGRIDADE:
  * Uma execução só termina como "completed" quando TODAS as gravações obrigatórias
- * de raw e base tiverem sucesso (rawCount > 0, baseCount > 0 e failures === 0 em ambas as etapas).
- * Qualquer falha parcial finaliza como "failed", nunca "completed".
- *
- * NOTA SOBRE TIMEOUT / ABORT:
- * O SDK atual do PocketBase não oferece suporte universal e seguro a AbortSignal em
- * operações concorrentes em lote no browser sem risco de requisições órfãs não canceláveis.
- * Não usamos Promise.race (para evitar requisições abandonadas em segundo plano). Mantemos
- * status honesto e tratamento robusto de try/catch e report de falhas.
+ * de raw e base tiverem sucesso (rawPersisted === rawCount, basePersisted === baseCount e errors.length === 0).
+ * Qualquer falha parcial ou divergência finaliza como "failed", nunca "completed".
  */
 import pb from '@/lib/pocketbase/client'
 import type { ValidadeItem, ProcessedValidade, TradeProRawRecord } from '@/types'
 import type { DatasetValidationReport } from './validators'
+import {
+  runPersistenceQueue,
+  type PersistenceQueueProgress,
+  type PersistenceTaskError,
+} from './persistenceQueue'
 
 export interface ImportPayload {
   fileName: string
@@ -80,6 +79,9 @@ export interface ImportProgressState {
   processed: number
   total: number
   failuresCount: number
+  retriesCount?: number
+  isRateLimited?: boolean
+  rateLimitWaitMs?: number
 }
 
 export type OnProgressCallback = (progress: ImportProgressState) => void
@@ -102,6 +104,7 @@ export interface ProcessValidadesPayload {
     baseAtual: number
     maiorDataArquivo?: string
   }
+  signal?: AbortSignal
   onProgress?: OnProgressCallback
 }
 
@@ -126,12 +129,8 @@ export interface ProcessValidadesResult {
   previousImportId?: string
   previousDate?: string
   error?: string
-  errorsDetails?: Array<{
-    stage: 'raw' | 'base' | 'general'
-    index?: number
-    key?: string
-    error: string
-  }>
+  errorsDetails?: PersistenceTaskError[]
+  retriesCount?: number
 }
 
 type AnyRec = Record<string, unknown>
@@ -321,57 +320,54 @@ export function errMsg(
   return sanitizeErrorMessage(raw)
 }
 
-/** Tamanho do lote de concorrência para persistência (criações/updates paralelos). */
-export const PERSIST_CHUNK_SIZE = 25
+/**
+ * Concorrência padrão controlada para persistência (default 2 contra PocketBase).
+ */
+export const PERSIST_CONCURRENCY = 2
 
 export interface FailureDetail {
   index: number
   key?: string
   error: string
+  statusCode?: number
+  attempts?: number
 }
 
 /**
- * Executa `fn` sobre todos os itens em lotes concorrentes (Promise.allSettled),
- * cedendo controle ao event loop entre cada lote para evitar travamento da UI em volumes grandes.
+ * Compatibilidade com testes legados e chamadas que usam persistConcurrent:
+ * Agora redirecionado internamente para `runPersistenceQueue` com concorrência baixa e retry seguro.
  */
 export async function persistConcurrent<T>(
   items: T[],
-  fn: (item: T, index: number) => Promise<unknown>,
+  fn: (item: T, index: number, signal?: AbortSignal) => Promise<unknown>,
   options?: {
     getKey?: (item: T, index: number) => string | undefined
+    getRowNumber?: (item: T, index: number) => number | undefined
     onChunkProgress?: (processed: number, total: number, failures: number) => void
     context?: { collection?: string; operation?: string }
+    concurrency?: number
+    signal?: AbortSignal
   },
 ): Promise<FailureDetail[]> {
-  const failures: FailureDetail[] = []
-  let processed = 0
+  const qResult = await runPersistenceQueue(items, (item, index, sig) => fn(item, index, sig), {
+    concurrency: options?.concurrency ?? PERSIST_CONCURRENCY,
+    signal: options?.signal,
+    getKey: options?.getKey,
+    getRowNumber: options?.getRowNumber,
+    stage: options?.context?.collection,
+    extractErrorMessage: (err) => errMsg(err, options?.context),
+    onProgress: (p: PersistenceQueueProgress) => {
+      options?.onChunkProgress?.(p.processed, p.total, p.failed)
+    },
+  })
 
-  for (let start = 0; start < items.length; start += PERSIST_CHUNK_SIZE) {
-    const end = Math.min(start + PERSIST_CHUNK_SIZE, items.length)
-    const slice = items.slice(start, end)
-
-    const settled = await Promise.allSettled(slice.map((item, i) => fn(item, start + i)))
-
-    settled.forEach((res, i) => {
-      const idx = start + i
-      if (res.status !== 'fulfilled') {
-        const key = options?.getKey ? options.getKey(slice[i], idx) : undefined
-        failures.push({
-          index: idx,
-          key,
-          error: errMsg(res.reason, options?.context),
-        })
-      }
-    })
-
-    processed = end
-    options?.onChunkProgress?.(processed, items.length, failures.length)
-
-    // Cede controle ao event loop para não travar a interface
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  }
-
-  return failures
+  return qResult.errors.map((e, i) => ({
+    index: e.row !== undefined ? e.row - 1 : i,
+    key: e.key,
+    error: e.message,
+    statusCode: e.statusCode,
+    attempts: e.attempts,
+  }))
 }
 
 export async function submitProcessValidades(
@@ -387,20 +383,20 @@ export async function submitProcessValidades(
     rawRecords,
     baseAtual,
     summary,
+    signal,
     onProgress,
   } = payload
 
   const rawCount = rawRecords.length
   const baseCount = baseAtual.length
   const now = new Date().toISOString()
-  const errors: Array<{
-    stage: 'raw' | 'base' | 'general'
-    index?: number
-    key?: string
-    error: string
-  }> = []
+  const errors: PersistenceTaskError[] = []
 
   let importId = ''
+  let totalRetriesAccumulated = 0
+
+  // Usuário autenticado para governança (preenche created_by se disponível)
+  const currentUserId = pb.authStore.record?.id || undefined
 
   // Função auxiliar de notificação de progresso
   const reportProgress = (
@@ -409,6 +405,7 @@ export async function submitProcessValidades(
     processed: number,
     total: number,
     failuresCount: number,
+    extra?: { retriesCount?: number; isRateLimited?: boolean; rateLimitWaitMs?: number },
   ) => {
     onProgress?.({
       stage,
@@ -416,6 +413,9 @@ export async function submitProcessValidades(
       processed,
       total,
       failuresCount,
+      retriesCount: extra?.retriesCount ?? totalRetriesAccumulated,
+      isRateLimited: extra?.isRateLimited ?? false,
+      rateLimitWaitMs: extra?.rateLimitWaitMs ?? 0,
     })
   }
 
@@ -453,7 +453,7 @@ export async function submitProcessValidades(
     // --- 1. Criar registro em import_history (status: processing) --------------
     reportProgress('validating', 'Criando registro de histórico de importação...', 0, rawCount, 0)
     try {
-      const hist = await pb.collection('import_history').create({
+      const historyPayload: Record<string, unknown> = {
         file_name: fileName,
         file_size: fileSize,
         file_hash: fileHash,
@@ -470,10 +470,21 @@ export async function submitProcessValidades(
         status: 'processing',
         errors_json: '[]',
         source: 'tradepro',
-      })
+      }
+      if (currentUserId) {
+        historyPayload.created_by = currentUserId
+      }
+
+      const hist = await pb.collection('import_history').create(historyPayload)
       importId = (hist as unknown as { id: string }).id
     } catch (err) {
       const eMsg = errMsg(err, { collection: 'import_history', operation: 'create' })
+      const initialErr: PersistenceTaskError = {
+        stage: 'general',
+        row: 1,
+        message: eMsg,
+        attempts: 1,
+      }
       return {
         success: false,
         importId: '',
@@ -483,199 +494,234 @@ export async function submitProcessValidades(
         errorRows: 1,
         summary,
         error: `Falha ao criar histórico de importação: ${eMsg}`,
-        errorsDetails: [{ stage: 'general', error: eMsg }],
+        errorsDetails: [initialErr],
       }
     }
 
-    // --- 2. Persistir dados brutos em validades_raw (lotes concorrentes) --------
-    reportProgress('saving_raw', `Gravando raw (0 de ${rawCount})...`, 0, rawCount, 0)
+    // --- 2. Persistir dados brutos em validades_raw via persistenceQueue --------
+    reportProgress('saving_raw', `Gravando dados brutos (0 de ${rawCount})...`, 0, rawCount, 0)
 
-    let rawPersisted = 0
-    {
-      const payloads: AnyRec[] = rawRecords.map((rec) => {
-        const data = buildSnake(rec as AnyRec, RAW_FIELDS)
-        data.import_id = importId
-        return data
-      })
+    const rawPayloads: AnyRec[] = rawRecords.map((rec, idx) => {
+      const data = buildSnake(rec as AnyRec, RAW_FIELDS)
+      data.import_id = importId
+      if (currentUserId) data.created_by = currentUserId
+      data._rowNumber = idx + 1
+      return data
+    })
 
-      const rawFailures = await persistConcurrent(
-        payloads,
-        (data) => pb.collection('validades_raw').create(data),
-        {
-          getKey: (_item, idx) => `raw_row_${idx + 1}`,
-          context: { collection: 'validades_raw', operation: 'create' },
-          onChunkProgress: (processed, total, failCount) => {
-            reportProgress(
-              'saving_raw',
-              `Gravando raw (${processed} de ${total})...`,
-              processed,
-              total,
-              failCount,
-            )
-          },
+    const rawQueueResult = await runPersistenceQueue(
+      rawPayloads,
+      async (data, _idx, taskSignal) => {
+        if (taskSignal?.aborted) throw new Error('Operação cancelada.')
+        return pb.collection('validades_raw').create(data)
+      },
+      {
+        concurrency: PERSIST_CONCURRENCY,
+        signal,
+        stage: 'raw',
+        getKey: (_item, idx) => `raw_row_${idx + 1}`,
+        getRowNumber: (item) => (item._rowNumber as number) || undefined,
+        extractErrorMessage: (e) => errMsg(e, { collection: 'validades_raw', operation: 'create' }),
+        onProgress: (p) => {
+          totalRetriesAccumulated = p.retries
+          const waitMsg = p.isRateLimited ? ' • Aguardando o banco liberar novas gravações...' : ''
+          reportProgress(
+            'saving_raw',
+            `Gravando dados brutos (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`,
+            p.processed,
+            p.total,
+            p.failed,
+            {
+              retriesCount: p.retries,
+              isRateLimited: p.isRateLimited,
+              rateLimitWaitMs: p.rateLimitWaitMs,
+            },
+          )
         },
-      )
+      },
+    )
 
-      rawPersisted = payloads.length - rawFailures.length
+    totalRetriesAccumulated += rawQueueResult.totalRetries
+    const rawPersisted = rawQueueResult.successCount
+    errors.push(...rawQueueResult.errors)
 
-      for (const f of rawFailures) {
-        errors.push({ stage: 'raw', index: f.index, key: f.key, error: f.error })
-      }
+    // REGRA DE INTEGRIDADE: Se falhar qualquer registro na gravação do raw, o job é FAILED e NÃO avança para a base.
+    if (rawQueueResult.failureCount > 0 || rawPersisted !== rawCount) {
+      const firstErr = errors[0]?.message || 'Erro desconhecido na gravação de dados brutos.'
+      const failMessage = `Falha na etapa de gravação de dados brutos: ${rawQueueResult.failureCount} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
 
-      // REGRA a): Se failures.length > 0 na gravação do raw, o job inteiro é FAILED.
-      // NÃO continuar para o upsert de base.
-      if (rawFailures.length > 0) {
-        const firstErr = rawFailures[0]?.error || 'Erro desconhecido na gravação de dados brutos.'
-        const failMessage = `Falha na etapa de gravação de dados brutos: ${rawFailures.length} de ${rawCount} registros falharam. Primeiro erro: ${firstErr}`
+      reportProgress('failed', failMessage, rawPersisted, rawCount, errors.length)
 
-        reportProgress('failed', failMessage, rawPersisted, rawCount, rawFailures.length)
+      await pb
+        .collection('import_history')
+        .update(importId, {
+          imported_rows: 0,
+          skipped_rows: summary.rejeitados ?? 0,
+          error_rows: errors.length,
+          status: 'failed',
+          errors_json: JSON.stringify(errors),
+        })
+        .catch(() => null)
 
-        await pb
-          .collection('import_history')
-          .update(importId, {
-            imported_rows: 0,
-            skipped_rows: summary.rejeitados ?? 0,
-            error_rows: errors.length,
-            status: 'failed',
-            errors_json: JSON.stringify(errors),
-          })
-          .catch(() => null)
-
-        return {
-          success: false,
-          importId,
-          importedRows: 0,
-          rawRows: rawPersisted,
-          skippedRows: summary.rejeitados ?? 0,
-          errorRows: errors.length,
-          summary,
-          error: failMessage,
-          errorsDetails: errors,
-        }
+      return {
+        success: false,
+        importId,
+        importedRows: 0,
+        rawRows: rawPersisted,
+        skippedRows: summary.rejeitados ?? 0,
+        errorRows: errors.length,
+        summary,
+        error: failMessage,
+        errorsDetails: errors,
+        retriesCount: totalRetriesAccumulated,
       }
     }
 
-    // --- 3. Persistir Base Atual em validades_base (upsert por chave) ----------
+    // --- 3. Persistir Base Atual em validades_base (upsert por chave via queue) -
     reportProgress(
       'saving_base',
-      `Atualizando base (0 de ${baseCount})...`,
+      `Atualizando Base Atual (0 de ${baseCount})...`,
       0,
       baseCount,
       errors.length,
     )
 
-    let basePersisted = 0
-    {
-      const records = baseAtual as AnyRec[]
-      const keyed: Array<{ index: number; rec: AnyRec; chave?: string }> = records.map(
-        (rec, index) => ({
-          index,
-          rec,
-          chave: pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined,
-        }),
-      )
+    const baseRecords = baseAtual as AnyRec[]
+    const keyedEntries: Array<{ index: number; rec: AnyRec; chave?: string; _rowNumber: number }> =
+      baseRecords.map((rec, index) => ({
+        index,
+        rec,
+        chave: pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined,
+        _rowNumber: index + 1,
+      }))
 
-      // Busca IDs existentes por chave em lotes concorrentes
-      const existingIds = new Map<number, string>()
-      await persistConcurrent(
-        keyed,
-        async (entry) => {
-          if (!entry.chave) return
-          try {
-            const found = await pb.collection('validades_base').getList(1, 1, {
-              filter: `chave_operacional = "${entry.chave}"`,
-            })
-            if (found.items.length > 0) {
-              existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
-            }
-          } catch {
-            // Ignora falha na busca — tenta criar novo
-          }
-        },
-        { context: { collection: 'validades_base', operation: 'lookup' } },
-      )
-
-      // Upsert em lotes concorrentes
-      const baseFailures = await persistConcurrent(
-        keyed,
-        async (entry) => {
-          const data = buildSnake(entry.rec, BASE_FIELDS)
-          data.import_id = importId
-          const existingId = existingIds.get(entry.index)
-          if (existingId) {
-            await pb.collection('validades_base').update(existingId, data)
-          } else {
-            await pb.collection('validades_base').create(data)
-          }
-        },
-        {
-          getKey: (entry) => entry.chave || `base_idx_${entry.index}`,
-          context: { collection: 'validades_base', operation: 'upsert' },
-          onChunkProgress: (processed, total, failCount) => {
-            reportProgress(
-              'saving_base',
-              `Atualizando base (${processed} de ${total})...`,
-              processed,
-              total,
-              failCount,
-            )
-          },
-        },
-      )
-
-      basePersisted = records.length - baseFailures.length
-
-      for (const f of baseFailures) {
-        errors.push({ stage: 'base', index: f.index, key: f.key, error: f.error })
-      }
-
-      // REGRA b): Se qualquer lote falhar no upsert de base (failures > 0), o job é FAILED.
-      if (baseFailures.length > 0) {
-        const firstErr = baseFailures[0]?.error || 'Erro desconhecido na atualização da base.'
-        const failMessage = `Falha na etapa de atualização da Base Atual: ${baseFailures.length} de ${baseCount} registros falharam. Primeiro erro: ${firstErr}`
-
-        reportProgress('failed', failMessage, basePersisted, baseCount, errors.length)
-
-        await pb
-          .collection('import_history')
-          .update(importId, {
-            imported_rows: basePersisted,
-            skipped_rows: summary.rejeitados ?? 0,
-            error_rows: errors.length,
-            status: 'failed',
-            errors_json: JSON.stringify(errors),
+    // 3.1 Lookup de IDs existentes por chave com concurrency segura
+    const existingIds = new Map<number, string>()
+    await runPersistenceQueue(
+      keyedEntries,
+      async (entry, _idx, taskSignal) => {
+        if (taskSignal?.aborted || !entry.chave) return
+        try {
+          const found = await pb.collection('validades_base').getList(1, 1, {
+            filter: `chave_operacional = "${entry.chave}"`,
           })
-          .catch(() => null)
-
-        return {
-          success: false,
-          importId,
-          importedRows: basePersisted,
-          rawRows: rawPersisted,
-          skippedRows: summary.rejeitados ?? 0,
-          errorRows: errors.length,
-          summary,
-          error: failMessage,
-          errorsDetails: errors,
+          if (found.items.length > 0) {
+            existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
+          }
+        } catch {
+          // Ignora falha de lookup e prossegue para tentar criação
         }
+      },
+      {
+        concurrency: PERSIST_CONCURRENCY,
+        signal,
+        stage: 'base_lookup',
+        extractErrorMessage: (e) =>
+          errMsg(e, { collection: 'validades_base', operation: 'lookup' }),
+      },
+    )
+
+    // 3.2 Upsert dos registros de validades_base via persistenceQueue
+    const baseQueueResult = await runPersistenceQueue(
+      keyedEntries,
+      async (entry, _idx, taskSignal) => {
+        if (taskSignal?.aborted) throw new Error('Operação cancelada.')
+        const data = buildSnake(entry.rec, BASE_FIELDS)
+        data.import_id = importId
+        if (currentUserId) data.created_by = currentUserId
+
+        const existingId = existingIds.get(entry.index)
+        if (existingId) {
+          return pb.collection('validades_base').update(existingId, data)
+        } else {
+          return pb.collection('validades_base').create(data)
+        }
+      },
+      {
+        concurrency: PERSIST_CONCURRENCY,
+        signal,
+        stage: 'base',
+        getKey: (entry) => entry.chave || `base_idx_${entry.index}`,
+        getRowNumber: (entry) => entry._rowNumber,
+        extractErrorMessage: (e) =>
+          errMsg(e, { collection: 'validades_base', operation: 'upsert' }),
+        onProgress: (p) => {
+          const waitMsg = p.isRateLimited ? ' • Aguardando o banco liberar novas gravações...' : ''
+          reportProgress(
+            'saving_base',
+            `Atualizando Base Atual (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`,
+            p.processed,
+            p.total,
+            errors.length + p.failed,
+            {
+              retriesCount: totalRetriesAccumulated + p.retries,
+              isRateLimited: p.isRateLimited,
+              rateLimitWaitMs: p.rateLimitWaitMs,
+            },
+          )
+        },
+      },
+    )
+
+    totalRetriesAccumulated += baseQueueResult.totalRetries
+    const basePersisted = baseQueueResult.successCount
+    errors.push(...baseQueueResult.errors)
+
+    // REGRA DE INTEGRIDADE: Se qualquer registro falhar na Base Atual, o job é FAILED.
+    if (baseQueueResult.failureCount > 0 || basePersisted !== baseCount) {
+      const firstErr =
+        baseQueueResult.errors[0]?.message || 'Erro desconhecido na atualização da base.'
+      const failMessage = `Falha na etapa de atualização da Base Atual: ${baseQueueResult.failureCount} de ${baseCount} registros falharam. Primeiro erro: ${firstErr}`
+
+      reportProgress('failed', failMessage, basePersisted, baseCount, errors.length)
+
+      await pb
+        .collection('import_history')
+        .update(importId, {
+          imported_rows: basePersisted,
+          skipped_rows: summary.rejeitados ?? 0,
+          error_rows: errors.length,
+          status: 'failed',
+          errors_json: JSON.stringify(errors),
+        })
+        .catch(() => null)
+
+      return {
+        success: false,
+        importId,
+        importedRows: basePersisted,
+        rawRows: rawPersisted,
+        skippedRows: summary.rejeitados ?? 0,
+        errorRows: errors.length,
+        summary,
+        error: failMessage,
+        errorsDetails: errors,
+        retriesCount: totalRetriesAccumulated,
       }
     }
 
-    // --- 4. Finalização e validação de sucesso total ---------------------------
-    reportProgress('finalizing', 'Finalizando importação...', baseCount, baseCount, 0)
+    // --- 4. Finalização e validação de integridade rigorosa --------------------
+    reportProgress(
+      'finalizing',
+      'Finalizando importação com integridade...',
+      baseCount,
+      baseCount,
+      0,
+    )
 
     const skippedRows =
       typeof summary.rejeitados === 'number'
         ? summary.rejeitados
         : Math.max(rawCount - baseCount, 0)
 
-    // REGRA c): Só atualizar import_history para "completed" quando rawCount > 0, baseCount > 0 e failures === 0 em ambas as etapas.
+    // REGRA DE OURO: completed SOMENTE se rawPersisted === rawCount E basePersisted === baseCount E errors.length === 0
     const isSuccess =
       rawCount > 0 &&
       baseCount > 0 &&
       rawPersisted === rawCount &&
       basePersisted === baseCount &&
       errors.length === 0
+
     const finalStatus: 'completed' | 'failed' = isSuccess ? 'completed' : 'failed'
 
     try {
@@ -693,8 +739,8 @@ export async function submitProcessValidades(
     if (!isSuccess) {
       const errReason =
         errors.length > 0
-          ? `Ocorreram ${errors.length} falha(s). Primeiro erro: ${errors[0].error}`
-          : 'Nenhum registro foi processado para a Base Atual.'
+          ? `Ocorreram ${errors.length} falha(s). Primeiro erro: ${errors[0].message}`
+          : 'Divergência de contagem: nem todos os registros foram persistidos.'
 
       reportProgress('failed', errReason, basePersisted, baseCount, errors.length)
 
@@ -708,10 +754,17 @@ export async function submitProcessValidades(
         summary,
         error: errReason,
         errorsDetails: errors,
+        retriesCount: totalRetriesAccumulated,
       }
     }
 
-    reportProgress('done', 'Importação concluída com sucesso.', baseCount, baseCount, 0)
+    reportProgress(
+      'done',
+      'Importação concluída com sucesso (100% gravado).',
+      baseCount,
+      baseCount,
+      0,
+    )
 
     return {
       success: true,
@@ -721,11 +774,12 @@ export async function submitProcessValidades(
       skippedRows,
       errorRows: 0,
       summary,
+      retriesCount: totalRetriesAccumulated,
     }
   } catch (unhandledErr) {
-    // REGRA f): Envolver TODO o fluxo em try/catch: qualquer exceção não capturada atualiza import_history para "failed"
     const eMsg = errMsg(unhandledErr, { collection: 'import_validades', operation: 'process' })
-    errors.push({ stage: 'general', error: eMsg })
+    const fatalErr: PersistenceTaskError = { stage: 'general', message: eMsg, attempts: 1 }
+    errors.push(fatalErr)
 
     if (importId) {
       await pb
@@ -750,6 +804,7 @@ export async function submitProcessValidades(
       summary,
       error: `Exceção não tratada durante o processamento: ${eMsg}`,
       errorsDetails: errors,
+      retriesCount: totalRetriesAccumulated,
     }
   }
 }

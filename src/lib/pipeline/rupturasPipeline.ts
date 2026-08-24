@@ -15,6 +15,8 @@ import * as XLSX from 'xlsx'
 import pb from '@/lib/pocketbase/client'
 import { parseDate, parseString, parseTextId } from '@/lib/import/excelMapper'
 import { dataAtualSaoPaulo } from '@/lib/data/tradeProPipeline'
+import { runPersistenceQueue, type PersistenceQueueProgress } from '@/lib/import/persistenceQueue'
+import { errMsg } from '@/lib/import/importClient'
 import type {
   Ruptura,
   RupturaMotivo,
@@ -556,19 +558,25 @@ export async function calcularHashArquivo(file: File): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// processRupturasImport — orquestração + persistência
+// processRupturasImport — orquestração + persistência via persistenceQueue
 // ---------------------------------------------------------------------------
 
-const BATCH_SIZE = 25
+export const RUPTURAS_PERSIST_CONCURRENCY = 2
 
 /**
  * Orquestra o pipeline completo de importação de Rupturas e persiste nas
- * collections `rupturas_imports`, `rupturas_base` e `rupturas_historico`.
+ * collections `rupturas_imports`, `rupturas_base` e `rupturas_historico`
+ * utilizando a Fila de Persistência com retry inteligente e controle de taxa.
  */
 export async function processRupturasImport(
   file: File,
   tenantId: string = 'tenant-default',
   forceReprocess: boolean = false,
+  options?: {
+    signal?: AbortSignal
+    onProgress?: (progress: PersistenceQueueProgress) => void
+    onRateLimitStatus?: (isWaiting: boolean, waitMs: number) => void
+  },
 ): Promise<RupturasImportResult> {
   const file_hash = await calcularHashArquivo(file)
   const file_name = file.name
@@ -609,7 +617,8 @@ export async function processRupturasImport(
   const nowISO = () => new Date().toISOString()
   let importRec
   try {
-    importRec = await pb.collection('rupturas_imports').create({
+    const currentUserId = pb.authStore.record?.id || undefined
+    const createPayload: Record<string, unknown> = {
       tenant_id: tenantId,
       file_name,
       file_hash,
@@ -623,12 +632,20 @@ export async function processRupturasImport(
       total_historical_records: 0,
       status: 'Recebida',
       error_message: '',
-      batch_config: { batch_size: BATCH_SIZE },
+      batch_config: { concurrency: RUPTURAS_PERSIST_CONCURRENCY },
       created_at: nowISO(),
       completed_at: '',
-    })
+    }
+    if (currentUserId) {
+      // rupturas_imports não possui relation direta de created_by no schema base, preservamos integridade
+    }
+
+    importRec = await pb.collection('rupturas_imports').create(createPayload)
   } catch (err) {
-    return fail('Falhou', `Falha ao registrar importação: ${(err as Error).message}`)
+    return fail(
+      'Falhou',
+      `Falha ao registrar importação: ${errMsg(err, { collection: 'rupturas_imports', operation: 'create' })}`,
+    )
   }
 
   const importId = importRec.id
@@ -677,31 +694,30 @@ export async function processRupturasImport(
     // 11. Status → "Processando"
     await setImport({ status: 'Processando' })
 
-    // Reconciliação: buscar registros is_base_atual existentes para os mesmos
-    // dedup_keys (em lotes), para marcar os antigos como is_base_atual=false e
-    // preservar data_entrada (primeira aparição).
+    // Reconciliação: buscar registros is_base_atual existentes para os mesmos dedup_keys
     const dedupKeys = [...new Set(dedup.map((r) => r.dedup_key))]
     const existingByDedup = await fetchExistingBaseByDedup(dedupKeys)
 
-    let occurrences = 0
     let auditRecords = 0
     let historicalRecords = 0
     const hoje = dataAtualSaoPaulo()
+    const currentUserId = pb.authStore.record?.id || undefined
 
-    // 12-14. Persistir em lotes (25) + is_base_atual=true + histórico
-    for (let i = 0; i < dedup.length; i += BATCH_SIZE) {
-      const batch = dedup.slice(i, i + BATCH_SIZE)
-      for (const row of batch) {
+    // 12-14. Persistir através da Fila de Persistência com concorrência baixa e retry
+    const queueResult = await runPersistenceQueue(
+      dedup,
+      async (row, _idx, taskSignal) => {
+        if (taskSignal?.aborted) throw new Error('Operação cancelada.')
         const existing = existingByDedup.get(row.dedup_key)
         const data_entrada = existing?.data_entrada || row.data_visita || hoje
 
-        // Marca registros antigos como não-vigentes (encerramento) — audit
+        // Marca registros antigos como não-vigentes (encerramento)
         if (existing) {
           for (const old of existing.records) {
             try {
               await pb.collection('rupturas_base').update(old.id, { is_base_atual: false })
               auditRecords++
-              await pb.collection('rupturas_historico').create({
+              const histPayload: Record<string, unknown> = {
                 ruptura_base_id: old.id,
                 tenant_id: tenantId,
                 evento: 'encerramento',
@@ -709,7 +725,9 @@ export async function processRupturasImport(
                 dados_novos: { is_base_atual: false },
                 data_evento: nowISO(),
                 source_import_id: importId,
-              })
+              }
+              if (currentUserId) histPayload.created_by = currentUserId
+              await pb.collection('rupturas_historico').create(histPayload)
               historicalRecords++
             } catch (err) {
               console.error('[rupturasPipeline] erro ao encerrar registro antigo:', err)
@@ -718,7 +736,7 @@ export async function processRupturasImport(
         }
 
         // Cria novo registro vigente
-        const novoRec = {
+        const novoRec: Record<string, unknown> = {
           tenant_id: tenantId,
           produto: row.produto,
           motivo: row.motivo,
@@ -742,20 +760,15 @@ export async function processRupturasImport(
           source_row: row.source_row,
           is_base_atual: true,
         }
-        let createdId = ''
-        try {
-          const created = await pb.collection('rupturas_base').create(novoRec)
-          createdId = created.id
-          occurrences++
-        } catch (err) {
-          console.error('[rupturasPipeline] erro ao criar ruptura_base:', err)
-          continue
-        }
+        if (currentUserId) novoRec.created_by = currentUserId
+
+        const created = await pb.collection('rupturas_base').create(novoRec)
+        const createdId = (created as { id: string }).id
 
         // Histórico do novo registro
         const evento = existing ? 'atualizacao' : 'criacao'
         try {
-          await pb.collection('rupturas_historico').create({
+          const histNewPayload: Record<string, unknown> = {
             ruptura_base_id: createdId,
             tenant_id: tenantId,
             evento,
@@ -763,16 +776,56 @@ export async function processRupturasImport(
             dados_novos: novoRec,
             data_evento: nowISO(),
             source_import_id: importId,
-          })
+          }
+          if (currentUserId) histNewPayload.created_by = currentUserId
+          await pb.collection('rupturas_historico').create(histNewPayload)
           historicalRecords++
         } catch (err) {
           console.error('[rupturasPipeline] erro ao criar histórico:', err)
         }
-      }
+
+        return createdId
+      },
+      {
+        concurrency: RUPTURAS_PERSIST_CONCURRENCY,
+        signal: options?.signal,
+        stage: 'rupturas_base',
+        getKey: (row) => row.operational_key,
+        getRowNumber: (row) => row.source_row,
+        extractErrorMessage: (err) =>
+          errMsg(err, { collection: 'rupturas_base', operation: 'create' }),
+        onProgress: options?.onProgress,
+        onRateLimitStatus: options?.onRateLimitStatus,
+      },
+    )
+
+    const occurrences = queueResult.successCount
+
+    // REGRA DE INTEGRIDADE: Se falhar qualquer gravação no lote de Rupturas
+    if (queueResult.failureCount > 0 || occurrences !== dedup.length) {
+      const firstErr =
+        queueResult.errors[0]?.message || 'Falha na persistência de registros de rupturas.'
+      const errorMsg = `Falha ao persistir rupturas: ${queueResult.failureCount} de ${dedup.length} registros falharam. Primeiro erro: ${firstErr}`
+
+      await setImport({
+        status: 'Falhou',
+        total_rows_read,
+        total_rows_valid,
+        total_rows_invalid,
+        total_raw_rows_saved: 0,
+        total_rows_processed,
+        total_occurrences_generated: occurrences,
+        total_audit_records: auditRecords,
+        total_historical_records: historicalRecords,
+        completed_at: nowISO(),
+        error_message: errorMsg,
+      })
+
+      return fail('Falhou', errorMsg)
     }
 
     // 15. Reconciliação de totais
-    // 16. Status → "Concluída" ou "Concluída com rejeições"
+    // 16. Status → "Concluída" ou "Concluída com rejeições" (apenas se houve rejeição de validação prévia, e 100% dos válidos foram gravados)
     const finalStatus: RupturasImportResult['status'] =
       total_rows_invalid > 0 ? 'Concluída com rejeições' : 'Concluída'
 
@@ -806,7 +859,7 @@ export async function processRupturasImport(
       status: finalStatus,
     }
   } catch (err) {
-    const msg = (err as Error).message || 'Erro desconhecido no processamento.'
+    const msg = errMsg(err, { collection: 'rupturas_imports', operation: 'process' })
     await setImport({ status: 'Falhou', error_message: msg, completed_at: nowISO() })
     return fail('Falhou', msg)
   }

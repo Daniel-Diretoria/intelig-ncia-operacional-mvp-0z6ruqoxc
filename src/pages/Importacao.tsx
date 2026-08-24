@@ -73,6 +73,8 @@ import {
   checkFileHash,
   type ImportProgressState,
 } from '@/lib/import/importClient'
+import { exportErrorsCSV, exportErrorsXLSX } from '@/lib/export/errorReportExport'
+import type { PersistenceTaskError } from '@/lib/import/persistenceQueue'
 import {
   executarPipeline,
   calcularHashArquivo,
@@ -238,11 +240,19 @@ export const ImportacaoPage: React.FC = () => {
   const [importProgress, setImportProgress] = useState(0)
   const [progressState, setProgressState] = useState<ImportProgressState | null>(null)
   const [largeFileWarning, setLargeFileWarning] = useState<string | null>(null)
+  const [isLargeFileConfirmed, setIsLargeFileConfirmed] = useState(false)
+  const [errorsList, setErrorsList] = useState<PersistenceTaskError[]>([])
+
+  // Abort controller para cancelamento seguro
+  const abortControllerRef = useRef<AbortController | null>(null)
+
   const [importResult, setImportResult] = useState<{
     imported: number
     skipped: number
     errors: number
     errorDetails?: string
+    isFullSuccess?: boolean
+    retriesCount?: number
   } | null>(null)
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null)
   const [resultModalOpen, setResultModalOpen] = useState(false)
@@ -318,6 +328,10 @@ export const ImportacaoPage: React.FC = () => {
   }
 
   const reset = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
     setStage('idle')
     setSelectedFile(null)
     setImportType('validades')
@@ -335,6 +349,8 @@ export const ImportacaoPage: React.FC = () => {
     setImportProgress(0)
     setProgressState(null)
     setLargeFileWarning(null)
+    setIsLargeFileConfirmed(false)
+    setErrorsList([])
     setImportResult(null)
     setPipelineResult(null)
     setDuplicateHash(null)
@@ -344,11 +360,23 @@ export const ImportacaoPage: React.FC = () => {
 
   const handleFile = useCallback(
     async (file: File) => {
+      // Bloqueio rigoroso de arquivos > 50 MB (limite honesto do sistema)
+      const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
+      if (file.size > MAX_FILE_SIZE) {
+        setParseError(
+          `Arquivo excede o limite máximo permitido de 50 MB (${fmtBytes(file.size)}). Reduza o tamanho ou exporte por período menor para garantir estabilidade.`,
+        )
+        setStage('idle')
+        return
+      }
+
       setIsParsing(true)
       setParseError(null)
       setDuplicateHash(null)
       setForceReprocess(false)
       setLargeFileWarning(null)
+      setIsLargeFileConfirmed(false)
+      setErrorsList([])
       setSelectedFile(file)
       try {
         const hash = await calcularHashArquivo(file)
@@ -450,7 +478,7 @@ export const ImportacaoPage: React.FC = () => {
           // Preflight de volume para Rupturas (> 20MB ou > 10.000 linhas)
           if (file.size > 20 * 1024 * 1024 || rupRows.length > 10000) {
             setLargeFileWarning(
-              `Este arquivo é volumoso (${fmtBytes(file.size)}, ~${rupRows.length.toLocaleString('pt-BR')} linhas) e pode levar alguns minutos para processar.`,
+              `Este arquivo é volumoso (${fmtBytes(file.size)}, ${rupRows.length.toLocaleString('pt-BR')} linhas). A gravação utilizará concorrência controlada e retry automático para garantir 100% de integridade. Confirme abaixo para prosseguir.`,
             )
           }
 
@@ -484,7 +512,7 @@ export const ImportacaoPage: React.FC = () => {
           // Preflight de volume para Validades (> 20MB ou > 10.000 linhas)
           if (file.size > 20 * 1024 * 1024 || parsed.rows.length > 10000) {
             setLargeFileWarning(
-              `Este arquivo é volumoso (${fmtBytes(file.size)}, ~${parsed.rows.length.toLocaleString('pt-BR')} linhas) e pode levar alguns minutos para processar.`,
+              `Este arquivo é volumoso (${fmtBytes(file.size)}, ${parsed.rows.length.toLocaleString('pt-BR')} linhas). A gravação utilizará concorrência controlada e retry automático para garantir 100% de integridade. Confirme abaixo para prosseguir.`,
             )
           }
 
@@ -542,14 +570,23 @@ export const ImportacaoPage: React.FC = () => {
 
   const handleImport = useCallback(async () => {
     if (!validationReport || !fileInfo) return
+
+    // Previne imports simultâneos
+    if (stage === 'importing') return
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setStage('importing')
     setImportProgress(5)
+    setErrorsList([])
     setProgressState({
       stage: 'validating',
       message: 'Iniciando validação e preparação do pipeline...',
       processed: 0,
       total: validationReport.validRows,
       failuresCount: 0,
+      retriesCount: 0,
     })
 
     try {
@@ -559,21 +596,43 @@ export const ImportacaoPage: React.FC = () => {
         setImportProgress(20)
         setProgressState({
           stage: 'saving_base',
-          message: 'Processando deduplicação e gravando rupturas na Base Atual...',
+          message: 'Processando deduplicação e persistindo Rupturas na Base Atual...',
           processed: 0,
           total: validationReport.validRows,
           failuresCount: 0,
+          retriesCount: 0,
         })
 
-        const rupRes = await processRupturasImport(selectedFile, 'tenant-default', forceReprocess)
+        const rupRes = await processRupturasImport(selectedFile, 'tenant-default', forceReprocess, {
+          signal: controller.signal,
+          onProgress: (p) => {
+            const waitMsg = p.isRateLimited
+              ? ' • Aguardando o banco liberar novas gravações...'
+              : ''
+            setProgressState({
+              stage: 'saving_base',
+              message: `Gravando rupturas (${p.processed} de ${p.total}${p.retries > 0 ? ` • ${p.retries} retries` : ''}${waitMsg})...`,
+              processed: p.processed,
+              total: p.total,
+              failuresCount: p.failed,
+              retriesCount: p.retries,
+              isRateLimited: p.isRateLimited,
+              rateLimitWaitMs: p.rateLimitWaitMs,
+            })
+            const ratio = p.total > 0 ? p.processed / p.total : 0
+            setImportProgress(20 + Math.round(ratio * 75))
+          },
+        })
         setImportProgress(100)
         setRupturasResult(rupRes)
 
         if (rupRes.status === 'Concluída' || rupRes.status === 'Concluída com rejeições') {
+          const isFull = rupRes.status === 'Concluída' && rupRes.total_rows_invalid === 0
           setImportResult({
             imported: rupRes.total_occurrences_generated,
             skipped: rupRes.total_rows_read - rupRes.total_occurrences_generated,
             errors: rupRes.total_rows_invalid,
+            isFullSuccess: isFull,
           })
           setStage('done')
           setProgressState({
@@ -606,16 +665,24 @@ export const ImportacaoPage: React.FC = () => {
             description: rupRes.error_message || 'Erro ao processar arquivo de Rupturas.',
             variant: 'destructive',
           })
+          setImportResult({
+            imported: rupRes.total_occurrences_generated,
+            skipped: rupRes.total_rows_read - rupRes.total_occurrences_generated,
+            errors: Math.max(1, rupRes.total_rows_invalid),
+            errorDetails: rupRes.error_message,
+            isFullSuccess: false,
+          })
           setStage('validated')
         }
       } else {
         // Pipeline de Validades (TradePro)
         setProgressState({
           stage: 'validating',
-          message: 'Executando pipeline de 30 regras e deduplicação...',
+          message: 'Executando pipeline de regras e deduplicação...',
           processed: 0,
           total: rawRows.length,
           failuresCount: 0,
+          retriesCount: 0,
         })
 
         const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
@@ -638,6 +705,7 @@ export const ImportacaoPage: React.FC = () => {
           force: forceReprocess,
           rawRecords: rawTradePro,
           baseAtual: pipeline.baseAtual,
+          signal: controller.signal,
           summary: {
             totalBrutos: pipeline.summary.totalBrutos,
             validos: pipeline.summary.validos,
@@ -662,12 +730,17 @@ export const ImportacaoPage: React.FC = () => {
         })
 
         setImportProgress(100)
+        if (result.errorsDetails) {
+          setErrorsList(result.errorsDetails)
+        }
 
         if (result.success) {
           setImportResult({
             imported: result.importedRows,
             skipped: result.skippedRows,
             errors: result.errorRows,
+            isFullSuccess: true,
+            retriesCount: result.retriesCount,
           })
           setStage('done')
           setResultModalOpen(true)
@@ -695,12 +768,12 @@ export const ImportacaoPage: React.FC = () => {
           })
           setStage('validated')
         } else {
-          const actionSummary = `${result.rawRows || rawTradePro.length} registros brutos, ${
+          const actionSummary = `${result.rawRows || rawTradePro.length} brutos, ${
             result.errorRows
           } falha(s) na etapa de gravação.`
           toast({
-            title: 'Falha no processamento',
-            description: `${result.error || 'Não foi possível concluir o processamento.'} (${actionSummary})`,
+            title: 'Falha na persistência',
+            description: `${result.error || 'Não foi possível concluir a importação.'} (${actionSummary})`,
             variant: 'destructive',
           })
           setImportResult({
@@ -708,21 +781,27 @@ export const ImportacaoPage: React.FC = () => {
             skipped: result.skippedRows,
             errors: result.errorRows,
             errorDetails: result.error,
+            isFullSuccess: false,
+            retriesCount: result.retriesCount,
           })
           setStage('validated')
         }
       }
     } catch (err) {
       toast({
-        title: 'Erro inesperado',
-        description: err instanceof Error ? err.message : 'Falha na comunicação com o servidor.',
+        title: 'Erro no processamento',
+        description:
+          err instanceof Error ? err.message : 'Falha na comunicação com o banco de dados.',
         variant: 'destructive',
       })
       setStage('validated')
+    } finally {
+      abortControllerRef.current = null
     }
   }, [
     validationReport,
     fileInfo,
+    stage,
     importType,
     selectedFile,
     rawRows,
@@ -737,8 +816,15 @@ export const ImportacaoPage: React.FC = () => {
     (importType === 'validades' && structure.isStructureValid && stage === 'parsed') ||
     (importType === 'rupturas' && stage === 'validated')
   const isImporting = stage === 'importing'
+  const isVolumeConfirmationRequired =
+    (!!largeFileWarning && !isLargeFileConfirmed && (fileInfo?.size || 0) > 20 * 1024 * 1024) ||
+    (validationReport?.totalRows || 0) > 10000
   const canImport =
-    !isImporting && stage === 'validated' && !!validationReport && validationReport.validRows > 0
+    !isImporting &&
+    stage === 'validated' &&
+    !!validationReport &&
+    validationReport.validRows > 0 &&
+    !isVolumeConfirmationRequired
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -1088,13 +1174,27 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Alerta preventivo de arquivo grande (>20MB ou >10.000 linhas) */}
+              {/* Alerta preventivo de arquivo grande (>20MB ou >10.000 linhas) com confirmação explícita */}
               {largeFileWarning && (
-                <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50/70">
-                  <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                  <div className="flex-1 text-xs text-blue-900 leading-relaxed">
-                    <p className="font-semibold text-blue-950 mb-0.5">Aviso de volume</p>
-                    <p>{largeFileWarning}</p>
+                <div className="flex items-start gap-3 p-4 rounded-xl border border-blue-300 bg-blue-50/80 shadow-2xs">
+                  <Info className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-blue-950 leading-relaxed space-y-2">
+                    <div>
+                      <p className="font-bold text-blue-950 mb-0.5">Aviso de volume elevado</p>
+                      <p className="text-blue-900">{largeFileWarning}</p>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={isLargeFileConfirmed}
+                        onChange={(e) => setIsLargeFileConfirmed(e.target.checked)}
+                        className="rounded border-blue-400 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                      />
+                      <span className="font-semibold text-blue-950">
+                        Compreendo e confirmo a importação deste volume com concorrência segura (2
+                        workers)
+                      </span>
+                    </label>
                   </div>
                 </div>
               )}
@@ -1246,28 +1346,50 @@ export const ImportacaoPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Barra de progresso (importação) */}
+                    {/* Barra de progresso (importação) com aviso "Não feche esta página" e status 429 */}
                     {stage === 'importing' && (
-                      <div className="space-y-2 p-3 bg-indigo-50/40 rounded-lg border border-indigo-100">
-                        <div className="flex items-center justify-between text-xs text-slate-700">
-                          <span className="font-semibold flex items-center gap-1.5">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      <div className="space-y-2.5 p-4 bg-indigo-50/60 rounded-xl border border-indigo-200 shadow-2xs">
+                        <div className="flex items-center justify-between text-xs text-slate-800">
+                          <span className="font-semibold flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
                             {progressState?.message || 'Processando pipeline...'}
                           </span>
-                          <span className="tabular-nums font-bold text-indigo-700">
+                          <span className="tabular-nums font-bold text-indigo-700 text-sm">
                             {Math.round(importProgress)}%
                           </span>
                         </div>
-                        <Progress value={importProgress} className="h-2" />
-                        {progressState && progressState.total > 0 && (
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                            <span>
-                              Processados: {progressState.processed} de {progressState.total}
+                        <Progress value={importProgress} className="h-2.5 bg-indigo-100" />
+
+                        {/* Aviso obrigatório de não fechar a página */}
+                        <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 flex-wrap gap-2">
+                          <span className="inline-flex items-center gap-1.5 font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <strong>Aviso importante:</strong> Não feche nem recarregue esta página
+                            durante a gravação.
+                          </span>
+                          {progressState && progressState.total > 0 && (
+                            <span className="tabular-nums font-medium">
+                              {progressState.processed.toLocaleString('pt-BR')} de{' '}
+                              {progressState.total.toLocaleString('pt-BR')} registros
                             </span>
-                            {progressState.failuresCount > 0 && (
-                              <span className="text-red-600 font-semibold">
-                                Falhas detectadas: {progressState.failuresCount}
-                              </span>
+                          )}
+                        </div>
+
+                        {/* Detalhes de Retry e Rate Limit */}
+                        {progressState && (progressState.retriesCount || 0) > 0 && (
+                          <div className="flex items-center gap-2 text-[11px] pt-1">
+                            <Badge
+                              variant="outline"
+                              className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-[10px]"
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              {progressState.retriesCount} retry(s) transitório(s) recuperado(s)
+                            </Badge>
+                            {progressState.isRateLimited && (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 font-semibold text-[10px]">
+                                <Clock className="w-3 h-3 mr-1" />
+                                Aguardando o banco liberar novas gravações (Rate Limit 429)
+                              </Badge>
                             )}
                           </div>
                         )}
@@ -1418,20 +1540,139 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Resultado (done ou falha com detalhes) */}
+              {/* Resultado pós-importação com selo verde integral ou falha parcial vermelho/âmbar */}
               {stage === 'done' && importResult && (
-                <AlertBanner
-                  type="success"
-                  title="Processamento concluído"
-                  message={`${importResult.imported} ocorrência(s) na Base Atual, ${importResult.skipped} rejeitada(s) na validação, ${importResult.errors} com erro.`}
-                />
+                <div
+                  className={cn(
+                    'p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4',
+                    importResult.isFullSuccess
+                      ? 'bg-emerald-50/90 border-emerald-300 text-emerald-900'
+                      : 'bg-amber-50/90 border-amber-300 text-amber-900',
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5',
+                        importResult.isFullSuccess
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-800',
+                      )}
+                    >
+                      {importResult.isFullSuccess ? (
+                        <CheckCircle2 className="w-5 h-5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-sm">
+                          {importResult.isFullSuccess
+                            ? 'Importação concluída com sucesso integral (100% persistido)'
+                            : 'Importação finalizada com observações'}
+                        </p>
+                        <Badge
+                          className={cn(
+                            'text-[10px] font-bold py-0.5 px-2',
+                            importResult.isFullSuccess
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-amber-600 text-white',
+                          )}
+                        >
+                          {importResult.isFullSuccess ? '100% Gravado' : 'Falha Parcial'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs mt-1">
+                        {importResult.imported.toLocaleString('pt-BR')} registro(s) confirmados na
+                        Base Atual
+                        {importResult.skipped > 0
+                          ? ` • ${importResult.skipped.toLocaleString('pt-BR')} filtrados/rejeitados`
+                          : ''}
+                        {importResult.errors > 0 ? ` • ${importResult.errors} erro(s)` : ''}
+                        {importResult.retriesCount
+                          ? ` • ${importResult.retriesCount} retry(s) automáticos executados com sucesso`
+                          : ''}
+                        .
+                      </p>
+                    </div>
+                  </div>
+
+                  {errorsList.length > 0 && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          exportErrorsXLSX(errorsList, `erros_import_${fileInfo.name}.xlsx`)
+                        }
+                        className="text-xs h-8 px-2.5 gap-1.5 bg-white border-amber-300 text-amber-900 hover:bg-amber-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Baixar Erros (XLSX)
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          exportErrorsCSV(errorsList, `erros_import_${fileInfo.name}.csv`)
+                        }
+                        className="text-xs h-8 px-2.5 gap-1.5 bg-white border-amber-300 text-amber-900 hover:bg-amber-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        CSV
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
+
               {stage === 'validated' && importResult && importResult.errorDetails && (
-                <AlertBanner
-                  type="error"
-                  title="Falha na gravação"
-                  message={`O processamento anterior falhou: ${importResult.errorDetails}. O status no histórico foi gravado como Falhou.`}
-                />
+                <div className="p-4 rounded-xl border border-red-300 bg-red-50/90 text-red-900 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-red-950">
+                          Falha no processamento ({importResult.errors} registro(s) falharam)
+                        </p>
+                        <p className="text-xs text-red-800 mt-1 leading-relaxed">
+                          {importResult.errorDetails}. O status no histórico foi registrado
+                          estritamente como <strong>Falhou</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    {errorsList.length > 0 && (
+                      <div className="flex items-center gap-2 pt-1 sm:pt-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            exportErrorsXLSX(errorsList, `relatorio_erros_${fileInfo.name}.xlsx`)
+                          }
+                          className="text-xs h-8 px-2.5 gap-1.5 bg-white border-red-300 text-red-900 hover:bg-red-50"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Baixar relatório de erros (XLSX)
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            exportErrorsCSV(errorsList, `relatorio_erros_${fileInfo.name}.csv`)
+                          }
+                          className="text-xs h-8 px-2.5 gap-1.5 bg-white border-red-300 text-red-900 hover:bg-red-50"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          CSV
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1632,29 +1873,60 @@ export const ImportacaoPage: React.FC = () => {
         title="Processamento concluído"
         description="Resumo da operação"
         footer={
-          <Button
-            onClick={() => {
-              setResultModalOpen(false)
-              reset()
-            }}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-4"
-          >
-            Concluir
-          </Button>
+          <div className="flex items-center justify-between w-full gap-2">
+            {errorsList.length > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  exportErrorsXLSX(errorsList, `erros_${fileInfo?.name || 'import'}.xlsx`)
+                }
+                className="text-xs h-9 px-3 gap-1.5 border-slate-300 text-slate-700"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Baixar erros (XLSX)
+              </Button>
+            ) : (
+              <div />
+            )}
+            <Button
+              onClick={() => {
+                setResultModalOpen(false)
+                reset()
+              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-4"
+            >
+              Concluir
+            </Button>
+          </div>
         }
       >
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6" />
+            <div
+              className={cn(
+                'w-12 h-12 rounded-full flex items-center justify-center shrink-0',
+                importResult?.isFullSuccess
+                  ? 'bg-emerald-100 text-emerald-600'
+                  : 'bg-amber-100 text-amber-700',
+              )}
+            >
+              {importResult?.isFullSuccess ? (
+                <CheckCircle2 className="w-6 h-6" />
+              ) : (
+                <AlertTriangle className="w-6 h-6" />
+              )}
             </div>
             <div>
-              <p className="font-semibold text-slate-900 text-sm">
-                Base Atual atualizada com sucesso
+              <p className="font-bold text-slate-900 text-sm">
+                {importResult?.isFullSuccess
+                  ? 'Base Atual atualizada com sucesso integral'
+                  : 'Processamento concluído com observações'}
               </p>
               <p className="text-xs text-slate-500">
-                As ocorrências processadas já alimentam o módulo de{' '}
-                {importType === 'rupturas' ? 'Rupturas' : 'Validades'}.
+                {importResult?.isFullSuccess
+                  ? `100% das ocorrências válidas foram gravadas e alimentam o módulo de ${importType === 'rupturas' ? 'Rupturas' : 'Validades'}.`
+                  : `Foram gravadas ${importResult?.imported} ocorrências na Base Atual.`}
               </p>
             </div>
           </div>
@@ -1663,13 +1935,13 @@ export const ImportacaoPage: React.FC = () => {
               <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-center">
                 <p className="text-[10px] font-semibold text-emerald-600 uppercase">Base Atual</p>
                 <p className="text-lg font-bold text-emerald-700 tabular-nums">
-                  {importResult.imported}
+                  {importResult.imported.toLocaleString('pt-BR')}
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-center">
                 <p className="text-[10px] font-semibold text-slate-500 uppercase">Rejeitados</p>
                 <p className="text-lg font-bold text-slate-700 tabular-nums">
-                  {importResult.skipped}
+                  {importResult.skipped.toLocaleString('pt-BR')}
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-center">
