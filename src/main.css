@@ -9,8 +9,13 @@
 
 @layer base {
   :root {
-    /* Diretoria Promoções Premium Color Palette: White, Navy Blue, Gold, Gray */
-    --background: 210 20% 98%; /* refined crisp off-white #F8FAFC */
+    /* Diretoria Promoções Executive Operations Intelligence */
+    --app-bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+    --sidebar-bg: #0f172a;
+
+    --background: 210 40% 98%; /* refined crisp off-white #F8FAFC */
     --foreground: 222 47% 11%; /* dark slate/navy #0F172A */
 
     --card: 0 0% 100%; /* pure white */
@@ -19,44 +24,50 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Primary: Deep Navy Blue (#0F2342 / hsl(216, 63%, 16%)) */
-    --primary: 216 63% 16%;
+    /* Primary Accent: Indigo-600 */
+    --primary: 239 84% 67%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary / Accent: Soft Metallic Gold / Gold tint (#F7F3E6 / hsl(43, 60%, 93%)) */
-    --secondary: 43 60% 93%;
-    --secondary-foreground: 41 85% 32%; /* Rich Dark Gold (#A1740A) */
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 210 20% 96%; /* slate-100 refined gray */
-    --muted-foreground: 215 16% 47%; /* slate-600 */
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 43 60% 93%;
-    --accent-foreground: 41 85% 32%;
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%; /* red-500 */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 20% 90%; /* slate-200 refined */
-    --input: 214 20% 90%;
-    --ring: 216 63% 16%; /* Navy focus ring */
+    --border: 214 32% 91%; /* slate-200 */
+    --input: 214 32% 91%;
+    --ring: 239 84% 67%; /* Indigo focus ring */
 
     --radius: 0.75rem; /* 12px */
 
-    /* Sidebar theme: Elegant Deep Navy Sidebar */
-    --sidebar-background: 216 63% 12%; /* Dark Navy #0A192F */
-    --sidebar-foreground: 210 20% 98%;
-    --sidebar-primary: 43 85% 50%; /* Gold #E5B31B */
-    --sidebar-primary-foreground: 216 63% 12%;
-    --sidebar-accent: 216 50% 20%;
-    --sidebar-accent-foreground: 43 85% 80%;
-    --sidebar-border: 216 50% 20%;
-    --sidebar-ring: 43 85% 50%;
+    /* Semantic Risk Colors */
+    --risk-critical: #dc2626;
+    --risk-high: #ea580c;
+    --risk-warning: #d97706;
+    --risk-monitor: #2563eb;
+    --risk-success: #16a34a;
 
-    --chart-1: 216 63% 25%; /* Navy Blue */
-    --chart-2: 43 85% 48%; /* Gold */
-    --chart-3: 160 84% 39%; /* Emerald */
-    --chart-4: 0 84% 60%; /* Red */
-    --chart-5: 215 20% 65%; /* Silver Gray */
+    /* Sidebar theme: Navy/Slate-900 */
+    --sidebar-background: 222 47% 11%; /* #0F172A */
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 239 84% 67%;
+
+    --chart-1: 239 84% 67%; /* Indigo */
+    --chart-2: 0 84% 60%; /* Critical Red */
+    --chart-3: 25 95% 53%; /* High Orange */
+    --chart-4: 43 96% 56%; /* Warning Amber */
+    --chart-5: 217 91% 60%; /* Blue */
   }
 
   .dark {

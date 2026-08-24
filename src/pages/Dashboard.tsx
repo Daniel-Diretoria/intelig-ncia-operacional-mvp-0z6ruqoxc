@@ -82,15 +82,34 @@ export const DashboardPage: React.FC = () => {
   const isLoading = kpisLoading || validadesLoading || rupturasLoading || alertasLoading
   const hasError = kpisError || validadesError || rupturasError || alertasError
 
+  const validadesCriticasCount = summary?.validadesCriticas.count ?? 0
+  const rupturasAtivasCount = summary?.rupturasAtivas.count ?? 0
+
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* Hero / Header Executivo Compacto */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl font-bold text-slate-900 tracking-tight">Painel Operacional</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Visão consolidada da Base Atual de validades, rupturas e alertas em tempo real.
+          <div className="flex items-center gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
+            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+              Visão Estratégica
+            </h2>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            Centro de controle e inteligência operacional sobre validades, rupturas e risco
+            consolidado.
           </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-semibold">
+            <CalendarClock className="w-3.5 h-3.5 text-red-600" />
+            <span>{validadesCriticasCount} validades críticas</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-semibold">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+            <span>{rupturasAtivasCount} rupturas ativas</span>
+          </span>
         </div>
       </div>
 
@@ -107,93 +126,107 @@ export const DashboardPage: React.FC = () => {
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="border-slate-200 shadow-sm bg-white animate-pulse">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <Card
+              key={i}
+              className="border-slate-200 shadow-xs bg-white animate-pulse p-5 rounded-2xl"
+            >
+              <div className="flex items-center justify-between mb-3">
                 <div className="h-3 bg-slate-200 rounded w-24" />
-                <div className="w-8 h-8 bg-slate-100 rounded-lg" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="h-7 bg-slate-200 rounded w-16" />
-                <div className="h-3 bg-slate-100 rounded w-32" />
-              </CardContent>
+                <div className="w-10 h-10 bg-slate-100 rounded-xl" />
+              </div>
+              <div className="h-8 bg-slate-200 rounded w-16 mb-2" />
+              <div className="h-3 bg-slate-100 rounded w-32" />
             </Card>
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Validades Críticas */}
-          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Validades Críticas
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
-                <CalendarClock className="w-4 h-4" />
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs relative overflow-hidden transition-all duration-150 hover:shadow-sm">
+            <div className="absolute top-0 left-0 bottom-0 w-1 bg-red-600" />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Validades Críticas
+                </p>
+                <p className="mt-2 text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight tabular-nums">
+                  {summary?.validadesCriticas.count ?? 0}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-                {summary?.validadesCriticas.count ?? 0}
+              <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
+                <CalendarClock className="w-5 h-5" />
               </div>
-              <p className="text-xs text-red-600 font-medium">1 a 15 dias para vencer</p>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-red-600 font-medium mt-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-600" />1 a 15 dias para vencer
+            </p>
+          </div>
 
           {/* Rupturas Ativas */}
-          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Rupturas Ativas
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
-                <AlertTriangle className="w-4 h-4" />
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs relative overflow-hidden transition-all duration-150 hover:shadow-sm">
+            <div className="absolute top-0 left-0 bottom-0 w-1 bg-amber-500" />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Rupturas Ativas
+                </p>
+                <p className="mt-2 text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight tabular-nums">
+                  {summary?.rupturasAtivas.count ?? 0}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-                {summary?.rupturasAtivas.count ?? 0}
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100">
+                <AlertTriangle className="w-5 h-5" />
               </div>
-              <p className="text-xs text-amber-600 font-medium">Ocorrências na Base Atual</p>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-amber-700 font-medium mt-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Ocorrências na Base Atual
+            </p>
+          </div>
 
           {/* Alertas Abertos */}
-          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Alertas Abertos
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-                <Bell className="w-4 h-4" />
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs relative overflow-hidden transition-all duration-150 hover:shadow-sm">
+            <div className="absolute top-0 left-0 bottom-0 w-1 bg-blue-600" />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Alertas Abertos
+                </p>
+                <p className="mt-2 text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight tabular-nums">
+                  {summary?.alertasAbertos.count ?? 0}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-                {summary?.alertasAbertos.count ?? 0}
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+                <Bell className="w-5 h-5" />
               </div>
-              <p className="text-xs text-blue-600 font-medium">
-                Crítico, Atenção e Moderado não lidos
-              </p>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-blue-600 font-medium mt-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+              Crítico, Atenção e Moderado
+            </p>
+          </div>
 
           {/* Produtos em Risco */}
-          <Card className="border-slate-200 shadow-sm bg-white hover:border-slate-300 transition-colors">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Produtos em Risco
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center">
-                <Package className="w-4 h-4" />
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs relative overflow-hidden transition-all duration-150 hover:shadow-sm">
+            <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-600" />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Produtos em Risco
+                </p>
+                <p className="mt-2 text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight tabular-nums">
+                  {summary?.produtosEmRisco.count ?? 0}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-2xl font-extrabold text-slate-900 tabular-nums">
-                {summary?.produtosEmRisco.count ?? 0}
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
+                <Package className="w-5 h-5" />
               </div>
-              <p className="text-xs text-purple-600 font-medium">SKUs distintos em risco</p>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-indigo-600 font-medium mt-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+              SKUs distintos em risco
+            </p>
+          </div>
         </div>
       )}
 
@@ -476,29 +509,42 @@ function getSeverityBadge(severity: SeverityLevel) {
     case 'Crítico':
       return {
         label: 'Crítico',
-        className: 'bg-red-100 text-red-800 border-red-200',
-        barColor: 'bg-red-500',
+        className: 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-500/10',
+        barColor: 'bg-red-600',
       }
     case 'Alto':
       return {
         label: 'Alto',
-        className: 'bg-amber-100 text-amber-800 border-amber-200',
-        barColor: 'bg-amber-500',
+        className: 'bg-orange-50 text-orange-700 border-orange-200 ring-1 ring-orange-500/10',
+        barColor: 'bg-orange-500',
       }
     case 'Atenção':
       return {
         label: 'Atenção',
-        className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-        barColor: 'bg-yellow-500',
+        className: 'bg-amber-50 text-amber-800 border-amber-200 ring-1 ring-amber-500/10',
+        barColor: 'bg-amber-500',
       }
     case 'Monitorar':
     default:
       return {
         label: 'Monitorar',
-        className: 'bg-blue-100 text-blue-800 border-blue-200',
+        className: 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-500/10',
         barColor: 'bg-blue-500',
       }
   }
+}
+
+function getRankBadgeStyle(idx: number) {
+  if (idx === 0) {
+    return 'bg-amber-500 text-white shadow-xs font-bold'
+  }
+  if (idx === 1) {
+    return 'bg-slate-300 text-slate-800 font-bold'
+  }
+  if (idx === 2) {
+    return 'bg-amber-700/80 text-white font-bold'
+  }
+  return 'bg-slate-100 text-slate-600 font-semibold'
 }
 
 // ---------------------------------------------------------------------------
@@ -607,71 +653,92 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
   }, [validades, rupturas])
 
   return (
-    <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-      <CardHeader className="pb-4 border-b border-slate-100 bg-slate-50/50">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+      {/* Header da Sala de Decisão */}
+      <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/40">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
                 <ShieldAlert className="w-4 h-4" />
               </div>
-              <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
-                Central Estratégica
-              </CardTitle>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Modelo de risco operacional {RISK_MODEL_VERSION}
-              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                    Central Estratégica
+                  </h3>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Modelo de risco operacional {RISK_MODEL_VERSION}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Sala de decisão executiva com ranqueamento auditável de lojas, produtos e marcas.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500">
-              Ranqueamento puro e explicável de risco operacional baseado em vencimentos e rupturas
-              ativas.
-            </p>
           </div>
 
           <button
             type="button"
             onClick={() => setShowExplanation((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-indigo-600 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors shadow-2xs self-start sm:self-center"
           >
-            <HelpCircle className="w-3.5 h-3.5" />
+            <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
             <span>
-              {showExplanation ? 'Ocultar critério do score' : 'Como o score é calculado?'}
+              {showExplanation ? 'Ocultar regras de cálculo' : 'Como o score é calculado?'}
             </span>
           </button>
         </div>
 
-        {/* Explicação Curta Acessível Colapsável */}
+        {/* Disclosure Explicativo Elegante */}
         {showExplanation && (
-          <div className="mt-3 p-3.5 rounded-lg bg-indigo-50/70 border border-indigo-100 text-xs text-slate-700 space-y-2 animate-fade-in">
-            <div className="flex items-start gap-2">
+          <div className="mt-4 p-4 rounded-xl bg-indigo-50/60 border border-indigo-100 text-xs text-slate-700 space-y-3 animate-fade-in">
+            <div className="flex items-start gap-2.5">
               <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-semibold text-indigo-950">
-                  O score combina risco de vencimento (pontos por dias restantes e quantidade) com
-                  risco de ruptura (pontos por dias em falta), limitado a 100 pontos.
+              <div className="space-y-2">
+                <p className="font-semibold text-slate-900 leading-snug">
+                  O índice de risco consolida dias até vencimento, volume em estoque e persistência
+                  de rupturas ativas (máx. 100 pontos).
                 </p>
-                <ul className="list-disc list-inside space-y-0.5 text-slate-600 text-[11px] pt-1">
-                  <li>
-                    <strong>Validades ativas:</strong> 1–3d (10pts), 4–7d (8pts), 8–15d (5pts),
-                    16–25d (2pts), 26–35d (1pt) + adicional por quantidade (≥100: +4, 50–99: +3,
-                    10–49: +1).
-                  </li>
-                  <li>
-                    <strong>Rupturas ativas:</strong> 0–3d (2pts), 4–7d (4pts), 8–14d (7pts), 15+d
-                    (10pts). Rupturas de portfólio total são expandidas em memória sem duplicação.
-                  </li>
-                  <li>
-                    <strong>Severidade:</strong> Crítico (75–100), Alto (50–74), Atenção (25–49),
-                    Monitorar (0–24). Não utiliza giro, venda ou métrica financeira.
-                  </li>
-                </ul>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100/80">
+                    <p className="font-bold text-[11px] text-red-700 uppercase tracking-wide">
+                      1. Validades Próximas
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      1–3d (10pts), 4–7d (8pts), 8–15d (5pts), 16–25d (2pts), 26–35d (1pt) +
+                      adicional por quantidade (≥100: +4, 50–99: +3, 10–49: +1).
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100/80">
+                    <p className="font-bold text-[11px] text-amber-700 uppercase tracking-wide">
+                      2. Rupturas Ativas
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      0–3d (2pts), 4–7d (4pts), 8–14d (7pts), 15+d (10pts). Rupturas de portfólio
+                      total expandidas sem duplicações.
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100/80">
+                    <p className="font-bold text-[11px] text-indigo-700 uppercase tracking-wide">
+                      3. Faixas de Severidade
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Crítico (75–100), Alto (50–74), Atenção (25–49) e Monitorar (0–24). Totalmente
+                      auditável e baseado em regras estritas.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
-      </CardHeader>
+      </div>
 
-      <CardContent className="p-4 sm:p-6">
+      <div className="p-4 sm:p-6">
         {hasError ? (
           <div className="text-center py-8 space-y-3">
             <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
@@ -684,7 +751,7 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
             <button
               type="button"
               onClick={onRetry}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Tentar novamente
@@ -693,41 +760,44 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
         ) : isLoading ? (
           <div className="space-y-3 py-4">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-14 bg-slate-50 rounded-lg animate-pulse" />
+              <div key={i} className="h-16 bg-slate-50 rounded-xl animate-pulse" />
             ))}
           </div>
         ) : (
           <Tabs defaultValue="lojas" className="w-full">
-            <TabsList className="grid grid-cols-2 sm:grid-cols-4 mb-4 bg-slate-100 p-1">
-              <TabsTrigger
-                value="lojas"
-                className="text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                Lojas Críticas
-              </TabsTrigger>
-              <TabsTrigger
-                value="produtos"
-                className="text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Package className="w-3.5 h-3.5" />
-                Produtos Críticos
-              </TabsTrigger>
-              <TabsTrigger
-                value="marcas"
-                className="text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Boxes className="w-3.5 h-3.5" />
-                Indústrias/Marcas
-              </TabsTrigger>
-              <TabsTrigger
-                value="acoes"
-                className="text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                Ações Recomendadas ({strategicData.actions.length})
-              </TabsTrigger>
-            </TabsList>
+            {/* Tabs Responsivas com scroll horizontal seguro */}
+            <div className="overflow-x-auto pb-1 mb-4 scrollbar-none">
+              <TabsList className="inline-flex w-full min-w-[560px] sm:min-w-0 sm:grid sm:grid-cols-4 bg-slate-100/80 p-1 rounded-xl">
+                <TabsTrigger
+                  value="lojas"
+                  className="text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-xs transition-all flex items-center justify-center gap-2"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Lojas Críticas</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="produtos"
+                  className="text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-xs transition-all flex items-center justify-center gap-2"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Produtos Críticos</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="marcas"
+                  className="text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-xs transition-all flex items-center justify-center gap-2"
+                >
+                  <Boxes className="w-3.5 h-3.5" />
+                  <span>Indústrias / Marcas</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="acoes"
+                  className="text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-xs transition-all flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Ações ({strategicData.actions.length})</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* TAB 1: LOJAS CRÍTICAS */}
             <TabsContent value="lojas" className="space-y-3 mt-0">
@@ -739,6 +809,7 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
               ) : (
                 strategicData.topLojas.map((loja, idx) => {
                   const badge = getSeverityBadge(loja.severity)
+                  const rankBadge = getRankBadgeStyle(idx)
                   const storeDisplay = formatStoreIdentity({
                     codigo_loja: loja.storeCode,
                     nome_loja: loja.storeName,
@@ -748,48 +819,63 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
                   return (
                     <div
                       key={loja.storeCode || idx}
-                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                      className="p-4 rounded-xl border border-slate-200/70 hover:border-slate-300 bg-white hover:bg-slate-50/50 transition-all space-y-3 shadow-2xs"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-extrabold text-slate-400">
-                              #{idx + 1}
-                            </span>
-                            <p className="text-xs font-bold text-slate-900 truncate">
-                              {storeDisplay}
-                            </p>
-                            {cityUf && (
-                              <span className="text-[11px] text-slate-500">({cityUf})</span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
-                            <span>
-                              Validades em risco: <strong>{loja.validadesCount}</strong> (
-                              {loja.validadesQuantityInRisk} un)
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Rupturas ativas:{' '}
-                              <strong>
-                                {loja.rupturasSpecificCount +
-                                  loja.rupturasDerivedCount +
-                                  loja.rupturasTotalUnresolvedCount}
-                              </strong>{' '}
-                              ({loja.rupturasSpecificCount} específicas, {loja.rupturasDerivedCount}{' '}
-                              derivadas)
-                            </span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 mt-0.5 ${rankBadge}`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-slate-900 truncate">
+                                {storeDisplay}
+                              </p>
+                              {cityUf && (
+                                <span className="text-xs text-slate-500 font-medium">
+                                  ({cityUf})
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-500">
+                              <span>
+                                Validades em risco:{' '}
+                                <strong className="text-slate-700">{loja.validadesCount}</strong> (
+                                {loja.validadesQuantityInRisk} un)
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Rupturas ativas:{' '}
+                                <strong className="text-slate-700">
+                                  {loja.rupturasSpecificCount +
+                                    loja.rupturasDerivedCount +
+                                    loja.rupturasTotalUnresolvedCount}
+                                </strong>{' '}
+                                ({loja.rupturasSpecificCount} específicas,{' '}
+                                {loja.rupturasDerivedCount} derivadas)
+                              </span>
+                              {loja.rawPoints > 100 && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-slate-400 text-[11px]">
+                                    Carga de risco: {loja.rawPoints} pts
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
                           <div className="text-right">
-                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                            <div className="text-base font-extrabold text-slate-900 tabular-nums">
                               {loja.score}{' '}
-                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                              <span className="text-xs text-slate-400 font-normal">/ 100</span>
                             </div>
                             <span
-                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                              className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
                             >
                               {badge.label}
                             </span>
@@ -800,7 +886,7 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
                       {/* Barra de progresso horizontal do score */}
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          className={`h-full ${badge.barColor} transition-all duration-300 rounded-full`}
                           style={{ width: `${Math.min(100, loja.score)}%` }}
                         />
                       </div>
@@ -820,47 +906,67 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
               ) : (
                 strategicData.topProdutos.map((prod, idx) => {
                   const badge = getSeverityBadge(prod.severity)
+                  const rankBadge = getRankBadgeStyle(idx)
                   return (
                     <div
                       key={`${prod.productName}_${idx}`}
-                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                      className="p-4 rounded-xl border border-slate-200/70 hover:border-slate-300 bg-white hover:bg-slate-50/50 transition-all space-y-3 shadow-2xs"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-extrabold text-slate-400">
-                              #{idx + 1}
-                            </span>
-                            <p className="text-xs font-bold text-slate-900 truncate">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 mt-0.5 ${rankBadge}`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">
                               {prod.productName}
                             </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
-                            <span>
-                              Marca: <strong>{prod.brand}</strong>
-                            </span>
-                            {prod.productCode && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-500">
                               <span>
-                                Cód: <code>{prod.productCode}</code>
+                                Marca: <strong className="text-slate-700">{prod.brand}</strong>
                               </span>
-                            )}
-                            <span>•</span>
-                            <span>
-                              Presente em <strong>{prod.storesWithValidadeCount}</strong> loja(s)
-                              com validade e <strong>{prod.storesWithRuptureCount}</strong> com
-                              ruptura
-                            </span>
+                              {prod.productCode && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span>
+                                    Cód: <code className="text-slate-700">{prod.productCode}</code>
+                                  </span>
+                                </>
+                              )}
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Presente em{' '}
+                                <strong className="text-slate-700">
+                                  {prod.storesWithValidadeCount}
+                                </strong>{' '}
+                                loja(s) com validade e{' '}
+                                <strong className="text-slate-700">
+                                  {prod.storesWithRuptureCount}
+                                </strong>{' '}
+                                com ruptura
+                              </span>
+                              {prod.rawPoints > 100 && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-slate-400 text-[11px]">
+                                    Carga de risco: {prod.rawPoints} pts
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
                           <div className="text-right">
-                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                            <div className="text-base font-extrabold text-slate-900 tabular-nums">
                               {prod.score}{' '}
-                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                              <span className="text-xs text-slate-400 font-normal">/ 100</span>
                             </div>
                             <span
-                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                              className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
                             >
                               {badge.label}
                             </span>
@@ -871,7 +977,7 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
                       {/* Barra de progresso */}
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          className={`h-full ${badge.barColor} transition-all duration-300 rounded-full`}
                           style={{ width: `${Math.min(100, prod.score)}%` }}
                         />
                       </div>
@@ -891,47 +997,62 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
               ) : (
                 strategicData.topMarcas.map((marca, idx) => {
                   const badge = getSeverityBadge(marca.severity)
+                  const rankBadge = getRankBadgeStyle(idx)
                   return (
                     <div
                       key={`${marca.brand}_${idx}`}
-                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                      className="p-4 rounded-xl border border-slate-200/70 hover:border-slate-300 bg-white hover:bg-slate-50/50 transition-all space-y-3 shadow-2xs"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-extrabold text-slate-400">
-                              #{idx + 1}
-                            </span>
-                            <p className="text-xs font-bold text-slate-900 truncate">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 mt-0.5 ${rankBadge}`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">
                               {marca.brand}
                             </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
-                            <span>
-                              Validades em risco: <strong>{marca.validadesCount}</strong> (
-                              {marca.validadesQuantityInRisk} un)
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Lojas com validade crítica (1-7d):{' '}
-                              <strong>{marca.validadesCriticalStoresCount}</strong>
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Rupturas ativas: <strong>{marca.rupturasCount}</strong> em{' '}
-                              {marca.storesWithRuptureCount} loja(s)
-                            </span>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-500">
+                              <span>
+                                Validades em risco:{' '}
+                                <strong className="text-slate-700">{marca.validadesCount}</strong> (
+                                {marca.validadesQuantityInRisk} un)
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Lojas com validade crítica (1-7d):{' '}
+                                <strong className="text-slate-700">
+                                  {marca.validadesCriticalStoresCount}
+                                </strong>
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Rupturas ativas:{' '}
+                                <strong className="text-slate-700">{marca.rupturasCount}</strong> em{' '}
+                                {marca.storesWithRuptureCount} loja(s)
+                              </span>
+                              {marca.rawPoints > 100 && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-slate-400 text-[11px]">
+                                    Carga de risco: {marca.rawPoints} pts
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
                           <div className="text-right">
-                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                            <div className="text-base font-extrabold text-slate-900 tabular-nums">
                               {marca.score}{' '}
-                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                              <span className="text-xs text-slate-400 font-normal">/ 100</span>
                             </div>
                             <span
-                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                              className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
                             >
                               {badge.label}
                             </span>
@@ -942,7 +1063,7 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
                       {/* Barra de progresso */}
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          className={`h-full ${badge.barColor} transition-all duration-300 rounded-full`}
                           style={{ width: `${Math.min(100, marca.score)}%` }}
                         />
                       </div>
@@ -960,29 +1081,80 @@ const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
                   description="Nenhum critério estrito de visita prioritária, recolhimento ou ruptura recorrente foi atingido nos dados atuais."
                 />
               ) : (
-                strategicData.actions.map((act, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 text-slate-800">
-                        {act.rule_id}
-                      </span>
-                    </div>
-                    <p className="text-xs font-semibold text-slate-900 leading-snug">
-                      {act.action}
-                    </p>
-                    <div className="text-[11px] text-slate-500 bg-white p-2 rounded border border-slate-100 font-mono text-[10px] overflow-x-auto">
-                      <strong>Evidência:</strong> {JSON.stringify(act.evidence)}
-                    </div>
-                  </div>
-                ))
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {strategicData.actions.map((act, idx) => {
+                    const evidenceEntries = Object.entries(act.evidence || {})
+                    return (
+                      <div
+                        key={idx}
+                        className="p-4 rounded-xl border border-slate-200/80 bg-white hover:border-slate-300 transition-all space-y-2.5 shadow-2xs flex flex-col justify-between"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Zap className="w-4 h-4 text-amber-500 shrink-0" />
+                              <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                                Recomendação Operacional
+                              </span>
+                            </div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              {act.rule_id}
+                            </span>
+                          </div>
+
+                          <p className="text-xs font-semibold text-slate-800 leading-snug">
+                            {act.action}
+                          </p>
+                        </div>
+
+                        {/* Chips / Evidências Humanizadas */}
+                        <div className="pt-2 border-t border-slate-100">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                            Evidências identificadas
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {evidenceEntries.map(([key, val]) => {
+                              const displayKey =
+                                key === 'store_name'
+                                  ? 'Loja'
+                                  : key === 'store_code'
+                                    ? 'Cód. Loja'
+                                    : key === 'product_name'
+                                      ? 'Produto'
+                                      : key === 'brand'
+                                        ? 'Marca'
+                                        : key === 'quantity'
+                                          ? 'Qtd'
+                                          : key === 'days_remaining'
+                                            ? 'Dias rest.'
+                                            : key === 'days_in_rupture'
+                                              ? 'Dias ruptura'
+                                              : key === 'affected_stores_count'
+                                                ? 'Lojas afetadas'
+                                                : key
+                              return (
+                                <span
+                                  key={key}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200/70 text-[11px] text-slate-700"
+                                >
+                                  <span className="text-slate-400 font-medium">{displayKey}:</span>
+                                  <strong className="font-semibold text-slate-800">
+                                    {String(val)}
+                                  </strong>
+                                </span>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </TabsContent>
           </Tabs>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

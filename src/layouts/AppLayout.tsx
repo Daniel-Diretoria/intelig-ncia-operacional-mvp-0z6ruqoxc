@@ -144,23 +144,32 @@ export const AppLayout: React.FC = () => {
       {/* Mobile Slide-in Drawer */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 w-72 bg-[#09152B] text-slate-100 border-r border-slate-800 z-50 flex flex-col transition-transform duration-250 ease-in-out lg:hidden shadow-2xl',
+          'fixed inset-y-0 left-0 w-72 bg-slate-900 text-slate-100 border-r border-slate-800 z-50 flex flex-col transition-transform duration-200 ease-in-out lg:hidden shadow-2xl',
           isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {/* Mobile Drawer Header */}
-        <div className="h-20 px-5 border-b border-slate-800 flex items-center justify-between bg-[#060E20]">
+        <div className="h-20 px-5 border-b border-slate-800/90 flex items-center justify-between bg-slate-950/50">
           <div className="flex items-center gap-3">
             <img
               src={logoImg}
               alt="Diretoria Promoções Logo"
-              className="h-10 w-auto object-contain drop-shadow-md"
+              className="h-10 w-auto object-contain drop-shadow-sm"
             />
+            <div className="flex flex-col">
+              <span className="font-bold text-sm tracking-tight text-white leading-tight">
+                Diretoria Promoções
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">
+                Inteligência Operacional
+              </span>
+            </div>
           </div>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setIsMobileDrawerOpen(false)}
+            aria-label="Fechar menu"
             className="w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
           >
             <X className="w-5 h-5" />
@@ -179,14 +188,14 @@ export const AppLayout: React.FC = () => {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                  'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                   isActive
-                    ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30 shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800/60 hover:text-white',
+                    ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
                 )}
               >
                 <Icon
-                  className={cn('w-5 h-5 shrink-0', isActive ? 'text-amber-400' : 'text-slate-400')}
+                  className={cn('w-5 h-5 shrink-0', isActive ? 'text-white' : 'text-slate-400')}
                 />
                 <span>{item.label}</span>
               </NavLink>
@@ -195,7 +204,7 @@ export const AppLayout: React.FC = () => {
         </nav>
 
         {/* Mobile User Profile & Logout */}
-        <div className="p-4 border-t border-slate-800 bg-[#060E20]">
+        <div className="p-4 border-t border-slate-800/90 bg-slate-950/50">
           <div className="flex items-center justify-between">
             <div className="truncate pr-2">
               <p className="text-xs font-semibold text-slate-200 truncate">{userName}</p>
@@ -205,6 +214,7 @@ export const AppLayout: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={handleSignOut}
+              aria-label="Sair da conta"
               className="text-slate-400 hover:text-red-400 hover:bg-red-950/40 h-8 px-2.5 gap-1.5 text-xs font-medium"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -214,17 +224,17 @@ export const AppLayout: React.FC = () => {
         </div>
       </aside>
 
-      {/* Desktop & Tablet Sidebar (Fixed Navy Premium) */}
+      {/* Desktop & Tablet Sidebar (Fixed Navy/Slate-900 Premium) */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 bg-[#09152B] text-slate-100 border-r border-slate-800/80 z-30 hidden lg:flex flex-col transition-all duration-250 ease-in-out shadow-lg',
+          'fixed inset-y-0 left-0 bg-slate-900 text-slate-100 border-r border-slate-800/90 z-30 hidden lg:flex flex-col transition-all duration-200 ease-in-out shadow-lg',
           isRailCollapsed ? 'w-[76px]' : 'w-[260px]',
         )}
       >
         {/* Sidebar Brand Header */}
         <div
           className={cn(
-            'h-20 border-b border-slate-800/80 flex items-center px-4 transition-all bg-[#060E20]',
+            'h-20 border-b border-slate-800/90 flex items-center px-4 transition-all bg-slate-950/50',
             isRailCollapsed ? 'justify-center' : 'justify-between',
           )}
         >
@@ -233,7 +243,7 @@ export const AppLayout: React.FC = () => {
               src={logoImg}
               alt="Diretoria Promoções"
               className={cn(
-                'object-contain drop-shadow-md transition-all',
+                'object-contain drop-shadow-sm transition-all',
                 isRailCollapsed ? 'h-9 w-auto max-w-[50px]' : 'h-11 w-auto max-w-[170px]',
               )}
             />
@@ -245,7 +255,8 @@ export const AppLayout: React.FC = () => {
               size="icon"
               onClick={() => setIsRailCollapsed(true)}
               title="Recolher menu"
-              className="w-7 h-7 text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 rounded-md"
+              aria-label="Recolher menu"
+              className="w-7 h-7 text-slate-400 hover:text-indigo-400 hover:bg-slate-800/80 rounded-md"
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -260,7 +271,8 @@ export const AppLayout: React.FC = () => {
               size="icon"
               onClick={() => setIsRailCollapsed(false)}
               title="Expandir menu"
-              className="w-8 h-8 text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 rounded-md"
+              aria-label="Expandir menu"
+              className="w-8 h-8 text-slate-400 hover:text-indigo-400 hover:bg-slate-800/80 rounded-md"
             >
               <ChevronRight className="w-4 h-4" />
             </Button>
@@ -280,17 +292,17 @@ export const AppLayout: React.FC = () => {
                 to={item.to}
                 title={isRailCollapsed ? item.label : undefined}
                 className={cn(
-                  'flex items-center rounded-lg text-sm font-medium transition-all duration-150 group relative',
+                  'flex items-center rounded-xl text-sm font-medium transition-all duration-150 group relative',
                   isRailCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-2.5',
                   isActive
-                    ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30 shadow-xs'
-                    : 'text-slate-300 hover:bg-slate-800/60 hover:text-white',
+                    ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
                 )}
               >
                 <Icon
                   className={cn(
                     'w-5 h-5 shrink-0 transition-colors',
-                    isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200',
+                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200',
                   )}
                 />
                 {!isRailCollapsed && <span className="truncate">{item.label}</span>}
@@ -300,12 +312,12 @@ export const AppLayout: React.FC = () => {
         </nav>
 
         {/* Desktop User info & Logout */}
-        <div className="p-3 border-t border-slate-800/80 bg-[#060E20]">
+        <div className="p-3 border-t border-slate-800/90 bg-slate-950/50">
           {isRailCollapsed ? (
             <div className="flex flex-col items-center gap-2">
               <div
                 title={`${userName} (${user?.email || ''})`}
-                className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold text-xs flex items-center justify-center cursor-default"
+                className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold text-xs flex items-center justify-center cursor-default"
               >
                 {userName.slice(0, 2).toUpperCase()}
               </div>
@@ -314,6 +326,7 @@ export const AppLayout: React.FC = () => {
                 size="icon"
                 onClick={handleSignOut}
                 title="Sair da conta"
+                aria-label="Sair da conta"
                 className="w-8 h-8 text-slate-400 hover:text-red-400 hover:bg-red-950/40 rounded-lg"
               >
                 <LogOut className="w-4 h-4" />
@@ -322,7 +335,7 @@ export const AppLayout: React.FC = () => {
           ) : (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold text-xs flex items-center justify-center shrink-0">
                   {userName.slice(0, 2).toUpperCase()}
                 </div>
                 <div className="truncate">
@@ -335,6 +348,7 @@ export const AppLayout: React.FC = () => {
                 size="icon"
                 onClick={handleSignOut}
                 title="Sair"
+                aria-label="Sair da conta"
                 className="w-8 h-8 text-slate-400 hover:text-red-400 hover:bg-red-950/40 rounded-lg shrink-0"
               >
                 <LogOut className="w-4 h-4" />
