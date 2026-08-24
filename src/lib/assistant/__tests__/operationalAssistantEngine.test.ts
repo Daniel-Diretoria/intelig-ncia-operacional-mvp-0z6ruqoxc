@@ -6,6 +6,7 @@ import {
   executeIntent,
   pluralize,
   formatActionEvidence,
+  sanitizeActionText,
   type AssistantResponse,
 } from '../operationalAssistantEngine'
 import type { BaseAtualSnapshot } from '@/lib/selectors/baseAtualSelectors'
@@ -430,6 +431,9 @@ describe('operationalAssistantEngine', () => {
       expect(res.evidence.length).toBeGreaterThan(0)
 
       res.evidence.forEach((ev) => {
+        // Título deve ser sanitizado ("dia(s)" substituído por pluralização)
+        expect(ev.title).not.toMatch(/\d+\s*dia\(s\)/i)
+
         if (ev.details) {
           ev.details.forEach((d) => {
             // Não deve conter chaves técnicas brutas como labels
@@ -441,15 +445,66 @@ describe('operationalAssistantEngine', () => {
             expect(d.label).not.toBe('rupturasCount')
             expect(d.label).not.toBe('diasEmRuptura')
             expect(d.label).not.toBe('daysRemaining')
+            expect(d.label).not.toBe('diasRestantes')
             expect(d.label).not.toBe('storeCode')
             expect(d.label).not.toBe('storeName')
             expect(d.label).not.toBe('storeId')
+            expect(d.label).not.toBe('validadeId')
+            expect(d.label).not.toBe('ruptureId')
+            expect(d.label).not.toBe('parentId')
             // Não deve conter "undefined" ou "null" como valor
             expect(String(d.value)).not.toContain('undefined')
             expect(String(d.value)).not.toContain('null')
           })
         }
       })
+    })
+
+    it('deve aplicar allowlist no formatActionEvidence omitindo chaves desconhecidas e IDs internos', () => {
+      const evidence = {
+        validadeId: 'abc-123',
+        ruptureId: 'xyz-456',
+        parentId: 'par-789',
+        chaveDesconhecida: 'qualquer',
+        diasRestantes: 3,
+        quantidade: 216,
+        brand: 'FRUTAP',
+      }
+      const formatted = formatActionEvidence(evidence)
+
+      const labels = formatted.map((f) => f.label)
+      expect(labels).not.toContain('validadeId')
+      expect(labels).not.toContain('ruptureId')
+      expect(labels).not.toContain('parentId')
+      expect(labels).not.toContain('chaveDesconhecida')
+
+      expect(formatted).toEqual([
+        { label: 'Dias restantes', value: '3 dias' },
+        { label: 'Quantidade', value: '216' },
+        { label: 'Marca', value: 'FRUTAP' },
+      ])
+    })
+
+    it('deve omitir campos undefined e null no formatActionEvidence', () => {
+      const evidence = {
+        productName: undefined,
+        productCode: null,
+        brand: 'FRUTAP',
+      }
+      const formatted = formatActionEvidence(evidence as Record<string, unknown>)
+      expect(formatted).toEqual([{ label: 'Marca', value: 'FRUTAP' }])
+    })
+
+    it('deve sanitizar texto da ação com sanitizeActionText', () => {
+      expect(sanitizeActionText('Recolher 216 unidades com 3 dia(s) restantes')).toBe(
+        'Recolher 216 unidades com 3 dias restantes',
+      )
+      expect(sanitizeActionText('Produto com 1 dia(s) para vencer')).toBe(
+        'Produto com 1 dia para vencer',
+      )
+      expect(sanitizeActionText('Visita prioritária na loja 240')).toBe(
+        'Visita prioritária na loja 240',
+      )
     })
 
     it('deve tratar lote em EXPIRING_SOON omitindo quando vazio e exibindo quando preenchido', () => {

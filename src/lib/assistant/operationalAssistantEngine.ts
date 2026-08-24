@@ -66,7 +66,8 @@ export function pluralize(n: number, singular: string, plural: string): string {
 
 /**
  * Mapeamento e formatação humana PT-BR para evidências de ações recomendadas.
- * Omite campos cujo valor seja undefined, null ou string vazia.
+ * Allowlist explícita: omite qualquer chave que não esteja no dicionário,
+ * além de omitir valores undefined, null ou string vazia.
  */
 const ACTION_EVIDENCE_KEY_LABELS: Record<string, string> = {
   storeId: 'Loja',
@@ -76,7 +77,9 @@ const ACTION_EVIDENCE_KEY_LABELS: Record<string, string> = {
   productName: 'Produto',
   productCode: 'Código do produto',
   quantity: 'Quantidade',
+  quantidade: 'Quantidade',
   daysRemaining: 'Dias restantes',
+  diasRestantes: 'Dias restantes',
   storesWithRuptureCount: 'Lojas em ruptura',
   storesWithValidadeCount: 'Lojas com validade',
   validadesCriticalCount: 'Validades críticas',
@@ -98,12 +101,17 @@ export function formatActionEvidence(
       continue
     }
 
-    const label = ACTION_EVIDENCE_KEY_LABELS[rawKey] || rawKey
+    const label = ACTION_EVIDENCE_KEY_LABELS[rawKey]
+    if (!label) {
+      continue
+    }
+
     let valueStr: string | number = String(rawValue)
 
-    if (rawKey === 'daysRemaining' && typeof rawValue === 'number') {
-      valueStr = pluralize(rawValue, 'dia', 'dias')
-    } else if (rawKey === 'diasEmRuptura' && typeof rawValue === 'number') {
+    if (
+      (rawKey === 'daysRemaining' || rawKey === 'diasRestantes' || rawKey === 'diasEmRuptura') &&
+      typeof rawValue === 'number'
+    ) {
       valueStr = pluralize(rawValue, 'dia', 'dias')
     }
 
@@ -111,6 +119,10 @@ export function formatActionEvidence(
   }
 
   return formatted
+}
+
+export function sanitizeActionText(text: string): string {
+  return text.replace(/(\d+)\s*dia\(s\)/gi, (_, n) => pluralize(parseInt(n, 10), 'dia', 'dias'))
 }
 
 export interface EvidenceItem {
@@ -1440,7 +1452,7 @@ export function executeIntent(
 
       const evidence: EvidenceItem[] = actions.slice(0, 6).map((act) => ({
         iconType: 'alert',
-        title: act.action,
+        title: sanitizeActionText(act.action),
         subtitle: `Regra acionada: ${act.rule_id}`,
         badge: act.rule_id.replace(/_/g, ' '),
         badgeVariant: act.rule_id === 'RECOLHIMENTO_URGENTE' ? 'critical' : 'warning',
