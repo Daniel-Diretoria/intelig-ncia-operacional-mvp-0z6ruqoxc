@@ -11,8 +11,12 @@ import type { RupturaMotivo } from '@/types'
 // ---------------------------------------------------------------------------
 export const BLOCKER_MISSING_SUPPLIER = 'missing_supplier' as const
 export const BLOCKER_MISSING_PRODUCT = 'missing_product' as const
+export const BLOCKER_MISSING_INDUSTRY_CONTEXT = 'missing_industry_context' as const
 
-export type TradeProBlockerCode = typeof BLOCKER_MISSING_SUPPLIER | typeof BLOCKER_MISSING_PRODUCT
+export type TradeProBlockerCode =
+  | typeof BLOCKER_MISSING_SUPPLIER
+  | typeof BLOCKER_MISSING_PRODUCT
+  | typeof BLOCKER_MISSING_INDUSTRY_CONTEXT
 
 // ---------------------------------------------------------------------------
 // Tipos de Resultado Discriminado (Parse / Candidatos)
@@ -26,7 +30,7 @@ export type ParseResult<T> = { success: true; data: T } | { success: false; erro
  */
 export interface ValidadeCandidateBlocked {
   status: 'blocked'
-  blockerCode: typeof BLOCKER_MISSING_SUPPLIER
+  blockerCode: typeof BLOCKER_MISSING_SUPPLIER | typeof BLOCKER_MISSING_INDUSTRY_CONTEXT
   motivoBloqueio: string
   candidatoParcial: {
     colaborador: string
@@ -44,6 +48,29 @@ export interface ValidadeCandidateBlocked {
     diasVencimentoArquivo: number
   }
 }
+
+export interface ValidadeCandidateSuccess {
+  status: 'valid'
+  candidato: {
+    colaborador: string
+    codColaborador: string
+    razaoSocial: string
+    fantasia: string
+    cpfCnpj: string
+    cidade: string
+    estado: string
+    produto: string
+    codProduto: string
+    realizado: string
+    quantidade: number
+    validade: string
+    diasVencimentoArquivo: number
+    fornecedor: string
+    cliente: string
+  }
+}
+
+export type ValidadeCandidateResult = ValidadeCandidateBlocked | ValidadeCandidateSuccess
 
 /**
  * Candidato parcial extraído do payload de Ruptura.
@@ -71,8 +98,36 @@ export interface RupturaCandidateBlocked {
     rede: string
     observacao: string
     ruptura_flag: number
+    produto?: string
+    scope?: 'product' | 'brand_total'
   }
 }
+
+export interface RupturaCandidateSuccess {
+  status: 'valid'
+  candidato: {
+    codigo_loja: string
+    nome_loja: string
+    cnpj_loja: string
+    cidade: string
+    estado: string
+    cliente: string // indústria / fornecedor (descricaoFornecedor)
+    fornecedor_cnpj: string
+    categoria: string
+    familia: string
+    motivo: string
+    data_visita: string
+    colaborador: string
+    codColaborador: string
+    rede: string
+    observacao: string
+    ruptura_flag: number
+    produto: string
+    scope: 'product' | 'brand_total'
+  }
+}
+
+export type RupturaCandidateResult = RupturaCandidateBlocked | RupturaCandidateSuccess
 
 // ---------------------------------------------------------------------------
 // Normalizador de Paginação / Metadados
@@ -273,27 +328,72 @@ export function parseValidadeResponse(raw: unknown): ParseResult<NormalizedValid
  * ou qualquer outro campo como fallback para fornecedor.
  * NÃO chamar funções operacionais do pipeline (ex: executarPipeline, isOperacional, gerarChaveOperacional).
  */
-export function adaptValidadeItem(item: TradeProValidadeItem): ValidadeCandidateBlocked {
+export interface ValidadeAdapterContext {
+  supplierOperation?: string // Default: 'DIRETORIA'
+  industryClient?: string
+}
+
+/**
+ * Produz um candidato a partir do item oficial de Validade.
+ *
+ * Regras confirmadas:
+ * - `supplierOperation` = 'DIRETORIA'
+ * - `industryClient` é obrigatório para validação com sucesso (marca/indústria dona da validade).
+ * - A marca NÃO existe no payload documentado da API; se `industryClient` não for informado,
+ *   retorna `status='blocked'` com blockerCode `missing_industry_context`.
+ * - Quando o contexto estiver presente: `candidate.fornecedor='DIRETORIA'` e `candidate.cliente=industryClient`.
+ */
+export function adaptValidadeItem(
+  item: TradeProValidadeItem,
+  context?: ValidadeAdapterContext,
+): ValidadeCandidateResult {
+  const industryClient = context?.industryClient?.trim()
+  const supplierOperation = context?.supplierOperation?.trim() || 'DIRETORIA'
+
+  if (!industryClient) {
+    return {
+      status: 'blocked',
+      blockerCode: BLOCKER_MISSING_INDUSTRY_CONTEXT,
+      motivoBloqueio:
+        'Contexto da indústria/marca (industryClient) ausente. ' +
+        'O payload de Validade da TradePro não contém a indústria; ' +
+        'é obrigatório fornecer o contexto operacional explícito.',
+      candidatoParcial: {
+        colaborador: item.promotor.nome,
+        codColaborador: item.promotor.id,
+        razaoSocial: item.cliente.razaoSocial,
+        fantasia: item.cliente.fantasia,
+        cpfCnpj: item.cliente.cpfCnpj,
+        cidade: item.cliente.cidade.nome,
+        estado: item.cliente.cidade.estado.sigla,
+        produto: item.produto.descricao,
+        codProduto: item.produto.codigo,
+        realizado: item.realizado,
+        quantidade: item.quantidade,
+        validade: item.validade,
+        diasVencimentoArquivo: item.diasParaVencimento,
+      },
+    }
+  }
+
   return {
-    status: 'blocked',
-    blockerCode: BLOCKER_MISSING_SUPPLIER,
-    motivoBloqueio:
-      'Campo "fornecedor" (indústria) ausente no endpoint documentado da API TradePro de Validades. ' +
-      'Nenhum fallback arbitrário é permitido sem confirmação oficial da fonte.',
-    candidatoParcial: {
+    status: 'valid',
+    candidato: {
       colaborador: item.promotor.nome,
-      codColaborador: item.promotor.id, // preserva texto e zeros à esquerda
+      codColaborador: item.promotor.id,
       razaoSocial: item.cliente.razaoSocial,
       fantasia: item.cliente.fantasia,
       cpfCnpj: item.cliente.cpfCnpj,
       cidade: item.cliente.cidade.nome,
       estado: item.cliente.cidade.estado.sigla,
       produto: item.produto.descricao,
-      codProduto: item.produto.codigo, // preserva texto e zeros à esquerda
+      codProduto: item.produto.codigo,
       realizado: item.realizado,
       quantidade: item.quantidade,
       validade: item.validade,
       diasVencimentoArquivo: item.diasParaVencimento,
+      fornecedor: supplierOperation,
+      cliente: industryClient,
     },
   }
 }
@@ -426,31 +526,59 @@ export function parseRupturasResponse(raw: unknown): ParseResult<NormalizedRuptu
  * Além disso, o campo `codigo_produto` também está ausente no endpoint documentado.
  * Até haver confirmação oficial do TradePro, o item permanece bloqueado.
  */
-export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateBlocked {
+/**
+ * Normaliza chave de marca para comparação estrita e determinística.
+ * Trim, toLowerCase, remove acentos (NFD), compacta espaços.
+ */
+function normalizeBrandKeyLocal(s: string): string {
+  if (!s) return ''
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Produz um candidato a partir do item oficial de Ruptura da TradePro.
+ *
+ * Regras confirmadas pela diretoria:
+ * - `descricaoAtividade` mapeia para `produto`.
+ * - Se `produto` normalizado for exatamente igual a `descricaoFornecedor` (marca) normalizado,
+ *   define `scope='brand_total'`; caso contrário, `scope='product'`.
+ * - `codigo_produto` permanece ausente/opcional, sem inventar códigos.
+ */
+export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuccess {
+  const produto = item.descricaoAtividade || ''
+  const clienteMarca = item.descricaoFornecedor || ''
+
+  const isTotal =
+    Boolean(produto) &&
+    Boolean(clienteMarca) &&
+    normalizeBrandKeyLocal(produto) === normalizeBrandKeyLocal(clienteMarca)
+
   return {
-    status: 'blocked',
-    blockerCode: BLOCKER_MISSING_PRODUCT,
-    motivoBloqueio:
-      'Campo de produto ausente/não-confirmado na API TradePro de Rupturas. ' +
-      'O campo "descricaoAtividade" não possui confirmação oficial de ser o nome do produto, ' +
-      'e "codigo_produto" está ausente no endpoint documentado.',
-    candidatoParcial: {
-      codigo_loja: item.codigoCliente, // preserva zeros à esquerda (ex: "0007")
+    status: 'valid',
+    candidato: {
+      codigo_loja: item.codigoCliente,
       nome_loja: item.razaoSocialCliente,
       cnpj_loja: item.cpfCnpjCliente,
       cidade: item.cidadeCliente,
       estado: item.siglaEstadoCliente,
-      cliente: item.descricaoFornecedor, // indústria / fornecedor
+      cliente: clienteMarca,
       fornecedor_cnpj: item.cnpjFornecedor,
       categoria: item.descricaoCategoria,
       familia: item.descricaoFamilia,
-      motivo: item.descricaoMotivo, // valor bruto original; normalizeMotivo() disponível se necessário
+      motivo: item.descricaoMotivo,
       data_visita: item.dataVisita,
       colaborador: item.nomePromotor,
       codColaborador: item.idPromotor,
       rede: item.redeCliente,
       observacao: item.observacaoRuptura,
       ruptura_flag: item.ruptura,
+      produto,
+      scope: isTotal ? 'brand_total' : 'product',
     },
   }
 }

@@ -7,8 +7,7 @@ import {
   adaptRupturaItem,
   normalizePageMeta,
   normalizeMotivo,
-  BLOCKER_MISSING_SUPPLIER,
-  BLOCKER_MISSING_PRODUCT,
+  BLOCKER_MISSING_INDUSTRY_CONTEXT,
 } from '../tradeProAdapter'
 
 // ---------------------------------------------------------------------------
@@ -269,25 +268,30 @@ describe('TradePro Offline API Contracts & Adapters', () => {
     }
   })
 
-  // Teste 4: adaptValidadeItem → retorna status: 'blocked' com blockerCode: 'missing_supplier'
-  it("4. adaptValidadeItem → retorna status: 'blocked' com blockerCode: 'missing_supplier'", () => {
+  // Teste 4: adaptValidadeItem sem industryClient → retorna status: 'blocked' com blockerCode: 'missing_industry_context'
+  it("4. adaptValidadeItem sem industryClient → retorna status: 'blocked' com blockerCode: 'missing_industry_context'", () => {
     const candidate = adaptValidadeItem(mockValidadesResponse.validade[0])
     expect(candidate.status).toBe('blocked')
-    expect(candidate.blockerCode).toBe(BLOCKER_MISSING_SUPPLIER)
-    expect(candidate.blockerCode).toBe('missing_supplier')
-    expect(candidate.motivoBloqueio).toContain('fornecedor')
+    if (candidate.status === 'blocked') {
+      expect(candidate.blockerCode).toBe(BLOCKER_MISSING_INDUSTRY_CONTEXT)
+      expect(candidate.blockerCode).toBe('missing_industry_context')
+      expect(candidate.motivoBloqueio).toContain('industryClient')
+    }
   })
 
-  // Teste 5: adaptValidadeItem NÃO usa nenhum fallback como fornecedor
-  it('5. adaptValidadeItem NÃO usa nenhum fallback como fornecedor (sem campo fornecedor inventado no candidato)', () => {
-    const candidate = adaptValidadeItem(mockValidadesResponse.validade[0])
-    // candidatoParcial tem campos fiéis, sem fallback de fornecedor
-    expect(candidate.candidatoParcial).not.toHaveProperty('fornecedor')
-    expect(candidate.candidatoParcial).not.toHaveProperty('cliente_fornecedor')
-    // Assegura que campos existentes não foram adulterados
-    expect(candidate.candidatoParcial.produto).toBe('PRODUTO TESTE A 500G')
-    expect(candidate.candidatoParcial.razaoSocial).toBe('001 - MERCADO TESTE LTDA')
-    expect(candidate.candidatoParcial.fantasia).toBe('MERCADO TESTE 1')
+  // Teste 5: adaptValidadeItem com industryClient → retorna status: 'valid', fornecedor='DIRETORIA' e cliente=industryClient
+  it('5. adaptValidadeItem com industryClient → retorna status: "valid", fornecedor="DIRETORIA" e cliente=industryClient', () => {
+    const candidate = adaptValidadeItem(mockValidadesResponse.validade[0], {
+      industryClient: 'CASA KUNZLER',
+    })
+    expect(candidate.status).toBe('valid')
+    if (candidate.status === 'valid') {
+      expect(candidate.candidato.fornecedor).toBe('DIRETORIA')
+      expect(candidate.candidato.cliente).toBe('CASA KUNZLER')
+      expect(candidate.candidato.produto).toBe('PRODUTO TESTE A 500G')
+      expect(candidate.candidato.razaoSocial).toBe('001 - MERCADO TESTE LTDA')
+      expect(candidate.candidato.fantasia).toBe('MERCADO TESTE 1')
+    }
   })
 
   // Teste 6: parseRupturasResponse com fixture válida → sucesso, rupturas.length === 3
@@ -317,13 +321,25 @@ describe('TradePro Offline API Contracts & Adapters', () => {
     }
   })
 
-  // Teste 8: adaptRupturaItem → retorna status: 'blocked' com blockerCode: 'missing_product'
-  it("8. adaptRupturaItem → retorna status: 'blocked' com blockerCode: 'missing_product'", () => {
+  // Teste 8: adaptRupturaItem → mapeia descricaoAtividade para produto e define scope='product' ou 'brand_total'
+  it('8. adaptRupturaItem → mapeia descricaoAtividade para produto com scope="product"', () => {
     const candidate = adaptRupturaItem(mockRupturasResponse.rupturas[0])
-    expect(candidate.status).toBe('blocked')
-    expect(candidate.blockerCode).toBe(BLOCKER_MISSING_PRODUCT)
-    expect(candidate.blockerCode).toBe('missing_product')
-    expect(candidate.motivoBloqueio).toContain('produto')
+    expect(candidate.status).toBe('valid')
+    expect(candidate.candidato.produto).toBe('EXEMPLO ATIVIDADE')
+    expect(candidate.candidato.cliente).toBe('INDUSTRIA ALIMENTOS S/A')
+    expect(candidate.candidato.scope).toBe('product')
+  })
+
+  it('8b. adaptRupturaItem com descricaoAtividade === descricaoFornecedor → scope="brand_total"', () => {
+    const itemTotal = {
+      ...mockRupturasResponse.rupturas[0],
+      descricaoAtividade: 'INDUSTRIA ALIMENTOS S/A',
+      descricaoFornecedor: 'INDUSTRIA ALIMENTOS S/A',
+    }
+    const candidate = adaptRupturaItem(itemTotal)
+    expect(candidate.status).toBe('valid')
+    expect(candidate.candidato.scope).toBe('brand_total')
+    expect(candidate.candidato.produto).toBe('INDUSTRIA ALIMENTOS S/A')
   })
 
   // Teste 9: parseValidadeResponse com payload null → erro legível, sem expor conteúdo integral
@@ -356,23 +372,29 @@ describe('TradePro Offline API Contracts & Adapters', () => {
   // Teste 12: IDs com zeros à esquerda preservados
   it('12. IDs com zeros à esquerda preservados: promotor.id: "0001" e codigoCliente: "0007"', () => {
     const candValidade = adaptValidadeItem(mockValidadesResponse.validade[0])
-    expect(candValidade.candidatoParcial.codColaborador).toBe('0001')
-    expect(candValidade.candidatoParcial.codProduto).toBe('001020')
+    if (candValidade.status === 'blocked') {
+      expect(candValidade.candidatoParcial.codColaborador).toBe('0001')
+      expect(candValidade.candidatoParcial.codProduto).toBe('001020')
+    }
 
     const candRuptura = adaptRupturaItem(mockRupturasResponse.rupturas[0])
-    expect(candRuptura.candidatoParcial.codigo_loja).toBe('0007')
-    expect(candRuptura.candidatoParcial.codColaborador).toBe('0010')
+    expect(candRuptura.candidato.codigo_loja).toBe('0007')
+    expect(candRuptura.candidato.codColaborador).toBe('0010')
   })
 
   // Teste 13: Extração correta de cliente.cidade.nome e cliente.cidade.estado.sigla
   it('13. Extração correta de cliente.cidade.nome e cliente.cidade.estado.sigla', () => {
     const candValidade = adaptValidadeItem(mockValidadesResponse.validade[0])
-    expect(candValidade.candidatoParcial.cidade).toBe('CIDADE TESTE')
-    expect(candValidade.candidatoParcial.estado).toBe('TS')
+    if (candValidade.status === 'blocked') {
+      expect(candValidade.candidatoParcial.cidade).toBe('CIDADE TESTE')
+      expect(candValidade.candidatoParcial.estado).toBe('TS')
+    }
 
     const candValidade2 = adaptValidadeItem(mockValidadesResponse.validade[1])
-    expect(candValidade2.candidatoParcial.cidade).toBe('CIDADE MODELO')
-    expect(candValidade2.candidatoParcial.estado).toBe('SP')
+    if (candValidade2.status === 'blocked') {
+      expect(candValidade2.candidatoParcial.cidade).toBe('CIDADE MODELO')
+      expect(candValidade2.candidatoParcial.estado).toBe('SP')
+    }
   })
 
   // Teste 14: normalizePageMeta com valores: "5" → 5, 5 → 5, NaN → erro, -1 → erro, undefined → erro

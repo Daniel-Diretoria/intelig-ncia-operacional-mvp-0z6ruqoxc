@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   CalendarClock,
   AlertTriangle,
@@ -12,6 +13,12 @@ import {
   ArrowRight,
   ChevronRight,
   ShieldAlert,
+  HelpCircle,
+  Building2,
+  Boxes,
+  Zap,
+  Info,
+  RefreshCw,
 } from 'lucide-react'
 import {
   BarChart,
@@ -27,6 +34,15 @@ import { useKpis, useValidades, useRupturas, useAlertas } from '@/services'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { formatStoreIdentity, formatCityUf } from '@/lib/format/storeIdentity'
+import {
+  RISK_MODEL_VERSION,
+  expandBrandTotalRuptures,
+  computeStoreRiskScore,
+  computeProductRiskScore,
+  computeBrandRiskScore,
+  generateRecommendedActions,
+  type SeverityLevel,
+} from '@/lib/engine/strategicRankings'
 
 export const DashboardPage: React.FC = () => {
   const {
@@ -437,6 +453,536 @@ export const DashboardPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* ========================================================================= */}
+      {/* CENTRAL ESTRATÉGICA — MODELO DE RISCO OPERACIONAL V1                       */}
+      {/* ========================================================================= */}
+      <StrategicCentralSection
+        validades={validades}
+        rupturas={rupturas}
+        isLoading={isLoading}
+        hasError={Boolean(hasError)}
+        onRetry={refetchKpis}
+      />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Helpers visuais de severidade
+// ---------------------------------------------------------------------------
+function getSeverityBadge(severity: SeverityLevel) {
+  switch (severity) {
+    case 'Crítico':
+      return {
+        label: 'Crítico',
+        className: 'bg-red-100 text-red-800 border-red-200',
+        barColor: 'bg-red-500',
+      }
+    case 'Alto':
+      return {
+        label: 'Alto',
+        className: 'bg-amber-100 text-amber-800 border-amber-200',
+        barColor: 'bg-amber-500',
+      }
+    case 'Atenção':
+      return {
+        label: 'Atenção',
+        className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        barColor: 'bg-yellow-500',
+      }
+    case 'Monitorar':
+    default:
+      return {
+        label: 'Monitorar',
+        className: 'bg-blue-100 text-blue-800 border-blue-200',
+        barColor: 'bg-blue-500',
+      }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Componente da Seção Central Estratégica
+// ---------------------------------------------------------------------------
+interface StrategicCentralProps {
+  validades: ReturnType<typeof useValidades>['data']
+  rupturas: ReturnType<typeof useRupturas>['data']
+  isLoading: boolean
+  hasError: boolean
+  onRetry: () => void
+}
+
+const StrategicCentralSection: React.FC<StrategicCentralProps> = ({
+  validades,
+  rupturas,
+  isLoading,
+  hasError,
+  onRetry,
+}) => {
+  const [showExplanation, setShowExplanation] = useState(false)
+
+  // Motor estratégico executado puramente em memória sobre os dados da Base Atual
+  const strategicData = useMemo(() => {
+    if (!validades || !rupturas) {
+      return {
+        topLojas: [],
+        topProdutos: [],
+        topMarcas: [],
+        actions: [],
+      }
+    }
+
+    // 1. Expansão de rupturas totais em memória
+    const { expanded } = expandBrandTotalRuptures(rupturas, validades)
+
+    // 2. Extrair Lojas únicas
+    const storeCodesMap = new Map<string, string>() // storeCode -> display name
+    for (const v of validades) {
+      const sCode = (v.codigoLoja || (v as any).codigo_loja || v.loja || '').trim()
+      if (sCode) {
+        storeCodesMap.set(sCode, v.loja || v.cliente || `Loja ${sCode}`)
+      }
+    }
+    for (const r of rupturas) {
+      const sCode = (r.codigo_loja || r.nome_loja || '').trim()
+      if (sCode) {
+        storeCodesMap.set(sCode, r.nome_loja || `Loja ${sCode}`)
+      }
+    }
+
+    const lojasScores = Array.from(storeCodesMap.keys()).map((code) =>
+      computeStoreRiskScore(code, validades, rupturas, expanded),
+    )
+
+    // 3. Extrair Produtos únicos
+    const productNames = new Set<string>()
+    for (const v of validades) {
+      if (v.product) productNames.add(v.product)
+    }
+    for (const r of rupturas) {
+      if (r.produto) productNames.add(r.produto)
+    }
+    for (const d of expanded) {
+      if (d.productName) productNames.add(d.productName)
+    }
+
+    const produtosScores = Array.from(productNames).map((prod) =>
+      computeProductRiskScore(prod, validades, rupturas, expanded),
+    )
+
+    // 4. Extrair Marcas / Indústrias únicas
+    const brandNames = new Set<string>()
+    for (const v of validades) {
+      const b = v.cliente || v.industria
+      if (b) brandNames.add(b)
+    }
+    for (const r of rupturas) {
+      if (r.cliente) brandNames.add(r.cliente)
+    }
+
+    const marcasScores = Array.from(brandNames).map((brand) =>
+      computeBrandRiskScore(brand, validades, rupturas),
+    )
+
+    // 5. Ações recomendadas transparentes
+    const actions = generateRecommendedActions(lojasScores, produtosScores, marcasScores, validades)
+
+    // Ordenar e pegar Top 5
+    const topLojas = [...lojasScores]
+      .sort((a, b) => b.score - a.score || b.rawPoints - a.rawPoints)
+      .slice(0, 5)
+    const topProdutos = [...produtosScores]
+      .sort((a, b) => b.score - a.score || b.rawPoints - a.rawPoints)
+      .slice(0, 5)
+    const topMarcas = [...marcasScores]
+      .sort((a, b) => b.score - a.score || b.rawPoints - a.rawPoints)
+      .slice(0, 5)
+
+    return {
+      topLojas,
+      topProdutos,
+      topMarcas,
+      actions,
+    }
+  }, [validades, rupturas])
+
+  return (
+    <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
+      <CardHeader className="pb-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
+                Central Estratégica
+              </CardTitle>
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Modelo de risco operacional {RISK_MODEL_VERSION}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Ranqueamento puro e explicável de risco operacional baseado em vencimentos e rupturas
+              ativas.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowExplanation((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-indigo-600 px-2.5 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>
+              {showExplanation ? 'Ocultar critério do score' : 'Como o score é calculado?'}
+            </span>
+          </button>
+        </div>
+
+        {/* Explicação Curta Acessível Colapsável */}
+        {showExplanation && (
+          <div className="mt-3 p-3.5 rounded-lg bg-indigo-50/70 border border-indigo-100 text-xs text-slate-700 space-y-2 animate-fade-in">
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-indigo-950">
+                  O score combina risco de vencimento (pontos por dias restantes e quantidade) com
+                  risco de ruptura (pontos por dias em falta), limitado a 100 pontos.
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-600 text-[11px] pt-1">
+                  <li>
+                    <strong>Validades ativas:</strong> 1–3d (10pts), 4–7d (8pts), 8–15d (5pts),
+                    16–25d (2pts), 26–35d (1pt) + adicional por quantidade (≥100: +4, 50–99: +3,
+                    10–49: +1).
+                  </li>
+                  <li>
+                    <strong>Rupturas ativas:</strong> 0–3d (2pts), 4–7d (4pts), 8–14d (7pts), 15+d
+                    (10pts). Rupturas de portfólio total são expandidas em memória sem duplicação.
+                  </li>
+                  <li>
+                    <strong>Severidade:</strong> Crítico (75–100), Alto (50–74), Atenção (25–49),
+                    Monitorar (0–24). Não utiliza giro, venda ou métrica financeira.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardHeader>
+
+      <CardContent className="p-4 sm:p-6">
+        {hasError ? (
+          <div className="text-center py-8 space-y-3">
+            <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
+            <p className="text-sm font-semibold text-slate-800">
+              Não foi possível processar o ranqueamento estratégico
+            </p>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Ocorreu um erro ao ler os registros da Base Atual. Verifique a conexão com o banco.
+            </p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Tentar novamente
+            </button>
+          </div>
+        ) : isLoading ? (
+          <div className="space-y-3 py-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 bg-slate-50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <Tabs defaultValue="lojas" className="w-full">
+            <TabsList className="grid grid-cols-2 sm:grid-cols-4 mb-4 bg-slate-100 p-1">
+              <TabsTrigger
+                value="lojas"
+                className="text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                Lojas Críticas
+              </TabsTrigger>
+              <TabsTrigger
+                value="produtos"
+                className="text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Package className="w-3.5 h-3.5" />
+                Produtos Críticos
+              </TabsTrigger>
+              <TabsTrigger
+                value="marcas"
+                className="text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                Indústrias/Marcas
+              </TabsTrigger>
+              <TabsTrigger
+                value="acoes"
+                className="text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                Ações Recomendadas ({strategicData.actions.length})
+              </TabsTrigger>
+            </TabsList>
+
+            {/* TAB 1: LOJAS CRÍTICAS */}
+            <TabsContent value="lojas" className="space-y-3 mt-0">
+              {strategicData.topLojas.length === 0 ? (
+                <EmptyState
+                  title="Nenhuma loja com risco detectado"
+                  description="Não há registros de validade crítica ou ruptura ativa vinculados a lojas."
+                />
+              ) : (
+                strategicData.topLojas.map((loja, idx) => {
+                  const badge = getSeverityBadge(loja.severity)
+                  const storeDisplay = formatStoreIdentity({
+                    codigo_loja: loja.storeCode,
+                    nome_loja: loja.storeName,
+                  })
+                  const cityUf = formatCityUf(loja.city, loja.state)
+
+                  return (
+                    <div
+                      key={loja.storeCode || idx}
+                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold text-slate-400">
+                              #{idx + 1}
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {storeDisplay}
+                            </p>
+                            {cityUf && (
+                              <span className="text-[11px] text-slate-500">({cityUf})</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
+                            <span>
+                              Validades em risco: <strong>{loja.validadesCount}</strong> (
+                              {loja.validadesQuantityInRisk} un)
+                            </span>
+                            <span>•</span>
+                            <span>
+                              Rupturas ativas:{' '}
+                              <strong>
+                                {loja.rupturasSpecificCount +
+                                  loja.rupturasDerivedCount +
+                                  loja.rupturasTotalUnresolvedCount}
+                              </strong>{' '}
+                              ({loja.rupturasSpecificCount} específicas, {loja.rupturasDerivedCount}{' '}
+                              derivadas)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                          <div className="text-right">
+                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                              {loja.score}{' '}
+                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                            </div>
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Barra de progresso horizontal do score */}
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          style={{ width: `${Math.min(100, loja.score)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </TabsContent>
+
+            {/* TAB 2: PRODUTOS CRÍTICOS */}
+            <TabsContent value="produtos" className="space-y-3 mt-0">
+              {strategicData.topProdutos.length === 0 ? (
+                <EmptyState
+                  title="Nenhum produto com risco detectado"
+                  description="Não há produtos ativos pontuando no modelo de risco."
+                />
+              ) : (
+                strategicData.topProdutos.map((prod, idx) => {
+                  const badge = getSeverityBadge(prod.severity)
+                  return (
+                    <div
+                      key={`${prod.productName}_${idx}`}
+                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold text-slate-400">
+                              #{idx + 1}
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {prod.productName}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
+                            <span>
+                              Marca: <strong>{prod.brand}</strong>
+                            </span>
+                            {prod.productCode && (
+                              <span>
+                                Cód: <code>{prod.productCode}</code>
+                              </span>
+                            )}
+                            <span>•</span>
+                            <span>
+                              Presente em <strong>{prod.storesWithValidadeCount}</strong> loja(s)
+                              com validade e <strong>{prod.storesWithRuptureCount}</strong> com
+                              ruptura
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                          <div className="text-right">
+                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                              {prod.score}{' '}
+                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                            </div>
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Barra de progresso */}
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          style={{ width: `${Math.min(100, prod.score)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </TabsContent>
+
+            {/* TAB 3: INDÚSTRIAS / MARCAS */}
+            <TabsContent value="marcas" className="space-y-3 mt-0">
+              {strategicData.topMarcas.length === 0 ? (
+                <EmptyState
+                  title="Nenhuma marca com risco detectado"
+                  description="Não há marcas registradas na Base Atual."
+                />
+              ) : (
+                strategicData.topMarcas.map((marca, idx) => {
+                  const badge = getSeverityBadge(marca.severity)
+                  return (
+                    <div
+                      key={`${marca.brand}_${idx}`}
+                      className="p-3.5 rounded-lg border border-slate-100 hover:border-slate-200 bg-white hover:bg-slate-50/50 transition-colors space-y-2.5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold text-slate-400">
+                              #{idx + 1}
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {marca.brand}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
+                            <span>
+                              Validades em risco: <strong>{marca.validadesCount}</strong> (
+                              {marca.validadesQuantityInRisk} un)
+                            </span>
+                            <span>•</span>
+                            <span>
+                              Lojas com validade crítica (1-7d):{' '}
+                              <strong>{marca.validadesCriticalStoresCount}</strong>
+                            </span>
+                            <span>•</span>
+                            <span>
+                              Rupturas ativas: <strong>{marca.rupturasCount}</strong> em{' '}
+                              {marca.storesWithRuptureCount} loja(s)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                          <div className="text-right">
+                            <div className="text-sm font-extrabold text-slate-900 tabular-nums">
+                              {marca.score}{' '}
+                              <span className="text-[10px] text-slate-400 font-normal">/ 100</span>
+                            </div>
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Barra de progresso */}
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${badge.barColor} transition-all duration-300`}
+                          style={{ width: `${Math.min(100, marca.score)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </TabsContent>
+
+            {/* TAB 4: AÇÕES RECOMENDADAS TRANSPARENTES */}
+            <TabsContent value="acoes" className="space-y-3 mt-0">
+              {strategicData.actions.length === 0 ? (
+                <EmptyState
+                  title="Nenhuma ação emergencial disparada"
+                  description="Nenhum critério estrito de visita prioritária, recolhimento ou ruptura recorrente foi atingido nos dados atuais."
+                />
+              ) : (
+                strategicData.actions.map((act, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 text-slate-800">
+                        {act.rule_id}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-900 leading-snug">
+                      {act.action}
+                    </p>
+                    <div className="text-[11px] text-slate-500 bg-white p-2 rounded border border-slate-100 font-mono text-[10px] overflow-x-auto">
+                      <strong>Evidência:</strong> {JSON.stringify(act.evidence)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
+      </CardContent>
+    </Card>
   )
 }
