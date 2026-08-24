@@ -147,7 +147,7 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
   }, [state])
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-sm space-y-3">
+    <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs space-y-3.5">
       {/* Linha principal: busca + ações */}
       <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
         <div className="relative flex-1 min-w-[220px]">
@@ -157,7 +157,7 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
             value={state.search}
             onChange={(e) => update('search', e.target.value)}
             placeholder="Buscar por produto, cliente ou loja..."
-            className="pl-9 h-10 text-sm rounded-lg border-slate-300 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500"
+            className="pl-9 h-10 text-xs sm:text-sm rounded-xl border-slate-200 bg-slate-50/50 focus:bg-white focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500"
           />
         </div>
 
@@ -167,12 +167,12 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
             size="default"
             onClick={() => setShowAdvanced((s) => !s)}
             className={cn(
-              'h-10 px-3 gap-1.5 border-slate-300 text-slate-600 hover:bg-slate-50',
-              showAdvanced && 'bg-slate-50 border-indigo-300 text-indigo-700',
+              'h-10 px-3.5 gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-medium text-xs',
+              showAdvanced && 'bg-indigo-50/60 border-indigo-200 text-indigo-700 font-semibold',
             )}
           >
-            <FilterIcon className="w-4 h-4" />
-            <span>Filtros</span>
+            <FilterIcon className="w-3.5 h-3.5" />
+            <span>Filtros avançados</span>
             {activeCount > 0 && (
               <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
                 {activeCount}
@@ -183,9 +183,9 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
           <Button
             onClick={onApply}
             size="default"
-            className="h-10 px-4 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+            className="h-10 px-4 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs rounded-xl font-semibold text-xs"
           >
-            <FilterIcon className="w-4 h-4" />
+            <FilterIcon className="w-3.5 h-3.5" />
             <span>Aplicar</span>
           </Button>
 
@@ -194,7 +194,7 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
             variant="outline"
             size="default"
             disabled={!hasActive}
-            className="h-10 px-3 gap-1.5 border-slate-300 text-slate-600 hover:bg-slate-50"
+            className="h-10 px-3.5 gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-medium text-xs"
           >
             <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
             <span>Limpar</span>
@@ -204,7 +204,7 @@ export const ValidadesFilters: React.FC<ValidadesFiltersProps> = ({
 
       {/* Filtros avançados */}
       {showAdvanced && (
-        <div className="pt-3 border-t border-slate-100 space-y-3 animate-fade-in">
+        <div className="pt-3.5 border-t border-slate-100 space-y-3.5 animate-fade-in">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <SelectField
               label="Cliente"

@@ -212,13 +212,27 @@ export const RelatoriosPage: React.FC = () => {
   }, [isRupturasReport, effectiveFilter, toast])
 
   return (
-    <div className="space-y-6 lg:space-y-8 animate-fade-in pb-12">
-      {/* Page Header */}
-      <div>
-        <h3 className="text-xl font-bold text-slate-900 tracking-tight">Relatórios Operacionais</h3>
-        <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          Selecione um relatório para visualizar os dados operacionais consolidados.
-        </p>
+    <div className="space-y-6 animate-fade-in pb-12">
+      {/* Header Premium */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+            <FileBarChart className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Relatórios Operacionais
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                Exportação &amp; BI
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Consolidação analítica de validades e rupturas por produto, loja, promotor ou período.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Grid of Report Cards (4 Cards) */}
@@ -231,19 +245,19 @@ export const RelatoriosPage: React.FC = () => {
             <div
               key={card.type}
               onClick={() => setSelectedReportType(card.type)}
-              className={`bg-white rounded-xl border p-5 shadow-xs cursor-pointer transition-all duration-200 flex flex-col justify-between hover:shadow-md hover:-translate-y-0.5 ${
+              className={`bg-white rounded-2xl border p-5 shadow-xs cursor-pointer transition-all duration-200 flex flex-col justify-between hover:shadow-md hover:-translate-y-0.5 ${
                 isSelected
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20'
-                  : 'border-slate-200 hover:border-slate-300'
+                  ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20'
+                  : 'border-slate-200/80 hover:border-slate-300'
               }`}
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                       isSelected
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'bg-indigo-50 text-indigo-600'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -298,9 +312,9 @@ export const RelatoriosPage: React.FC = () => {
 
       {/* Selected Report Preview Panel */}
       {!error && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in-up">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden animate-fade-in-up">
           {/* Preview Header */}
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="p-5 sm:p-6 border-b border-slate-200/80 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <FileBarChart className="w-5 h-5 text-indigo-600" />
@@ -325,16 +339,16 @@ export const RelatoriosPage: React.FC = () => {
                 disabled={isExportingPdf || isExporting}
                 size="default"
                 variant="outline"
-                className="h-10 px-4 gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                className="h-10 px-4 gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-semibold text-xs shadow-2xs disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <FileText className="w-4 h-4" />
+                <FileText className="w-4 h-4 text-indigo-600" />
                 <span>{isExportingPdf ? 'Gerando PDF...' : 'Exportar PDF'}</span>
               </Button>
               <Button
                 onClick={handleExport}
                 disabled={isExporting || isExportingPdf}
                 size="default"
-                className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-medium text-xs shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 font-semibold text-xs rounded-xl shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
                 <span>{isExporting ? 'Exportando...' : 'Exportar XLSX'}</span>

@@ -229,13 +229,13 @@ export const CrossEvidenceTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Selo de Simulação no topo */}
-      <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
         <div className="flex items-center gap-2.5">
-          <Badge className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-2.5 py-0.5 shadow-xs">
+          <Badge className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-2.5 py-0.5 shadow-2xs rounded-md">
             Modo Shadow
           </Badge>
           <span className="text-xs font-semibold text-amber-950">
-            Simulação — não altera a Base Atual de Rupturas nem Validades
+            Simulação analítica — não altera a Base Atual de Rupturas nem de Validades
           </span>
         </div>
 
@@ -245,7 +245,7 @@ export const CrossEvidenceTab: React.FC = () => {
             size="sm"
             onClick={() => setRecalculateConfirmOpen(true)}
             disabled={isRecalculating || isLoading}
-            className="h-9 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs"
+            className="h-9 px-3.5 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs rounded-xl"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
             {isRecalculating ? recalcProgressText || 'Processando...' : 'Recalcular confronto'}
@@ -257,9 +257,9 @@ export const CrossEvidenceTab: React.FC = () => {
       <CrossEvidenceKpis kpis={kpis} isLoading={isLoading} />
 
       {/* Seção de Auditoria Rápida (Chips de visualização rápida) */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-2 shadow-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
             <Filter className="w-3.5 h-3.5 text-indigo-600" />
             Auditoria Rápida:
           </span>
@@ -271,7 +271,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 setQuickAuditFilter('all')
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full"
+              className="h-7 text-[11px] px-2.5 rounded-lg font-medium"
             >
               Todos ({data.length})
             </Button>
@@ -284,7 +284,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 )
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full border-slate-200"
+              className="h-7 text-[11px] px-2.5 rounded-lg border-slate-200 font-medium"
             >
               Sem código de produto
             </Button>
@@ -297,7 +297,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 )
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full border-slate-200"
+              className="h-7 text-[11px] px-2.5 rounded-lg border-slate-200 font-medium"
             >
               Mesmo dia sem horário
             </Button>
@@ -310,7 +310,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 )
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full border-slate-200"
+              className="h-7 text-[11px] px-2.5 rounded-lg border-slate-200 font-medium"
             >
               Marca diferente
             </Button>
@@ -323,7 +323,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 )
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full border-slate-200"
+              className="h-7 text-[11px] px-2.5 rounded-lg border-slate-200 font-medium"
             >
               Produtos similares
             </Button>
@@ -334,7 +334,7 @@ export const CrossEvidenceTab: React.FC = () => {
                 setQuickAuditFilter(quickAuditFilter === 'rejected' ? 'all' : 'rejected')
                 setCurrentPage(1)
               }}
-              className="h-7 text-[11px] px-2.5 rounded-full border-red-200 text-red-700 bg-red-50/40"
+              className="h-7 text-[11px] px-2.5 rounded-lg border-red-200 text-red-700 bg-red-50/40 font-medium"
             >
               Rejeitados
             </Button>
@@ -346,7 +346,7 @@ export const CrossEvidenceTab: React.FC = () => {
             variant="ghost"
             size="sm"
             onClick={clearFilters}
-            className="h-7 text-[11px] text-slate-500 hover:text-slate-900"
+            className="h-7 text-[11px] text-slate-500 hover:text-slate-900 rounded-lg"
           >
             Limpar filtros
           </Button>
@@ -354,7 +354,7 @@ export const CrossEvidenceTab: React.FC = () => {
       </div>
 
       {/* Barra de Filtros Primários */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-xs">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 space-y-3 shadow-xs">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
           {/* Loja */}
           <Select
@@ -501,7 +501,7 @@ export const CrossEvidenceTab: React.FC = () => {
       </div>
 
       {/* Tabela de Confrontos Paginada */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+      <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-indigo-600" />

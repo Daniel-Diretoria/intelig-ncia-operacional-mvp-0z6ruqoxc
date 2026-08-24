@@ -39,7 +39,7 @@ export const ValidadesKpis: React.FC<ValidadesKpisProps> = ({ tiles, onSelect, i
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
       {tiles.map((tile) => {
         const Icon = tile.icon
         return (
@@ -48,20 +48,20 @@ export const ValidadesKpis: React.FC<ValidadesKpisProps> = ({ tiles, onSelect, i
             type="button"
             onClick={() => onSelect?.(tile.id)}
             className={cn(
-              'group text-left bg-white rounded-xl border p-3.5 shadow-xs transition-all duration-200',
-              'hover:shadow-md hover:-translate-y-0.5',
+              'group text-left bg-white rounded-2xl border p-4 shadow-xs transition-all duration-200',
+              'hover:shadow-md hover:-translate-y-0.5 cursor-pointer',
               tile.active
-                ? 'border-indigo-300 ring-1 ring-indigo-200 bg-indigo-50/40'
-                : 'border-slate-200',
+                ? 'border-indigo-400 ring-2 ring-indigo-500/20 bg-indigo-50/30'
+                : 'border-slate-200/80 hover:border-slate-300',
             )}
           >
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider leading-tight">
                 {tile.label}
               </p>
               <div
                 className={cn(
-                  'w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
+                  'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105',
                   tile.chipClass,
                 )}
               >

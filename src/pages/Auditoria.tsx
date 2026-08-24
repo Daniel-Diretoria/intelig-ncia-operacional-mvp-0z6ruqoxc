@@ -269,34 +269,49 @@ export const AuditoriaPage: React.FC = () => {
   ]
 
   return (
-    <div className="space-y-6 animate-fade-in pb-10">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h3 className="text-xl font-bold text-slate-900 tracking-tight">Auditoria de Vencidos</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Verifique ocorrências Vencidas — sinalize erros de registro do promotor ou confirme
-            vencimentos legítimos antes que contaminem relatórios.
-          </p>
+    <div className="space-y-6 animate-fade-in pb-12">
+      {/* Header Premium */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Auditoria de Vencidos
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+                Isolamento Crítico
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Verifique ocorrências Vencidas — sinalize erros de registro do promotor ou confirme
+              vencimentos legítimos.
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-100 text-xs font-semibold">
+        <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-bold self-start sm:self-center shadow-2xs">
           <ShieldAlert className="w-4 h-4" />
-          {resumo.totalVencidos} ocorrência(s) vencida(s)
+          <span>{resumo.totalVencidos} ocorrência(s) vencida(s)</span>
         </div>
       </div>
 
       {/* Resumo */}
       {isLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white animate-pulse">
+            <div
+              key={i}
+              className="p-5 rounded-2xl border border-slate-200/80 bg-white shadow-xs animate-pulse"
+            >
               <div className="h-3 bg-slate-200 rounded w-20 mb-2" />
               <div className="h-7 bg-slate-200 rounded w-12" />
             </div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {cards.map((c) => (
             <ResumoCardItem key={c.label} {...c} />
           ))}
@@ -304,7 +319,7 @@ export const AuditoriaPage: React.FC = () => {
       )}
 
       {/* Filtros */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shadow-xs">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -315,7 +330,7 @@ export const AuditoriaPage: React.FC = () => {
               setCurrentPage(1)
             }}
             placeholder="Buscar por produto, loja, promotor ou supervisor..."
-            className="w-full h-9 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300"
+            className="w-full h-10 pl-9 pr-3 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
           />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -334,9 +349,9 @@ export const AuditoriaPage: React.FC = () => {
                 setCurrentPage(1)
               }}
               className={cn(
-                'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                'px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer',
                 filtroStatus === val
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               )}
             >
@@ -358,7 +373,7 @@ export const AuditoriaPage: React.FC = () => {
 
       {/* Tabela */}
       {!error && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
           {isLoading ? (
             <div className="p-8 space-y-3">
               <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-2">
@@ -502,13 +517,13 @@ export const AuditoriaPage: React.FC = () => {
 
           {/* Paginação */}
           {!isLoading && totalPages > 1 && (
-            <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs text-slate-500 bg-slate-50/50">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 text-xs text-slate-600 bg-white">
               <div>
                 Mostrando{' '}
-                <strong className="text-slate-700">
+                <strong className="text-slate-900">
                   {startRange}–{endRange}
                 </strong>{' '}
-                de <strong className="text-slate-700">{totalItems}</strong> ocorrências
+                de <strong className="text-slate-900">{totalItems}</strong> ocorrências
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -516,22 +531,23 @@ export const AuditoriaPage: React.FC = () => {
                   size="sm"
                   disabled={currentPage <= 1}
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="h-7 px-2 text-xs gap-1"
+                  className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  Anterior
+                  <span>Anterior</span>
                 </Button>
-                <span className="font-medium text-slate-700">
-                  Página {currentPage} de {totalPages}
+                <span className="text-slate-500">
+                  Página <strong className="text-slate-900">{currentPage}</strong> de{' '}
+                  <strong className="text-slate-900">{totalPages}</strong>
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={currentPage >= totalPages}
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="h-7 px-2 text-xs gap-1"
+                  className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
                 >
-                  Próxima
+                  <span>Próxima</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </Button>
               </div>

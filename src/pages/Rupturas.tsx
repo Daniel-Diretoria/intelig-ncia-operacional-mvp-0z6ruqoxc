@@ -140,18 +140,30 @@ export function RupturasPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Topo / Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Painel de Rupturas</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Monitoramento de falta de produtos, desabastecimento em gôndola e confronto analítico
-            com validades.
-          </p>
+    <div className="space-y-6 animate-fade-in pb-12">
+      {/* Header Premium */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Painel de Rupturas
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                Gôndola &amp; Abastecimento
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Monitoramento de desabastecimento, histórico de ocorrências e confronto em modo shadow
+              com validades.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-center">
           {activeTab === 'rupturas' && (
             <>
               <Button
@@ -159,16 +171,18 @@ export function RupturasPage() {
                 size="sm"
                 onClick={() => refetch()}
                 disabled={isLoading}
-                className="h-9 gap-2 text-slate-700"
+                className="h-10 px-3.5 gap-2 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl"
               >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-indigo-600' : ''}`}
+                />
                 Atualizar
               </Button>
 
               <Button
                 asChild
                 size="sm"
-                className="h-9 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs"
               >
                 <Link to="/importacao">
                   <UploadCloud className="w-4 h-4" />
@@ -182,12 +196,18 @@ export function RupturasPage() {
 
       {/* Sistema de Abas */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-md bg-slate-100 p-1">
-          <TabsTrigger value="rupturas" className="gap-2 text-xs font-semibold">
+        <TabsList className="grid w-full grid-cols-2 max-w-md bg-slate-100 p-1 rounded-xl">
+          <TabsTrigger
+            value="rupturas"
+            className="gap-2 text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <AlertTriangle className="w-4 h-4 text-amber-600" />
             Rupturas (Oficial)
           </TabsTrigger>
-          <TabsTrigger value="confronto" className="gap-2 text-xs font-semibold">
+          <TabsTrigger
+            value="confronto"
+            className="gap-2 text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <GitCompare className="w-4 h-4 text-indigo-600" />
             Confronto Validades
             <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] py-0 px-1 font-bold ml-1">
@@ -202,11 +222,15 @@ export function RupturasPage() {
           <RupturasKpisCards kpis={kpis} isLoading={isLoading} />
 
           {/* Barra de Filtros */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-xs">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 space-y-3 shadow-xs">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-xs font-bold text-slate-700">
+              <Filter className="w-4 h-4 text-slate-500" />
+              <span>Filtros de Ocorrências</span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Busca textual */}
               <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   placeholder="Buscar por produto, loja, colaborador..."
                   value={search}
@@ -214,7 +238,7 @@ export function RupturasPage() {
                     setSearch(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="pl-9 h-9 text-xs"
+                  className="pl-9 h-10 text-xs bg-slate-50/50 border-slate-200 focus:bg-white rounded-lg"
                 />
               </div>
 
@@ -226,7 +250,7 @@ export function RupturasPage() {
                   setCurrentPage(1)
                 }}
               >
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
                   <SelectValue placeholder="Todas as Lojas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -247,7 +271,7 @@ export function RupturasPage() {
                   setCurrentPage(1)
                 }}
               >
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
                   <SelectValue placeholder="Todos os Motivos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -266,7 +290,7 @@ export function RupturasPage() {
                   setCurrentPage(1)
                 }}
               >
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
                   <SelectValue placeholder="Situação Atual (Todos)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -290,7 +314,7 @@ export function RupturasPage() {
                     setDataInicio(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="h-8 px-2 text-xs rounded-md border border-slate-200 bg-white"
+                  className="h-8 px-2 text-xs rounded-lg border border-slate-200 bg-white"
                 />
                 <span className="text-slate-400">até</span>
                 <input
@@ -300,7 +324,7 @@ export function RupturasPage() {
                     setDataFim(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="h-8 px-2 text-xs rounded-md border border-slate-200 bg-white"
+                  className="h-8 px-2 text-xs rounded-lg border border-slate-200 bg-white"
                 />
               </div>
 
@@ -309,7 +333,7 @@ export function RupturasPage() {
                   variant="ghost"
                   size="sm"
                   onClick={clearFilters}
-                  className="h-8 text-xs text-slate-500 hover:text-slate-900"
+                  className="h-8 text-xs text-slate-500 hover:text-slate-900 rounded-lg"
                 >
                   Limpar filtros
                 </Button>
@@ -318,7 +342,7 @@ export function RupturasPage() {
           </div>
 
           {/* Tabela de Rupturas */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600" />

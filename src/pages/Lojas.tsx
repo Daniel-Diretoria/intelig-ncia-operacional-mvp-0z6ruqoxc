@@ -71,18 +71,23 @@ export const LojasPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-      {/* Header e Estatísticas Globais */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
-        <div className="flex items-center gap-3">
+      {/* Header Premium */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
             <Store className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Visão Operacional por Loja
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Acompanhamento de clientes, produtos em risco e status de validades ativas por ponto
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Visão Operacional por Loja
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                Pontos de Venda
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Acompanhamento detalhado de clientes, produtos em risco, rupturas e status por ponto
               de venda.
             </p>
           </div>
@@ -94,7 +99,7 @@ export const LojasPage: React.FC = () => {
             size="sm"
             onClick={() => refetch()}
             disabled={isLoading}
-            className="h-9 px-3 text-xs gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50"
+            className="h-10 px-3.5 text-xs font-semibold gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-indigo-600' : ''}`}
@@ -110,7 +115,7 @@ export const LojasPage: React.FC = () => {
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs animate-pulse"
+              className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs animate-pulse"
             >
               <div className="h-4 bg-slate-100 rounded w-24 mb-3" />
               <div className="h-8 bg-slate-200 rounded w-16 mb-2" />
@@ -120,23 +125,27 @@ export const LojasPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Total de Lojas
               </span>
-              <Store className="w-4 h-4 text-indigo-600" />
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Store className="w-4 h-4" />
+              </div>
             </div>
             <p className="text-2xl font-bold text-slate-900 mt-2">{stores.length}</p>
             <p className="text-[11px] text-slate-400 mt-0.5">Pontos de venda monitorados</p>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Lojas Críticas
               </span>
-              <AlertTriangle className="w-4 h-4 text-red-600" />
+              <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
             </div>
             <p className="text-2xl font-bold text-red-600 mt-2">
               {stores.filter((s) => s.statusMaisCritico === 'Crítico').length}
@@ -144,12 +153,14 @@ export const LojasPage: React.FC = () => {
             <p className="text-[11px] text-slate-400 mt-0.5">Lojas com itens em janela crítica</p>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Ocorrências Ativas
               </span>
-              <Package className="w-4 h-4 text-amber-600" />
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Package className="w-4 h-4" />
+              </div>
             </div>
             <p className="text-2xl font-bold text-slate-900 mt-2">
               {stores.reduce((acc, s) => acc + s.totalOcorrenciasAtivas, 0)}
@@ -157,12 +168,14 @@ export const LojasPage: React.FC = () => {
             <p className="text-[11px] text-slate-400 mt-0.5">Ocorrências ativas (dias {'>'} 0)</p>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Volume em Risco
               </span>
-              <Boxes className="w-4 h-4 text-blue-600" />
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Boxes className="w-4 h-4" />
+              </div>
             </div>
             <p className="text-2xl font-bold text-slate-900 mt-2">
               {stores.reduce((acc, s) => acc + s.totalQuantidade, 0).toLocaleString('pt-BR')} un
@@ -173,7 +186,7 @@ export const LojasPage: React.FC = () => {
       )}
 
       {/* Filtros e Busca */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
         <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-xs font-bold text-slate-700">
           <Filter className="w-4 h-4 text-slate-500" />
           <span>Filtros de Pesquisa e Consulta</span>
@@ -188,13 +201,13 @@ export const LojasPage: React.FC = () => {
               placeholder="Buscar código, nome, cidade..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9 text-xs bg-slate-50 border-slate-200 focus:bg-white"
+              className="pl-9 h-10 text-xs bg-slate-50/50 border-slate-200 focus:bg-white rounded-lg"
             />
           </div>
 
           {/* Filtro Rede */}
           <Select value={networkFilter} onValueChange={setNetworkFilter}>
-            <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200">
+            <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
               <SelectValue placeholder="Todas as redes" />
             </SelectTrigger>
             <SelectContent>
@@ -209,7 +222,7 @@ export const LojasPage: React.FC = () => {
 
           {/* Filtro Cidade */}
           <Select value={cityFilter} onValueChange={setCityFilter}>
-            <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200">
+            <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
               <SelectValue placeholder="Todas as cidades" />
             </SelectTrigger>
             <SelectContent>
@@ -224,7 +237,7 @@ export const LojasPage: React.FC = () => {
 
           {/* Filtro Estado */}
           <Select value={stateFilter} onValueChange={setStateFilter}>
-            <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200">
+            <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
               <SelectValue placeholder="Todos os estados" />
             </SelectTrigger>
             <SelectContent>
@@ -239,7 +252,7 @@ export const LojasPage: React.FC = () => {
 
           {/* Filtro Status Crítico */}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200">
+            <SelectTrigger className="h-10 text-xs bg-slate-50/50 border-slate-200 rounded-lg">
               <SelectValue placeholder="Todos os status" />
             </SelectTrigger>
             <SelectContent>
@@ -254,7 +267,7 @@ export const LojasPage: React.FC = () => {
       </div>
 
       {/* Lista de Lojas (Tabela Operacional) */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         {isLoading ? (
           <div className="p-8 space-y-4">
             <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-4">

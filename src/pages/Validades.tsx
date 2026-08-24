@@ -477,22 +477,35 @@ export const ValidadesPage: React.FC = () => {
   )
 
   return (
-    <div className="space-y-5 animate-fade-in pb-10">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div>
-          <h3 className="text-xl font-bold text-slate-900 tracking-tight">Gestão de Validades</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Análise e tomada de decisão sobre ocorrências de validade ativas (Base Atual).
-          </p>
+    <div className="space-y-6 animate-fade-in pb-12">
+      {/* Header Premium */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+            <CalendarClock className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Gestão de Validades
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                Base Atual
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Monitoramento prioritário de lotes próximos ao vencimento e tomada de decisão
+              operacional.
+            </p>
+          </div>
         </div>
         <Button
           onClick={() => setExportOpen(true)}
           disabled={isLoading}
-          className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm self-start disabled:opacity-60 disabled:cursor-not-allowed"
+          className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs self-start sm:self-center font-semibold text-xs rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
-          <span>Exportar</span>
+          <span>Exportar Ocorrências</span>
         </Button>
       </div>
 
@@ -544,45 +557,52 @@ export const ValidadesPage: React.FC = () => {
                   Página {currentPage} de {totalPages}
                 </span>
               </div>
-              <DataTable
-                columns={columns}
-                data={paginatedData}
-                isLoading={isLoading}
-                sortKey={sortKey}
-                sortOrder={sortOrder}
-                onSort={handleSort}
-                onRowClick={handleRowClick}
-                emptyMessage="Nenhuma validade encontrada."
-              />
-              {/* Paginação */}
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <DataTable
+                  columns={columns}
+                  data={paginatedData}
+                  isLoading={isLoading}
+                  sortKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                  onRowClick={handleRowClick}
+                  emptyMessage="Nenhuma validade encontrada."
+                />
+              </div>
+              {/* Paginação Premium */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="text-xs text-slate-500">
-                    Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–
-                    {Math.min(currentPage * PAGE_SIZE, sortedData.length)} de {sortedData.length}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs text-xs text-slate-600">
+                  <span>
+                    Mostrando{' '}
+                    <strong className="text-slate-900">{(currentPage - 1) * PAGE_SIZE + 1}</strong>–
+                    <strong className="text-slate-900">
+                      {Math.min(currentPage * PAGE_SIZE, sortedData.length)}
+                    </strong>{' '}
+                    de <strong className="text-slate-900">{sortedData.length}</strong> ocorrência(s)
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 mr-1">
+                      Página <strong className="text-slate-900">{currentPage}</strong> de{' '}
+                      <strong className="text-slate-900">{totalPages}</strong>
+                    </span>
                     <Button
                       variant="outline"
                       size="sm"
                       disabled={currentPage <= 1}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      className="h-8 gap-1"
+                      className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
-                      Anterior
+                      <span>Anterior</span>
                     </Button>
-                    <span className="text-xs font-medium text-slate-600 px-2">
-                      {currentPage} / {totalPages}
-                    </span>
                     <Button
                       variant="outline"
                       size="sm"
                       disabled={currentPage >= totalPages}
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      className="h-8 gap-1"
+                      className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
                     >
-                      Próxima
+                      <span>Próxima</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </Button>
                   </div>

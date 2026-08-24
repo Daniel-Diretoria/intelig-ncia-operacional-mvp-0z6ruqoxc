@@ -106,7 +106,7 @@ export const StoreDetailPage: React.FC = () => {
       </div>
 
       {/* Header do Cartão de Identificação da Loja */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
             <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -122,7 +122,7 @@ export const StoreDetailPage: React.FC = () => {
                 })}
               </h1>
               {/* Linha 2: Rede • Cidade/UF */}
-              <div className="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+              <div className="text-xs text-slate-500 mt-1.5 flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-slate-700 flex items-center gap-1">
                   <Building2 className="w-3.5 h-3.5 text-slate-400" />
                   {store.networkName}
@@ -161,28 +161,28 @@ export const StoreDetailPage: React.FC = () => {
 
         {/* Mini Métricas da Loja */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-4 border-t border-slate-100 text-xs">
-          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">Clientes Atendidos</span>
             <span className="text-base font-bold text-slate-900 mt-0.5 block">
               {store.totalClientes}
             </span>
           </div>
 
-          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">Validades Ativas</span>
             <span className="text-base font-bold text-amber-700 mt-0.5 block">
               {store.totalOcorrenciasAtivas}
             </span>
           </div>
 
-          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">Rupturas Ativas</span>
             <span className="text-base font-bold text-red-700 mt-0.5 block">
               {store.totalRupturasAtivas}
             </span>
           </div>
 
-          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">
               Produtos Monitorados
             </span>
@@ -191,7 +191,7 @@ export const StoreDetailPage: React.FC = () => {
             </span>
           </div>
 
-          <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-100">
             <span className="text-slate-500 font-medium text-[11px] block">Volume em Estoque</span>
             <span className="text-base font-bold text-slate-900 mt-0.5 block">
               {store.totalQuantidade.toLocaleString('pt-BR')} un
@@ -202,20 +202,32 @@ export const StoreDetailPage: React.FC = () => {
 
       {/* Navegação por Abas Internas da Loja */}
       <Tabs defaultValue="validades" className="w-full">
-        <TabsList className="bg-white border border-slate-200 p-1 rounded-xl shadow-2xs mb-4 flex gap-1 flex-wrap">
-          <TabsTrigger value="validades" className="gap-2 text-xs font-semibold py-2 px-4">
+        <TabsList className="bg-slate-100 p-1 rounded-xl shadow-2xs mb-4 flex gap-1 flex-wrap">
+          <TabsTrigger
+            value="validades"
+            className="gap-2 text-xs font-semibold py-2 px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <CalendarCheck className="w-4 h-4 text-indigo-600" />
             <span>Resumo / Validades ({store.itemsAtivos.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="rupturas" className="gap-2 text-xs font-semibold py-2 px-4">
+          <TabsTrigger
+            value="rupturas"
+            className="gap-2 text-xs font-semibold py-2 px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <AlertTriangle className="w-4 h-4 text-amber-600" />
             <span>Rupturas</span>
           </TabsTrigger>
-          <TabsTrigger value="auditoria" className="gap-2 text-xs font-semibold py-2 px-4">
+          <TabsTrigger
+            value="auditoria"
+            className="gap-2 text-xs font-semibold py-2 px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <ShieldAlert className="w-4 h-4 text-red-600" />
             <span>Auditoria de Vencidos ({store.itemsAuditoria.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="historico" className="gap-2 text-xs font-semibold py-2 px-4">
+          <TabsTrigger
+            value="historico"
+            className="gap-2 text-xs font-semibold py-2 px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <History className="w-4 h-4 text-slate-600" />
             <span>Histórico</span>
           </TabsTrigger>

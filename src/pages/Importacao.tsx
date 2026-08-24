@@ -742,33 +742,49 @@ export const ImportacaoPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div>
-          <h3 className="text-xl font-bold text-slate-900 tracking-tight">
-            Importação de Dados via Excel
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Alimente a Base Atual importando as planilhas Excel (.xlsx) extraídas do TradePro para
-            Validades e Rupturas.
-          </p>
+      {/* Header Premium */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <FileSpreadsheet className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Importação de Dados
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Excel Disponível
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Alimente a Base Atual importando as planilhas Excel (.xlsx) extraídas do TradePro para
+              Validades e Rupturas.
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
           <Button
             asChild
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 text-xs text-indigo-700 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100"
+            className="h-10 px-3.5 gap-2 text-xs font-semibold text-indigo-700 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100 rounded-xl"
           >
             <Link to="/rupturas?tab=confronto">
               <GitCompare className="w-3.5 h-3.5 text-indigo-600" />
-              Motor de Confronto Rupturas × Validades
+              <span>Motor de Confronto</span>
             </Link>
           </Button>
           {stage !== 'idle' && (
-            <Button variant="outline" size="sm" onClick={reset} className="h-9 gap-1.5 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={reset}
+              className="h-10 px-3.5 gap-1.5 text-xs font-semibold rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
+            >
               <X className="w-3.5 h-3.5" />
-              Limpar
+              <span>Limpar</span>
             </Button>
           )}
         </div>
@@ -780,12 +796,18 @@ export const ImportacaoPage: React.FC = () => {
         onValueChange={(v) => setActiveTab(v as 'api' | 'file')}
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-2 max-w-md bg-slate-100 p-1">
-          <TabsTrigger value="file" className="gap-2 text-xs font-semibold">
+        <TabsList className="grid w-full grid-cols-2 max-w-md bg-slate-100 p-1 rounded-xl">
+          <TabsTrigger
+            value="file"
+            className="gap-2 text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
             Importar Arquivo Excel
           </TabsTrigger>
-          <TabsTrigger value="api" className="gap-2 text-xs font-semibold">
+          <TabsTrigger
+            value="api"
+            className="gap-2 text-xs font-semibold py-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-2xs"
+          >
             <Cloud className="w-4 h-4 text-slate-500" />
             Integração TradePro
             <Badge
@@ -801,52 +823,53 @@ export const ImportacaoPage: React.FC = () => {
         {/* SEÇÃO INFORMATIVA — "Status da Integração TradePro" (Sem botões de sincronização) */}
         {/* ========================================================================= */}
         <TabsContent value="api" className="space-y-6 mt-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 space-y-6 shadow-xs">
             <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
                   <Cloud className="w-6 h-6" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5 flex-wrap">
                     <h4 className="text-base font-bold text-slate-900">
-                      Integração TradePro — aguardando credenciais e homologação
+                      Integração TradePro via API
                     </h4>
-                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[11px] font-semibold">
-                      Informativo
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] py-0 px-1.5 font-bold">
+                      Aguardando Homologação
                     </Badge>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    A alimentação de dados é realizada exclusivamente por planilhas Excel.
+                    A alimentação de dados é realizada exclusivamente por planilhas Excel enquanto a
+                    API aguarda homologação.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+            <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 space-y-3">
               <p className="text-xs font-semibold text-slate-800 flex items-center gap-2">
                 <KeyRound className="w-4 h-4 text-slate-600" />
                 Status do Conector:
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="font-semibold text-slate-700 block">
                     Fonte Operacional Ativa:
                   </span>
-                  <span className="text-emerald-700 font-bold">
+                  <span className="text-emerald-700 font-bold mt-0.5 block">
                     Importação de Planilhas Excel (.xlsx)
                   </span>
                 </div>
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="font-semibold text-slate-700 block">Homologação API:</span>
-                  <span className="text-slate-600">
+                  <span className="text-slate-600 mt-0.5 block">
                     Aguardando liberação de credenciais de produção
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
               <p className="text-xs text-slate-500">
                 Integração TradePro — aguardando credenciais e homologação.
               </p>
@@ -854,9 +877,9 @@ export const ImportacaoPage: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setActiveTab('file')}
-                className="gap-1.5 text-xs h-9 bg-slate-50 hover:bg-slate-100"
+                className="gap-1.5 text-xs h-10 px-3.5 rounded-xl border-slate-200 font-semibold bg-white hover:bg-slate-50"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 Ir para Importação Excel
               </Button>
             </div>
