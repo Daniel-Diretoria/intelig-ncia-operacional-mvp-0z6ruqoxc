@@ -160,4 +160,60 @@ describe('storeCode / storeRecognition / storeIdentity.test.ts — Identidade e 
       })
     })
   })
+
+  describe('5. PreviewStats simulado — reconhecimento de código e contagem', () => {
+    it('previewStats simulado com fixture de 6.462 linhas com código + 200 sem código → comCodigo = 6.462, naoResolvidas (sem match) = 200', () => {
+      // Cria fixture simulando 6.462 itens mapeados que possuem codigoLoja extraído da Razão Social
+      // e 200 itens sem código e sem match conhecido
+      const comCodigoItems = Array.from({ length: 6462 }, (_, i) => ({
+        codigoLoja: String(i + 1).padStart(5, '0'),
+        loja: `FORT ATACADISTA LOJA ${i + 1}`,
+        cidade: 'Florianópolis',
+      }))
+
+      const semCodigoItems = Array.from({ length: 200 }, (_, i) => ({
+        codigoLoja: undefined,
+        loja: `MERCADO DESCONHECIDO ${i + 1}`,
+        cidade: 'Cidade Inexistente',
+      }))
+
+      const allItems = [...comCodigoItems, ...semCodigoItems]
+
+      let comCodigo = 0
+      let resolvidas = 0
+      let ambiguas = 0
+      let naoResolvidas = 0
+
+      for (const item of allItems) {
+        if (item.codigoLoja) {
+          comCodigo++
+        } else {
+          const rawRazao = String(item.loja || '').trim()
+          const rawCidade = String(item.cidade || '').trim()
+
+          const storeRes = resolveStoreMatch({
+            razaoSocial: rawRazao,
+            cidade: rawCidade,
+          })
+
+          if (storeRes.status === 'com_codigo') {
+            comCodigo++
+          } else if (storeRes.status === 'resolvida') {
+            resolvidas++
+          } else if (storeRes.status === 'LOJA_AMBIGUA') {
+            ambiguas++
+          } else {
+            naoResolvidas++
+          }
+        }
+      }
+
+      expect(comCodigo).toBe(6462)
+      expect(resolvidas).toBe(0)
+      expect(ambiguas).toBe(0)
+      expect(naoResolvidas).toBe(200)
+      const uteis = comCodigo + resolvidas + ambiguas + naoResolvidas
+      expect(uteis).toBe(6662)
+    })
+  })
 })

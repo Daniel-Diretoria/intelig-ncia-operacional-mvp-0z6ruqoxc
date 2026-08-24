@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mapRecords } from '../excelMapper'
 import { validateDataset } from '../validators'
 import { resolveStoreMatch } from '../../data/storeRecognition'
@@ -97,6 +97,10 @@ describe('accountingAndIdempotency.test.ts — Contabilidade da Prévia e Idempo
   })
 
   describe('2. Idempotência e proteção contra duplicação de hash', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks()
+    })
+
     it('executarPipeline com os mesmos dados produz a mesma Base Atual determinística', () => {
       const rawRecords = [
         {
@@ -149,6 +153,80 @@ describe('accountingAndIdempotency.test.ts — Contabilidade da Prévia e Idempo
     it('checkFileHash retorna duplicate: false para hash não cadastrado', async () => {
       const res = await checkFileHash('hash_inexistente_1234567890abcdef')
       expect(res.duplicate).toBe(false)
+    })
+
+    it('findPreviousAttempt retorna job failed com rawPersisted > 0', async () => {
+      const { findPreviousAttempt } = await import('../importClient')
+      const pb = (await import('@/lib/pocketbase/client')).default
+
+      const mockFailedRecord = {
+        id: 'hist_failed_001',
+        status: 'failed',
+        total_rows: 6662,
+        raw_count: 6203,
+        errors_json: JSON.stringify({
+          _meta: {
+            rawPersisted: 6203,
+            rawExpected: 6662,
+          },
+        }),
+        created: '2025-05-10 10:00:00',
+      }
+
+      const getListMock = vi.fn().mockResolvedValue({
+        items: [mockFailedRecord],
+      })
+
+      vi.spyOn(pb, 'collection').mockImplementation((collName: string) => {
+        if (collName === 'import_history') {
+          return { getList: getListMock } as any
+        }
+        return {} as any
+      })
+
+      const attempt = await findPreviousAttempt('hash_partial_123')
+      expect(attempt.found).toBe(true)
+      expect(attempt.importId).toBe('hist_failed_001')
+      expect(attempt.status).toBe('failed')
+      expect(attempt.rawCount).toBe(6203)
+      expect(attempt.rawExpected).toBe(6662)
+    })
+
+    it('checkFileHash retorna previousFailed: true para job failed', async () => {
+      const { checkFileHash } = await import('../importClient')
+      const pb = (await import('@/lib/pocketbase/client')).default
+
+      const mockFailedRecord = {
+        id: 'hist_failed_002',
+        status: 'failed',
+        total_rows: 6662,
+        raw_count: 6203,
+        errors_json: JSON.stringify({
+          _meta: {
+            rawPersisted: 6203,
+            rawExpected: 6662,
+          },
+        }),
+        created: '2025-05-10 10:00:00',
+      }
+
+      const getListMock = vi.fn().mockResolvedValue({
+        items: [mockFailedRecord],
+      })
+
+      vi.spyOn(pb, 'collection').mockImplementation((collName: string) => {
+        if (collName === 'import_history') {
+          return { getList: getListMock } as any
+        }
+        return {} as any
+      })
+
+      const dupCheck = await checkFileHash('hash_partial_456')
+      expect(dupCheck.duplicate).toBe(false)
+      expect(dupCheck.previousFailed).toBe(true)
+      expect(dupCheck.previousImportId).toBe('hist_failed_002')
+      expect(dupCheck.previousRawPersisted).toBe(6203)
+      expect(dupCheck.previousRawExpected).toBe(6662)
     })
   })
 })

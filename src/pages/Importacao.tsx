@@ -279,6 +279,9 @@ export const ImportacaoPage: React.FC = () => {
     hash: string
     importId?: string
     created?: string
+    status?: string
+    rawPersisted?: number
+    rawExpected?: number
   } | null>(null)
   const [forceReprocess, setForceReprocess] = useState(false)
 
@@ -549,7 +552,19 @@ export const ImportacaoPage: React.FC = () => {
               hash,
               importId: dupCheck.importId,
               created: dupCheck.created,
+              status: dupCheck.status || 'completed',
             })
+            setForceReprocess(false)
+          } else if (dupCheck.previousFailed) {
+            setDuplicateHash({
+              hash,
+              importId: dupCheck.previousImportId,
+              created: dupCheck.created,
+              status: dupCheck.status || 'failed',
+              rawPersisted: dupCheck.previousRawPersisted,
+              rawExpected: dupCheck.previousRawExpected,
+            })
+            setForceReprocess(true)
           }
 
           const suggested = suggestMapping(parsed.headers)
@@ -625,22 +640,26 @@ export const ImportacaoPage: React.FC = () => {
       if (m.errors.length > 0) {
         emAuditoria++
       }
-      const rawRazao = String(m.item.loja || '').trim()
-      const rawCidade = String(m.item.cidade || '').trim()
-
-      const storeRes = resolveStoreMatch({
-        razaoSocial: rawRazao,
-        cidade: rawCidade,
-      })
-
-      if (storeRes.status === 'com_codigo') {
+      if (m.item.codigoLoja) {
         comCodigo++
-      } else if (storeRes.status === 'resolvida') {
-        resolvidas++
-      } else if (storeRes.status === 'LOJA_AMBIGUA') {
-        ambiguas++
       } else {
-        naoResolvidas++
+        const rawRazao = String(m.item.loja || '').trim()
+        const rawCidade = String(m.item.cidade || '').trim()
+
+        const storeRes = resolveStoreMatch({
+          razaoSocial: rawRazao,
+          cidade: rawCidade,
+        })
+
+        if (storeRes.status === 'com_codigo') {
+          comCodigo++
+        } else if (storeRes.status === 'resolvida') {
+          resolvidas++
+        } else if (storeRes.status === 'LOJA_AMBIGUA') {
+          ambiguas++
+        } else {
+          naoResolvidas++
+        }
       }
     }
 
@@ -803,6 +822,7 @@ export const ImportacaoPage: React.FC = () => {
           arquivoTipo: 'validades',
           dataArquivo,
           force: forceReprocess,
+          previousImportId: duplicateHash?.status === 'failed' ? duplicateHash.importId : undefined,
           rawRecords: rawTradePro,
           baseAtual: pipeline.baseAtual,
           signal: controller.signal,
@@ -1150,31 +1170,67 @@ export const ImportacaoPage: React.FC = () => {
             />
           )}
 
-          {/* Alerta de reenvio */}
-          {duplicateHash && stage === 'parsed' && (
-            <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="flex-1 text-xs text-slate-700 leading-relaxed">
-                <p className="font-semibold text-amber-800 mb-1">Possível reenvio de arquivo</p>
-                <p>
-                  Este arquivo (hash idêntico) já foi importado e concluído
-                  {duplicateHash.created ? ` em ${fmtDate(duplicateHash.created)}` : ''}. Para
-                  evitar duplicação de somas, o sistema não reprocessa automaticamente.
-                </p>
-                <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={forceReprocess}
-                    onChange={(e) => setForceReprocess(e.target.checked)}
-                    className="rounded border-slate-300"
-                  />
-                  <span className="font-medium text-amber-800">
-                    Reprocessar explicitamente (substitui importação anterior)
-                  </span>
-                </label>
+          {/* Alerta de tentativa parcial ou reenvio */}
+          {duplicateHash &&
+            stage === 'parsed' &&
+            (duplicateHash.status === 'failed' && (duplicateHash.rawPersisted || 0) > 0 ? (
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-400 bg-amber-50 shadow-xs">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+                  <p className="font-semibold text-amber-900 mb-1">Tentativa parcial encontrada</p>
+                  <p className="text-amber-900">
+                    Tentativa parcial encontrada —{' '}
+                    {duplicateHash.rawPersisted?.toLocaleString('pt-BR')} já persistidos,{' '}
+                    {Math.max(
+                      0,
+                      (duplicateHash.rawExpected || rawRows.length) -
+                        (duplicateHash.rawPersisted || 0),
+                    ).toLocaleString('pt-BR')}{' '}
+                    pendentes. Reprocesse para concluir apenas os pendentes.
+                  </p>
+                  <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={forceReprocess}
+                      onChange={(e) => setForceReprocess(e.target.checked)}
+                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4"
+                    />
+                    <span className="font-semibold text-amber-950">
+                      Reprocessar{' '}
+                      {Math.max(
+                        0,
+                        (duplicateHash.rawExpected || rawRows.length) -
+                          (duplicateHash.rawPersisted || 0),
+                      ).toLocaleString('pt-BR')}{' '}
+                      pendentes
+                    </span>
+                  </label>
+                </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-300 bg-amber-50">
+                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+                  <p className="font-semibold text-amber-800 mb-1">Possível reenvio de arquivo</p>
+                  <p>
+                    Este arquivo (hash idêntico) já foi importado e concluído
+                    {duplicateHash.created ? ` em ${fmtDate(duplicateHash.created)}` : ''}. Para
+                    evitar duplicação de somas, o sistema não reprocessa automaticamente.
+                  </p>
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={forceReprocess}
+                      onChange={(e) => setForceReprocess(e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <span className="font-medium text-amber-800">
+                      Reprocessar explicitamente (substitui importação anterior)
+                    </span>
+                  </label>
+                </div>
+              </div>
+            ))}
 
           {/* Upload area */}
           {stage === 'idle' && !parseError && (
@@ -1634,13 +1690,29 @@ export const ImportacaoPage: React.FC = () => {
                       <Button
                         size="sm"
                         onClick={handleImport}
-                        disabled={isImporting || !canImport || (!!duplicateHash && !forceReprocess)}
+                        disabled={
+                          isImporting ||
+                          !canImport ||
+                          (!!duplicateHash && !forceReprocess && duplicateHash.status !== 'failed')
+                        }
                         className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
                       >
                         {isImporting ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Processando...
+                          </>
+                        ) : duplicateHash?.status === 'failed' &&
+                          (duplicateHash.rawPersisted || 0) > 0 ? (
+                          <>
+                            <RefreshCw className="w-4 h-4" />
+                            Reprocessar{' '}
+                            {Math.max(
+                              0,
+                              (duplicateHash.rawExpected || rawRows.length) -
+                                (duplicateHash.rawPersisted || 0),
+                            ).toLocaleString('pt-BR')}{' '}
+                            pendentes
                           </>
                         ) : (
                           <>

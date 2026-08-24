@@ -93,6 +93,7 @@ export interface ProcessValidadesPayload {
   arquivoTipo?: string
   dataArquivo?: string
   force?: boolean
+  previousImportId?: string
   rawRecords: Partial<TradeProRawRecord>[]
   baseAtual: Partial<ProcessedValidade>[]
   summary: {
@@ -423,6 +424,7 @@ export async function submitProcessValidades(
     arquivoTipo = 'validades',
     dataArquivo,
     force = false,
+    previousImportId,
     rawRecords,
     baseAtual,
     summary,
@@ -496,8 +498,11 @@ export async function submitProcessValidades(
     let existingRawKeys = new Set<string>()
     let existingHistoryId: string | null = null
 
-    // Se reprocessando (force) ou buscando tentativa anterior pelo fileHash
-    if (fileHash) {
+    // Se previousImportId foi passado E force === true, ou buscando tentativa anterior pelo fileHash
+    if (previousImportId && force) {
+      existingHistoryId = previousImportId
+      existingRawKeys = await loadAlreadyPersistedRawKeys(previousImportId)
+    } else if (fileHash) {
       try {
         const prevHist = await pb.collection('import_history').getList(1, 1, {
           filter: `file_hash = "${fileHash}"`,
@@ -975,29 +980,112 @@ export async function submitProcessValidades(
   }
 }
 
+export interface PreviousAttemptResult {
+  found: boolean
+  importId?: string
+  status?: string
+  rawCount?: number
+  rawExpected?: number
+  created?: string
+}
+
+/**
+ * Busca histórico anterior por file_hash sem filtrar por status.
+ * Retorna o registro mais recente com contagens extraídas de _meta.
+ */
+export async function findPreviousAttempt(fileHash: string): Promise<PreviousAttemptResult> {
+  if (!fileHash) return { found: false }
+  try {
+    const records = await pb.collection('import_history').getList(1, 1, {
+      filter: `file_hash = "${fileHash}"`,
+      sort: '-created',
+    })
+    if (records.items.length > 0) {
+      const r = records.items[0] as unknown as Record<string, unknown>
+      let rawPersisted: number | undefined =
+        typeof r.raw_count === 'number' ? (r.raw_count as number) : undefined
+      let rawExpected: number | undefined =
+        typeof r.total_rows === 'number' ? (r.total_rows as number) : undefined
+
+      if (r.errors_json) {
+        try {
+          const parsed =
+            typeof r.errors_json === 'string'
+              ? JSON.parse(r.errors_json)
+              : (r.errors_json as Record<string, unknown>)
+          if (parsed && typeof parsed === 'object' && parsed._meta) {
+            const meta = parsed._meta as { rawPersisted?: number; rawExpected?: number }
+            if (typeof meta.rawPersisted === 'number') rawPersisted = meta.rawPersisted
+            if (typeof meta.rawExpected === 'number') rawExpected = meta.rawExpected
+          }
+        } catch {
+          // fallback para campos do registro
+        }
+      }
+
+      return {
+        found: true,
+        importId: r.id as string,
+        status: (r.status as string) || undefined,
+        rawCount: rawPersisted,
+        rawExpected: rawExpected,
+        created: (r.created as string) || undefined,
+      }
+    }
+    return { found: false }
+  } catch {
+    return { found: false }
+  }
+}
+
 /**
  * Verifica se um hash de arquivo já foi importado (proteção contra reenvio).
+ * Se o job anterior for `completed` → duplicate: true.
+ * Se for `failed` → duplicate: false, previousFailed: true + detalhes da tentativa.
  */
 export async function checkFileHash(fileHash: string): Promise<{
   duplicate: boolean
   importId?: string
   created?: string
+  status?: string
+  previousFailed?: boolean
+  previousImportId?: string
+  previousRawPersisted?: number
+  previousRawExpected?: number
 }> {
   if (!fileHash) return { duplicate: false }
   try {
-    const records = await pb.collection('import_history').getList(1, 1, {
-      filter: `file_hash = "${fileHash}" && status = "completed"`,
-      sort: '-created',
-    })
-    if (records.items.length > 0) {
-      const r = records.items[0] as unknown as Record<string, unknown>
+    const prev = await findPreviousAttempt(fileHash)
+    if (!prev.found) return { duplicate: false }
+
+    if (prev.status === 'completed' || prev.status === 'success') {
       return {
         duplicate: true,
-        importId: r.id as string,
-        created: r.created as string,
+        importId: prev.importId,
+        created: prev.created,
+        status: prev.status,
       }
     }
-    return { duplicate: false }
+
+    if (prev.status === 'failed' || prev.status === 'error') {
+      return {
+        duplicate: false,
+        importId: prev.importId,
+        created: prev.created,
+        status: prev.status,
+        previousFailed: true,
+        previousImportId: prev.importId,
+        previousRawPersisted: prev.rawCount,
+        previousRawExpected: prev.rawExpected,
+      }
+    }
+
+    return {
+      duplicate: false,
+      importId: prev.importId,
+      created: prev.created,
+      status: prev.status,
+    }
   } catch {
     return { duplicate: false }
   }

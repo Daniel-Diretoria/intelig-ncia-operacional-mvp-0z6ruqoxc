@@ -282,9 +282,11 @@ export function suggestMapping(detectedHeaders: string[]): Record<string, string
       mapping[col.key as string] = exact.raw
       continue
     }
-    // correspondência parcial (alias contido no header ou vice-versa)
+    // correspondência parcial (alias contido no header ou vice-versa, exigindo min 8 caracteres na string menor)
     const partial = normalized.find((h) =>
-      aliasNorms.some((a) => h.norm.includes(a) || a.includes(h.norm)),
+      aliasNorms.some(
+        (a) => Math.min(h.norm.length, a.length) >= 8 && (h.norm.includes(a) || a.includes(h.norm)),
+      ),
     )
     if (partial) {
       mapping[col.key as string] = partial.raw
