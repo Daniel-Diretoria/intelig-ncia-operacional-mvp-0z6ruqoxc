@@ -8,7 +8,11 @@ import {
   type SyncLogRecord,
   type SyncProgressCallback,
 } from '@/lib/api/syncService'
-import { fetchTradeProBackendStatus } from '@/lib/api/tradeProClient'
+import {
+  fetchTradeProBackendStatus,
+  testTradeProConnection,
+  type TradeProTestConnectionResult,
+} from '@/lib/api/tradeProClient'
 import { DataSourceFactory } from '@/lib/data/dataSourceFactory'
 
 export interface UseTradeProApiReturn {
@@ -19,7 +23,7 @@ export interface UseTradeProApiReturn {
   syncHistory: SyncLogRecord[]
   isLoadingHistory: boolean
   sync: (type?: 'validades' | 'rupturas' | 'all') => Promise<SyncResult>
-  testConnection: () => Promise<{ success: boolean; message: string; latencyMs: number }>
+  testConnection: (dataInicial: string, dataFinal: string) => Promise<TradeProTestConnectionResult>
   refreshHistory: () => Promise<void>
 }
 
@@ -51,22 +55,12 @@ export function useTradeProApi(): UseTradeProApiReturn {
     refreshHistory()
   }, [refreshHistory])
 
-  const testConnection = useCallback(async () => {
-    const status = await fetchTradeProBackendStatus()
-    if (!status.isConfigured) {
-      return {
-        success: false,
-        message:
-          'Aguardando credenciais seguras no backend (TRADEPRO_BASE_URL e TRADEPRO_AUTHORIZATION).',
-        latencyMs: 0,
-      }
-    }
-    return {
-      success: true,
-      message: 'Conexão segura com backend validada.',
-      latencyMs: 45,
-    }
-  }, [])
+  const testConnection = useCallback(
+    async (dataInicial: string, dataFinal: string): Promise<TradeProTestConnectionResult> => {
+      return await testTradeProConnection(dataInicial, dataFinal)
+    },
+    [],
+  )
 
   const sync = useCallback(
     async (type: 'validades' | 'rupturas' | 'all' = 'all'): Promise<SyncResult> => {

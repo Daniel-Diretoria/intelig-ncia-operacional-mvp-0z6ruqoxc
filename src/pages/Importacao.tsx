@@ -55,6 +55,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useToast } from '@/hooks/use-toast'
 import { useTradeProApi } from '@/hooks/useTradeProApi'
+import type { TradeProTestConnectionResult } from '@/lib/api/tradeProClient'
 import { cn } from '@/lib/utils'
 import {
   parseExcelFile,
@@ -211,24 +212,17 @@ export const ImportacaoPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // API TradePro Hook
-  const {
-    isConfigured: isApiConfigured,
-    isSyncing,
-    syncProgress,
-    lastSyncResult,
-    syncHistory,
-    isLoadingHistory: isApiHistoryLoading,
-    sync: triggerApiSync,
-    testConnection,
-    refreshHistory: refreshApiHistory,
-  } = useTradeProApi()
+  const { testConnection } = useTradeProApi()
 
-  const [testingConnection, setTestingConnection] = useState(false)
-  const [connectionTestResult, setConnectionTestResult] = useState<{
-    success: boolean
-    message: string
-    latencyMs: number
-  } | null>(null)
+  // Estado do Teste de Conexão TradePro
+  const [apiDataInicial, setApiDataInicial] = useState<string>('')
+  const [apiDataFinal, setApiDataFinal] = useState<string>('')
+  const [connectionStatus, setConnectionStatus] = useState<
+    'idle' | 'testing' | 'success_200' | 'success_204' | 'error'
+  >('idle')
+  const [connectionTestResult, setConnectionTestResult] =
+    useState<TradeProTestConnectionResult | null>(null)
+  const [lastTestTimestamp, setLastTestTimestamp] = useState<string | null>(null)
 
   // Sub-aba ativa na visualização
   const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
@@ -326,57 +320,83 @@ export const ImportacaoPage: React.FC = () => {
   useEffect(() => {
     const handleRefresh = () => {
       refetchHistory()
-      refreshApiHistory()
     }
     window.addEventListener('diretoria:refresh', handleRefresh)
     return () => window.removeEventListener('diretoria:refresh', handleRefresh)
-  }, [refetchHistory, refreshApiHistory])
+  }, [refetchHistory])
 
   const structure = useMemo(() => validateStructure(detectedHeaders), [detectedHeaders])
 
+  // Validação das datas do teste TradePro
+  const dateIntervalValidation = useMemo(() => {
+    if (!apiDataInicial || !apiDataFinal) {
+      return { isValid: false, error: null }
+    }
+    if (apiDataInicial > apiDataFinal) {
+      return { isValid: false, error: 'A data final deve ser maior ou igual à data inicial.' }
+    }
+    const d1 = new Date(apiDataInicial + 'T00:00:00Z')
+    const d2 = new Date(apiDataFinal + 'T00:00:00Z')
+    const diffDays = Math.ceil(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays > 31) {
+      return { isValid: false, error: 'O intervalo máximo permitido é de 31 dias.' }
+    }
+    return { isValid: true, error: null }
+  }, [apiDataInicial, apiDataFinal])
+
+  const isTestButtonEnabled =
+    connectionStatus !== 'testing' &&
+    !!apiDataInicial &&
+    !!apiDataFinal &&
+    dateIntervalValidation.isValid
+
   const handleTestConnection = async () => {
-    setTestingConnection(true)
+    if (!isTestButtonEnabled) return
+    setConnectionStatus('testing')
     setConnectionTestResult(null)
+
     try {
-      const res = await testConnection()
+      const res = await testConnection(apiDataInicial, apiDataFinal)
       setConnectionTestResult(res)
-      if (res.success) {
+      setLastTestTimestamp(new Date().toISOString())
+
+      if (res.conectado) {
+        if (
+          res.statusHttp === 204 ||
+          (!res.possuiDados && res.statusHttp === 200 && res.totalDeRegistrosInformado === 0)
+        ) {
+          setConnectionStatus('success_204')
+        } else {
+          setConnectionStatus('success_200')
+        }
         toast({
           title: 'Conexão bem-sucedida',
-          description: `${res.message} (latência: ${res.latencyMs}ms)`,
+          description: `${res.mensagem} (${res.tempoRespostaMs}ms)`,
         })
       } else {
+        setConnectionStatus('error')
         toast({
-          title: 'Falha na conexão',
-          description: res.message,
-          variant: 'destructive',
-        })
-      }
-    } finally {
-      setTestingConnection(false)
-    }
-  }
-
-  const handleApiSyncAction = async (type: 'validades' | 'rupturas' | 'all') => {
-    try {
-      const res = await triggerApiSync(type)
-      if (res.success) {
-        toast({
-          title: 'Sincronização concluída com sucesso',
-          description: `${res.newRows} registros adicionados/atualizados na Base Atual em ${(res.durationMs / 1000).toFixed(1)}s.`,
-        })
-        refetchHistory()
-      } else {
-        toast({
-          title: 'Sincronização finalizada com avisos',
-          description: res.errors.join('; ') || 'Ocorreram erros durante o processo.',
+          title: 'Falha na conexão com TradePro',
+          description: res.mensagem,
           variant: 'destructive',
         })
       }
     } catch (err) {
+      setConnectionStatus('error')
+      setLastTestTimestamp(new Date().toISOString())
+      const errMsg = err instanceof Error ? err.message : 'Falha na comunicação com o servidor.'
+      setConnectionTestResult({
+        conectado: false,
+        statusHttp: 0,
+        possuiDados: false,
+        registrosRecebidos: 0,
+        totalDeRegistrosInformado: 0,
+        tempoRespostaMs: 0,
+        mensagem: errMsg,
+      })
       toast({
-        title: 'Erro na sincronização',
-        description: (err as Error).message || 'Falha ao sincronizar com a API.',
+        title: 'Erro no teste de conexão',
+        description: errMsg,
         variant: 'destructive',
       })
     }
@@ -1128,59 +1148,285 @@ export const ImportacaoPage: React.FC = () => {
         </TabsList>
 
         {/* ========================================================================= */}
-        {/* SEÇÃO INFORMATIVA — "Status da Integração TradePro" (Sem botões de sincronização) */}
+        {/* SEÇÃO — "Integração TradePro" (Teste de Conexão Seguro e Controlado)        */}
         {/* ========================================================================= */}
         <TabsContent value="api" className="space-y-6 mt-4">
           <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 space-y-6 shadow-xs">
-            <div className="flex items-start justify-between gap-4">
+            {/* Cabeçalho do Bloco */}
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
                   <Cloud className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <h4 className="text-base font-bold text-slate-900">
-                      Integração TradePro via API
-                    </h4>
-                    <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] py-0 px-1.5 font-bold">
-                      Aguardando Homologação
-                    </Badge>
+                    <h4 className="text-base font-bold text-slate-900">Integração TradePro</h4>
+                    {connectionStatus === 'idle' && (
+                      <Badge
+                        variant="outline"
+                        className="bg-slate-50 text-slate-600 border-slate-200 text-[11px] font-semibold"
+                      >
+                        Pronta para teste
+                      </Badge>
+                    )}
+                    {connectionStatus === 'testing' && (
+                      <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[11px] font-semibold animate-pulse">
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        Verificando conexão...
+                      </Badge>
+                    )}
+                    {connectionStatus === 'success_200' && (
+                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[11px] font-bold">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        Conectada
+                      </Badge>
+                    )}
+                    {connectionStatus === 'success_204' && (
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[11px] font-bold">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        Conectada (Sem dados)
+                      </Badge>
+                    )}
+                    {connectionStatus === 'error' && (
+                      <Badge className="bg-red-100 text-red-800 border-red-200 text-[11px] font-bold">
+                        <AlertCircle className="w-3 h-3 mr-1" />
+                        Com erro
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    A alimentação de dados é realizada exclusivamente por planilhas Excel enquanto a
-                    API aguarda homologação.
+                    Valide a comunicação segura com a API TradePro executando um teste controlado de
+                    conexão.
                   </p>
                 </div>
               </div>
+
+              {lastTestTimestamp && (
+                <div className="text-xs text-slate-500 flex items-center gap-1.5 self-center">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Último teste: {fmtDate(lastTestTimestamp)}</span>
+                </div>
+              )}
             </div>
 
-            <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 space-y-3">
-              <p className="text-xs font-semibold text-slate-800 flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-slate-600" />
-                Status do Conector:
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
-                <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
-                  <span className="font-semibold text-slate-700 block">
-                    Fonte Operacional Ativa:
-                  </span>
-                  <span className="text-emerald-700 font-bold mt-0.5 block">
-                    Importação de Planilhas Excel (.xlsx)
-                  </span>
+            {/* Formulário de Teste de Conexão */}
+            <div className="bg-slate-50/70 rounded-xl p-5 border border-slate-200/80 space-y-4">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-indigo-600" />
+                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Parâmetros de Teste de Conexão
+                </h5>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="tradepro-data-inicial"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Data inicial <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="tradepro-data-inicial"
+                    type="date"
+                    value={apiDataInicial}
+                    onChange={(e) => {
+                      setApiDataInicial(e.target.value)
+                      if (connectionStatus !== 'testing') {
+                        setConnectionStatus('idle')
+                        setConnectionTestResult(null)
+                      }
+                    }}
+                    disabled={connectionStatus === 'testing'}
+                    className="w-full h-10 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
                 </div>
-                <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
-                  <span className="font-semibold text-slate-700 block">Homologação API:</span>
-                  <span className="text-slate-600 mt-0.5 block">
-                    Aguardando liberação de credenciais de produção
-                  </span>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="tradepro-data-final"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Data final <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="tradepro-data-final"
+                    type="date"
+                    value={apiDataFinal}
+                    onChange={(e) => {
+                      setApiDataFinal(e.target.value)
+                      if (connectionStatus !== 'testing') {
+                        setConnectionStatus('idle')
+                        setConnectionTestResult(null)
+                      }
+                    }}
+                    disabled={connectionStatus === 'testing'}
+                    className="w-full h-10 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="pt-1 sm:pt-0">
+                  <Button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={!isTestButtonEnabled}
+                    className="w-full h-10 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs disabled:opacity-50"
+                  >
+                    {connectionStatus === 'testing' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verificando conexão...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        <span>Testar conexão</span>
+                      </>
+                    )}
+                  </Button>
                 </div>
               </div>
+
+              {/* Erro de validação inline */}
+              {dateIntervalValidation.error && (
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{dateIntervalValidation.error}</span>
+                </div>
+              )}
             </div>
 
+            {/* Resultado do Teste Compacto */}
+            {connectionStatus === 'testing' && (
+              <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 text-indigo-600 animate-spin shrink-0" />
+                <div className="text-xs text-indigo-950">
+                  <p className="font-semibold">Verificando conexão com o TradePro...</p>
+                  <p className="text-indigo-800 text-[11px] mt-0.5">
+                    Realizando chamada segura via backend com limite de 20 segundos.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {connectionStatus === 'success_200' && connectionTestResult && (
+              <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-emerald-950">
+                      Conexão realizada com sucesso
+                    </p>
+                    <p className="text-xs text-emerald-800">{connectionTestResult.mensagem}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Status HTTP
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {connectionTestResult.statusHttp}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Tempo Resposta
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {connectionTestResult.tempoRespostaMs} ms
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Registros no Período
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {connectionTestResult.totalDeRegistrosInformado.toLocaleString('pt-BR')}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Amostra Recebida
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {connectionTestResult.registrosRecebidos}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {connectionStatus === 'success_204' && connectionTestResult && (
+              <div className="p-5 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-blue-950">
+                      Conexão válida, sem ocorrências no período
+                    </p>
+                    <p className="text-xs text-blue-800">
+                      {connectionTestResult.mensagem ||
+                        'A API TradePro respondeu com sucesso, porém não há dados registrados para o intervalo selecionado.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 pt-1 max-w-sm">
+                  <div className="p-3 bg-white rounded-lg border border-blue-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-blue-700 block">
+                      Status HTTP
+                    </span>
+                    <span className="text-base font-bold text-blue-950 tabular-nums">
+                      {connectionTestResult.statusHttp || 204}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-blue-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-blue-700 block">
+                      Tempo Resposta
+                    </span>
+                    <span className="text-base font-bold text-blue-950 tabular-nums">
+                      {connectionTestResult.tempoRespostaMs} ms
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {connectionStatus === 'error' && connectionTestResult && (
+              <div className="p-5 rounded-xl border border-red-200 bg-red-50/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-red-950">
+                      Falha ao conectar com o TradePro
+                    </p>
+                    <p className="text-xs text-red-900 leading-relaxed">
+                      {connectionTestResult.mensagem}
+                    </p>
+                  </div>
+                </div>
+
+                {connectionTestResult.statusHttp > 0 && (
+                  <div className="flex items-center gap-3 text-xs text-red-800 pt-1">
+                    <span className="font-semibold">
+                      Código retornado: HTTP {connectionTestResult.statusHttp}
+                    </span>
+                    {connectionTestResult.tempoRespostaMs > 0 && (
+                      <span>• Latência: {connectionTestResult.tempoRespostaMs} ms</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rodapé Informativo */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
-              <p className="text-xs text-slate-500">
-                Integração TradePro — aguardando credenciais e homologação.
-              </p>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Server className="w-4 h-4 text-slate-400" />
+                <span>Autenticação segura gerenciada no backend (Basic Token)</span>
+              </div>
               <Button
                 variant="outline"
                 size="sm"

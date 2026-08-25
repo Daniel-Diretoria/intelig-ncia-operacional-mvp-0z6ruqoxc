@@ -78,6 +78,49 @@ export function isTradeProConfigured(): boolean {
   return false
 }
 
+export interface TradeProTestConnectionResult {
+  conectado: boolean
+  statusHttp: number
+  possuiDados: boolean
+  registrosRecebidos: number
+  totalDeRegistrosInformado: number
+  tempoRespostaMs: number
+  mensagem: string
+}
+
+/**
+ * Realiza teste de conexão seguro com a API TradePro via backend.
+ * NUNCA transmite credenciais pelo frontend e sanitiza qualquer falha de rede/servidor.
+ */
+export async function testTradeProConnection(
+  dataInicial: string,
+  dataFinal: string,
+): Promise<TradeProTestConnectionResult> {
+  const startTime = Date.now()
+  try {
+    const res = await pb.send('/api/backend/v1/tradepro/test-connection', {
+      method: 'POST',
+      body: { dataInicial, dataFinal },
+    })
+    return res as TradeProTestConnectionResult
+  } catch (err) {
+    const latency = Date.now() - startTime
+    const e = err as { status?: number; data?: TradeProTestConnectionResult; message?: string }
+    if (e.data && typeof e.data.conectado === 'boolean') {
+      return e.data
+    }
+    return {
+      conectado: false,
+      statusHttp: e.status || 0,
+      possuiDados: false,
+      registrosRecebidos: 0,
+      totalDeRegistrosInformado: 0,
+      tempoRespostaMs: latency,
+      mensagem: e.message || 'Falha de comunicação ao testar conexão com o servidor.',
+    }
+  }
+}
+
 export function getTradeProClient() {
   return null
 }
