@@ -580,6 +580,106 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         }
       }
 
+      // Segunda passagem de merge conservadora:
+      // Mescla entradas do mergedMap onde código, nome e cidade são idênticos,
+      // e uma entrada tem rede vazia/genérica ("Rede não identificada") e a outra não-vazia,
+      // OU uma entrada tem UF vazia e a outra não-vazia.
+      const isRedeVazia = (r: string) =>
+        !r ||
+        !r.trim() ||
+        r.trim().toUpperCase() === 'REDE NÃO IDENTIFICADA' ||
+        r.trim().toUpperCase() === 'REDE NÃO INFORMADA'
+
+      const mergedEntries = Array.from(mergedMap.entries())
+      const toDeleteKeys = new Set<string>()
+
+      for (let i = 0; i < mergedEntries.length; i++) {
+        const [keyA, entryA] = mergedEntries[i]
+        if (toDeleteKeys.has(keyA)) continue
+
+        const normCodeA = entryA.codigoLoja
+          ? String(entryA.codigoLoja).trim().toUpperCase()
+          : 'SEM_CODIGO'
+        const normNameA = entryA.nomeLoja.trim().toUpperCase()
+        const normCityA = entryA.cidade.trim().toUpperCase()
+
+        for (let j = i + 1; j < mergedEntries.length; j++) {
+          const [keyB, entryB] = mergedEntries[j]
+          if (toDeleteKeys.has(keyB)) continue
+
+          const normCodeB = entryB.codigoLoja
+            ? String(entryB.codigoLoja).trim().toUpperCase()
+            : 'SEM_CODIGO'
+          const normNameB = entryB.nomeLoja.trim().toUpperCase()
+          const normCityB = entryB.cidade.trim().toUpperCase()
+
+          if (normCodeA === normCodeB && normNameA === normNameB && normCityA === normCityB) {
+            const redeAVazia = isRedeVazia(entryA.rede)
+            const redeBVazia = isRedeVazia(entryB.rede)
+            const ufAVazia = !entryA.uf || !entryA.uf.trim()
+            const ufBVazia = !entryB.uf || !entryB.uf.trim()
+
+            // Só mescla se um dos lados tem rede vazia e o outro não, OU um tem uf vazia e o outro não
+            const shouldMerge =
+              (redeAVazia && !redeBVazia) ||
+              (!redeAVazia && redeBVazia) ||
+              (ufAVazia && !ufBVazia) ||
+              (!ufAVazia && ufBVazia)
+
+            if (shouldMerge) {
+              // Herdar rede não-vazia
+              if (redeAVazia && !redeBVazia) {
+                entryA.rede = entryB.rede
+              }
+              // Herdar UF não-vazia
+              if (ufAVazia && !ufBVazia) {
+                entryA.uf = entryB.uf
+                entryA.cidadeUf = formatCityUf(entryA.cidade, entryB.uf)
+              } else if (!ufAVazia && ufBVazia && !entryA.cidadeUf) {
+                entryA.cidadeUf = formatCityUf(entryA.cidade, entryA.uf)
+              }
+
+              // Atualiza lojaKey
+              entryA.lojaKey = getCompositeKey(
+                entryA.codigoLoja,
+                entryA.nomeLoja,
+                entryA.rede,
+                entryA.cidade,
+                entryA.uf,
+              )
+
+              // Somar contagens
+              entryA.totalOcorrenciasAtivas += entryB.totalOcorrenciasAtivas
+              entryA.totalRupturasAtivas += entryB.totalRupturasAtivas
+              entryA.totalQuantidade += entryB.totalQuantidade
+
+              // Concatenar itens
+              entryA.itemsAtivos.push(...entryB.itemsAtivos)
+              entryA.itemsAuditoria.push(...entryB.itemsAuditoria)
+
+              // Manter status mais crítico
+              if (hierarchy[entryB.statusMaisCritico] < hierarchy[entryA.statusMaisCritico]) {
+                entryA.statusMaisCritico = entryB.statusMaisCritico
+              }
+
+              // Recalcular clientes e produtos distintos
+              const clientesSet = new Set<string>()
+              const produtosSet = new Set<string>()
+              entryA.itemsAtivos.forEach((it) => {
+                if (it.cliente) clientesSet.add(it.cliente)
+                if (it.product) produtosSet.add(it.product)
+              })
+              entryA.totalClientes = clientesSet.size || 1
+              entryA.totalProdutosEmRisco = produtosSet.size
+
+              // Marca keyB para remoção
+              toDeleteKeys.add(keyB)
+              mergedMap.delete(keyB)
+            }
+          }
+        }
+      }
+
       const lojasAgregadas = Array.from(mergedMap.values()).sort((a, b) =>
         a.identidade.localeCompare(b.identidade, 'pt-BR'),
       )

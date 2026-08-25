@@ -330,4 +330,108 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
     expect(resolvedFort?.networkName).toBe('FORT ATACADISTA')
     expect(resolvedComper?.networkName).toBe('COMPER')
   })
+
+  it('deduplicação de StoreSummary: duas entradas com mesmo storeCode+storeName+city unificam na entrada com UF e rede preenchidos', async () => {
+    const duplicateSnapshot: BaseAtualSnapshot = {
+      alertasOperacionais: [],
+      loadedFromBackend: true,
+      timestamp: new Date().toISOString(),
+      kpisReconciliados: {
+        validadesAtivasTotal: 2,
+        validadesCriticas: 1,
+        validadesAtencao: 0,
+        validadesModerado: 1,
+        validadesNormal: 0,
+        quantidadeTotalEmRisco: 20,
+        produtosDistintosEmRisco: 2,
+        lojasAfetadas: 1,
+        clientesAfetados: 1,
+        rupturasAtivasTotal: 1,
+        alertasAbertosTotal: 1,
+        auditoriaVencidosTotal: 0,
+      },
+      validadesAtivas: [],
+      validadesAuditoria: [],
+      rupturasAtivas: [],
+      lojasAgregadas: [
+        {
+          lojaKey: '165|FORT ATACADISTA AVENTUREIRO||JOINVILLE',
+          identidade: '165 • FORT ATACADISTA AVENTUREIRO',
+          codigoLoja: '165',
+          nomeLoja: 'FORT ATACADISTA AVENTUREIRO',
+          rede: '',
+          cidade: 'Joinville',
+          uf: '',
+          cidadeUf: 'Joinville',
+          totalClientes: 1,
+          totalOcorrenciasAtivas: 1,
+          totalRupturasAtivas: 0,
+          totalProdutosEmRisco: 1,
+          totalQuantidade: 10,
+          statusMaisCritico: 'Crítico',
+          itemsAtivos: [
+            {
+              id: 'v_dup_1',
+              product: 'PROD DUP 1',
+              sku: 'SKU_D1',
+              lote: 'L1',
+              category: 'Mercearia',
+              validade: '2025-06-01',
+              diasRestantes: 5, // Crítico
+              status: 'Crítico',
+              unidade: 'UN',
+              estoque: 10,
+              cliente: 'MARCA TESTE',
+              industria: 'Indústria',
+              rede: '',
+              codigoLoja: '165',
+              loja: 'FORT ATACADISTA AVENTUREIRO',
+              cidade: 'Joinville',
+              uf: '',
+              quantidade: 10,
+            },
+          ],
+          itemsAuditoria: [],
+        },
+        {
+          lojaKey: '165|FORT ATACADISTA AVENTUREIRO|FORT ATACADISTA|JOINVILLE (SC)',
+          identidade: '165 • FORT ATACADISTA AVENTUREIRO',
+          codigoLoja: '165',
+          nomeLoja: 'FORT ATACADISTA AVENTUREIRO',
+          rede: 'FORT ATACADISTA',
+          cidade: 'Joinville',
+          uf: 'SC',
+          cidadeUf: 'Joinville (SC)',
+          totalClientes: 1,
+          totalOcorrenciasAtivas: 0,
+          totalRupturasAtivas: 1,
+          totalProdutosEmRisco: 0,
+          totalQuantidade: 0,
+          statusMaisCritico: 'Normal',
+          itemsAtivos: [],
+          itemsAuditoria: [],
+        },
+      ],
+    }
+
+    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(duplicateSnapshot)
+
+    const { result } = renderHook(() => useLojas())
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    // Deve resultar em exatamente 1 loja após a deduplicação
+    expect(result.current.stores.length).toBe(1)
+    const store = result.current.stores[0]
+    expect(store.storeCode).toBe('165')
+    expect(store.storeName).toBe('FORT ATACADISTA AVENTUREIRO')
+    expect(store.networkName).toBe('FORT ATACADISTA')
+    expect(store.city).toBe('Joinville')
+    expect(store.uf).toBe('SC')
+    expect(store.validadesCriticasCount).toBe(1)
+    expect(store.rupturasAtivasCount).toBe(1)
+    expect(store.situacao).toBe('Crítica')
+  })
 })

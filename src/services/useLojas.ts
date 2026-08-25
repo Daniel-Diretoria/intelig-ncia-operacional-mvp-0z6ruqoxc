@@ -158,7 +158,107 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         }
       })
 
-      setStores(summaries)
+      // Etapa de deduplicação de StoreSummary:
+      // Agrupa StoreSummary por storeCode|storeName|city (normalizado)
+      const isRedeGeneric = (r: string) =>
+        !r ||
+        !r.trim() ||
+        r.trim().toUpperCase() === 'REDE NÃO IDENTIFICADA' ||
+        r.trim().toUpperCase() === 'REDE NÃO INFORMADA'
+
+      const storeGroupMap = new Map<string, StoreSummary[]>()
+      for (const s of summaries) {
+        const normCode = s.storeCode ? s.storeCode.trim().toUpperCase() : 'SEM_CODIGO'
+        const normName = s.storeName.trim().toUpperCase()
+        const normCity = s.city.trim().toUpperCase()
+        const groupKey = `${normCode}|${normName}|${normCity}`
+
+        const group = storeGroupMap.get(groupKey) || []
+        group.push(s)
+        storeGroupMap.set(groupKey, group)
+      }
+
+      const deduplicatedSummaries: StoreSummary[] = []
+      for (const group of storeGroupMap.values()) {
+        if (group.length === 1) {
+          deduplicatedSummaries.push(group[0])
+        } else {
+          // Mais de 1 entrada: consolida na primeira
+          const first = group[0]
+
+          // Herdar networkName não-vazio/não-genérico
+          const validNetwork =
+            group.find((item) => !isRedeGeneric(item.networkName))?.networkName || first.networkName
+
+          // Herdar UF não-vazia
+          const validUf = group.find((item) => Boolean(item.uf && item.uf.trim()))?.uf || first.uf
+
+          const allMarcasSet = new Set<string>()
+          let totalValidadesCriticas = 0
+          let totalValidadesAtencao = 0
+          let totalRupturasAtivas = 0
+          const allItemsAtivos: ValidadeItem[] = []
+          const allItemsAuditoria: ValidadeItem[] = []
+          const allRupturasList: Ruptura[] = []
+
+          for (const item of group) {
+            item.marcasList.forEach((m) => {
+              if (m && m.trim()) allMarcasSet.add(m.trim())
+            })
+            totalValidadesCriticas += item.validadesCriticasCount
+            totalValidadesAtencao += item.validadesAtencaoCount
+            totalRupturasAtivas += item.rupturasAtivasCount
+            allItemsAtivos.push(...item.itemsAtivos)
+            allItemsAuditoria.push(...item.itemsAuditoria)
+            allRupturasList.push(...item.rupturasList)
+          }
+
+          const consolidatedMarcasList = Array.from(allMarcasSet).sort((a, b) =>
+            a.localeCompare(b, 'pt-BR'),
+          )
+
+          const recalculatedStoreId = buildStoreCompositeKey({
+            codigoLoja: first.storeCode,
+            nomeLoja: first.storeName,
+            rede: validNetwork,
+            cidade: first.city,
+            uf: validUf,
+          })
+
+          const situacao: 'Crítica' | 'Normal' =
+            totalValidadesCriticas > 0 || totalRupturasAtivas > 0 ? 'Crítica' : 'Normal'
+
+          deduplicatedSummaries.push({
+            storeId: recalculatedStoreId,
+            storeCode: first.storeCode,
+            storeName: first.storeName,
+            networkName: validNetwork,
+            city: first.city,
+            uf: validUf,
+            marcasCount: consolidatedMarcasList.length,
+            marcasList: consolidatedMarcasList,
+            validadesCriticasCount: totalValidadesCriticas,
+            validadesAtencaoCount: totalValidadesAtencao,
+            rupturasAtivasCount: totalRupturasAtivas,
+            situacao,
+            itemsAtivos: allItemsAtivos,
+            itemsAuditoria: allItemsAuditoria,
+            rupturasList: allRupturasList,
+          })
+        }
+      }
+
+      // Defesa em profundidade: filtrar duplicatas exatas de storeId
+      const seenStoreIds = new Set<string>()
+      const finalSummaries: StoreSummary[] = []
+      for (const s of deduplicatedSummaries) {
+        if (!seenStoreIds.has(s.storeId)) {
+          seenStoreIds.add(s.storeId)
+          finalSummaries.push(s)
+        }
+      }
+
+      setStores(finalSummaries)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Falha ao processar base de lojas'))
     } finally {

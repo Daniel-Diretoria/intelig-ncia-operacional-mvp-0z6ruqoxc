@@ -109,7 +109,80 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado e parseCityUf', (
     expect(loja944?.totalRupturasAtivas).toBe(1)
   })
 
-  it('2. Resiliência: se uma página falhar, não quebra todo o snapshot', async () => {
+  it('2. Segunda passagem de merge: unifica LojaAgregada com mesmo codigo+nome+cidade quando rede ou uf estão vazias', async () => {
+    // Simula uma validade com rede vazia e uf vazia, e uma ruptura da mesma loja com rede "FORT ATACADISTA" e uf "SC"
+    const validadesRecords = [
+      {
+        id: 'val_joinville_1',
+        produto: 'PRODUTO VALIDADE',
+        cod_produto: 'SKU_100',
+        validade: '2025-11-01',
+        quantidade: 15,
+        codigo_loja: '165',
+        nome_loja: 'FORT ATACADISTA AVENTUREIRO',
+        cidade: 'Joinville',
+        estado: '', // UF vazia
+        rede: '', // Rede vazia
+        cliente: 'MARCA TESTE',
+      },
+    ]
+
+    const rupturasRecords = [
+      {
+        id: 'rup_joinville_1',
+        codigo_loja: '165',
+        nome_loja: 'FORT ATACADISTA AVENTUREIRO',
+        cidade: 'Joinville',
+        estado: 'SC', // UF presente
+        situacao_atual: 'Ativo',
+        produto: 'PRODUTO RUPTURA',
+        cliente: 'MARCA TESTE',
+      },
+    ]
+
+    const mockCollection = vi.fn().mockImplementation((col: string) => {
+      if (col === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: validadesRecords,
+            page: 1,
+            perPage: 500,
+            totalPages: 1,
+            totalItems: 1,
+          }),
+        }
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({
+          items: rupturasRecords,
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: 1,
+        }),
+      }
+    })
+
+    vi.spyOn(pb, 'collection').mockImplementation(mockCollection as any)
+
+    const snapshot = await getBaseAtualSnapshot(true)
+
+    // Deve resultar em exatamente 1 LojaAgregada após a segunda passagem de merge
+    const lojasAventureiro = snapshot.lojasAgregadas.filter(
+      (l) => l.codigoLoja === '165' && l.nomeLoja.toUpperCase().includes('AVENTUREIRO'),
+    )
+    expect(lojasAventureiro.length).toBe(1)
+
+    const loja = lojasAventureiro[0]
+    expect(loja.rede).toBe('FORT ATACADISTA')
+    expect(loja.uf).toBe('SC')
+    expect(loja.cidade).toBe('Joinville')
+    expect(loja.totalOcorrenciasAtivas).toBe(1)
+    expect(loja.totalRupturasAtivas).toBe(1)
+    expect(loja.totalQuantidade).toBe(15)
+  })
+
+  it('3. Resiliência: se uma página falhar, não quebra todo o snapshot', async () => {
     let callCount = 0
     const mockGetList = vi.fn().mockImplementation((page: number) => {
       callCount++
