@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseCityUf,
   buildStoreCompositeKey,
+  buildCityUfCanonicalizer,
   formatStoreIdentity,
   formatStoreIdentityTable,
 } from '../storeIdentity'
@@ -113,5 +114,69 @@ describe('storeIdentity.test.ts — Normalização e Identidade de Lojas', () =>
     })
 
     expect(keyValidadeComUfNaCidade).toBe(keyRuptura)
+  })
+
+  describe('buildCityUfCanonicalizer', () => {
+    it('duas lojas diferentes em Joinville, uma uf="" e outra uf="SC": as duas lojas permanecem, mas canonicalize infere SC para a sem UF', () => {
+      const stores = [
+        { city: 'Joinville', uf: 'SC' },
+        { city: 'Joinville', uf: '' },
+      ]
+      const canonicalize = buildCityUfCanonicalizer(stores)
+
+      // Ambas as lojas existem — canonicalizer não remove nada
+      const r1 = canonicalize('Joinville', 'SC')
+      const r2 = canonicalize('Joinville', '')
+
+      expect(r1).toEqual({ city: 'Joinville', uf: 'SC' })
+      expect(r2).toEqual({ city: 'Joinville', uf: 'SC' }) // infere SC
+    })
+
+    it('cidade com múltiplas UFs não infere para vazios', () => {
+      const stores = [
+        { city: 'São Paulo', uf: 'SP' },
+        { city: 'São Paulo', uf: 'MG' },
+      ]
+      const canonicalize = buildCityUfCanonicalizer(stores)
+
+      const r1 = canonicalize('São Paulo', 'SP')
+      const r2 = canonicalize('São Paulo', 'MG')
+      const r3 = canonicalize('São Paulo', '')
+
+      expect(r1).toEqual({ city: 'São Paulo', uf: 'SP' })
+      expect(r2).toEqual({ city: 'São Paulo', uf: 'MG' })
+      expect(r3).toEqual({ city: 'São Paulo', uf: '' }) // ambíguo: mantém vazio
+    })
+
+    it('cidade com UF conhecida, canonicalize com UF já preenchida retorna igual', () => {
+      const stores = [
+        { city: 'Florianópolis', uf: 'SC' },
+        { city: 'Palhoça', uf: 'SC' },
+      ]
+      const canonicalize = buildCityUfCanonicalizer(stores)
+
+      expect(canonicalize('Florianópolis', 'SC')).toEqual({ city: 'Florianópolis', uf: 'SC' })
+      expect(canonicalize('Florianópolis', '')).toEqual({ city: 'Florianópolis', uf: 'SC' })
+      expect(canonicalize('Palhoça', 'SC')).toEqual({ city: 'Palhoça', uf: 'SC' })
+      expect(canonicalize('Palhoça', '')).toEqual({ city: 'Palhoça', uf: 'SC' })
+    })
+
+    it('cidade sem nenhuma UF conhecida retorna com uf vazia', () => {
+      const stores = [{ city: 'Cidade Desconhecida', uf: '' }]
+      const canonicalize = buildCityUfCanonicalizer(stores)
+      expect(canonicalize('Cidade Desconhecida', '')).toEqual({
+        city: 'Cidade Desconhecida',
+        uf: '',
+      })
+    })
+
+    it('extrai UF do nome da cidade caso esteja formatado tipo "Blumenau / SC" e infere para "Blumenau"', () => {
+      const stores = [
+        { city: 'Blumenau / SC', uf: '' },
+        { city: 'Blumenau', uf: '' },
+      ]
+      const canonicalize = buildCityUfCanonicalizer(stores)
+      expect(canonicalize('Blumenau', '')).toEqual({ city: 'Blumenau', uf: 'SC' })
+    })
   })
 })

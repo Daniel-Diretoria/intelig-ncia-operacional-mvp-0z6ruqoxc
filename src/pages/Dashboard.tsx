@@ -13,7 +13,11 @@ import {
   X,
 } from 'lucide-react'
 import { useLojas, type StoreSummary } from '@/services/useLojas'
-import { formatStoreIdentityTable, formatCityUf, parseCityUf } from '@/lib/format/storeIdentity'
+import {
+  formatStoreIdentityTable,
+  formatCityUf,
+  buildCityUfCanonicalizer,
+} from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { computeConfrontoBidirecional } from '@/lib/engine/confrontoBidirecional'
 import type { ValidadeRecord } from '@/lib/engine/ruptureValidityReconciliationEngine'
@@ -71,6 +75,8 @@ export const DashboardPage: React.FC = () => {
     refetchValidades()
   }, [refetchLojas, refetchRupturas, refetchValidades])
 
+  const canonicalize = useMemo(() => buildCityUfCanonicalizer(stores), [stores])
+
   // Opções para os filtros executivos
   const filterOptions = useMemo(() => {
     const marcasSet = new Set<string>()
@@ -91,7 +97,7 @@ export const DashboardPage: React.FC = () => {
       })
       if (lojaLabel) lojasSet.add(lojaLabel)
 
-      const { city, uf } = parseCityUf(s.city, s.uf)
+      const { city, uf } = canonicalize(s.city, s.uf)
       const cUf = formatCityUf(city, uf)
       if (cUf && cUf !== '—') cidadesUfSet.add(cUf)
     }
@@ -102,7 +108,7 @@ export const DashboardPage: React.FC = () => {
       lojas: Array.from(lojasSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
       cidadesUf: Array.from(cidadesUfSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     }
-  }, [stores])
+  }, [stores, canonicalize])
 
   // Lojas Filtradas
   const filteredStores = useMemo(() => {
@@ -130,7 +136,8 @@ export const DashboardPage: React.FC = () => {
       }
       // Filtro Cidade/UF
       if (filterState.cidadeUf !== 'Todas as cidades') {
-        const cUf = formatCityUf(s.city, s.uf)
+        const { city, uf } = canonicalize(s.city, s.uf)
+        const cUf = formatCityUf(city, uf)
         if (cUf.toLowerCase() !== filterState.cidadeUf.toLowerCase()) return false
       }
       return true
@@ -656,7 +663,10 @@ export const DashboardPage: React.FC = () => {
 
                       {/* 2. Cidade / UF */}
                       <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                        {formatCityUf(store.city, store.uf)}
+                        {formatCityUf(
+                          canonicalize(store.city, store.uf).city,
+                          canonicalize(store.city, store.uf).uf,
+                        )}
                       </td>
 
                       {/* 3. Validades até 15 dias */}

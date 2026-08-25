@@ -538,6 +538,65 @@ export function formatCityUf(cidade: unknown, uf: unknown): string {
  * Mostra código só quando existir código real. NUNCA usa nome do produto como SKU.
  * Sem código: "Código não informado".
  */
+/**
+ * Normaliza nome de cidade para matching robusto (sem acentos, uppercase, trim)
+ */
+function normalizeCityName(cityName: unknown): string {
+  return String(cityName || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Constrói função de canonicalização de Cidade/UF para filtros e exibição.
+ * Se uma cidade tiver lojas com UF preenchida (exatamente UMA UF única conhecida em todo o conjunto),
+ * infere essa UF para lojas na mesma cidade que estiverem com uf="".
+ * Se a cidade tiver zero ou múltiplas UFs conhecidas, ou se uf já estiver preenchida, mantém sem alteração.
+ */
+export function buildCityUfCanonicalizer(
+  stores: Array<{ city: string; uf: string }>,
+): (city: string, uf: string) => { city: string; uf: string } {
+  // Mapa de normalizedCity -> Set<UF não-vazia>
+  const cityToUfs = new Map<string, Set<string>>()
+
+  for (const s of stores) {
+    const { city, uf } = parseCityUf(s.city, s.uf)
+    const norm = normalizeCityName(city)
+    if (!norm) continue
+
+    if (uf && uf.trim()) {
+      let ufSet = cityToUfs.get(norm)
+      if (!ufSet) {
+        ufSet = new Set<string>()
+        cityToUfs.set(norm, ufSet)
+      }
+      ufSet.add(uf.trim().toUpperCase())
+    }
+  }
+
+  return (city: string, uf: string): { city: string; uf: string } => {
+    const parsed = parseCityUf(city, uf)
+    // Se uf já veio preenchida (ou extraída de rawCity pelo parseCityUf), retorna como está
+    if (parsed.uf && parsed.uf.trim()) {
+      return { city: parsed.city, uf: parsed.uf.trim().toUpperCase() }
+    }
+
+    // Se uf vazia, tenta inferir a partir do mapa
+    const norm = normalizeCityName(parsed.city)
+    const knownUfs = cityToUfs.get(norm)
+
+    if (knownUfs && knownUfs.size === 1) {
+      const singleUf = Array.from(knownUfs)[0]
+      return { city: parsed.city, uf: singleUf }
+    }
+
+    return { city: parsed.city, uf: '' }
+  }
+}
+
 export function formatProductSku(
   sku: unknown,
   productDescription?: unknown,

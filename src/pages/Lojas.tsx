@@ -14,7 +14,11 @@ import {
   Info,
 } from 'lucide-react'
 import { useLojas, type StoreSummary } from '@/services/useLojas'
-import { formatStoreIdentityTable, formatCityUf, parseCityUf } from '@/lib/format/storeIdentity'
+import {
+  formatStoreIdentityTable,
+  formatCityUf,
+  buildCityUfCanonicalizer,
+} from '@/lib/format/storeIdentity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -110,6 +114,8 @@ export const LojasPage: React.FC = () => {
     return list
   }, [filteredStores])
 
+  const canonicalize = useMemo(() => buildCityUfCanonicalizer(stores), [stores])
+
   // Opções para os selects derivadas de stores
   const filterOptions = useMemo(() => {
     const marcasSet = new Set<string>()
@@ -124,7 +130,7 @@ export const LojasPage: React.FC = () => {
       if (s.networkName && s.networkName.trim() && s.networkName !== 'Rede não identificada') {
         redesSet.add(s.networkName.trim())
       }
-      const { city, uf } = parseCityUf(s.city, s.uf)
+      const { city, uf } = canonicalize(s.city, s.uf)
       const formatted = formatCityUf(city, uf)
       if (formatted && formatted !== '—') cidadesSet.add(formatted)
       if (uf) ufsSet.add(uf.trim().toUpperCase())
@@ -136,7 +142,7 @@ export const LojasPage: React.FC = () => {
       cidades: Array.from(cidadesSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
       ufs: Array.from(ufsSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     }
-  }, [stores])
+  }, [stores, canonicalize])
 
   // Paginação
   const totalItems = sortedStores.length
@@ -794,7 +800,10 @@ export const LojasPage: React.FC = () => {
 
                               {/* 2. Cidade / UF */}
                               <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                                {formatCityUf(store.city, store.uf)}
+                                {formatCityUf(
+                                  canonicalize(store.city, store.uf).city,
+                                  canonicalize(store.city, store.uf).uf,
+                                )}
                               </td>
 
                               {/* 3. Rede */}
