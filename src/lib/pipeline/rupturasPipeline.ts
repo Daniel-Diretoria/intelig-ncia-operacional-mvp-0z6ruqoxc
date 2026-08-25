@@ -127,8 +127,11 @@ function selectRupturaSheet(workbook: XLSX.WorkBook): string {
 // parseRupturasExcel
 // ---------------------------------------------------------------------------
 
-export async function parseRupturasExcel(file: File): Promise<ParsedRupturaRow[]> {
-  const buffer = await file.arrayBuffer()
+export async function parseRupturasExcel(
+  fileOrBuffer: File | ArrayBuffer,
+): Promise<ParsedRupturaRow[]> {
+  const isFile = fileOrBuffer instanceof File
+  const buffer = isFile ? await fileOrBuffer.arrayBuffer() : fileOrBuffer
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
   const sheetName = selectRupturaSheet(workbook)
   if (!sheetName) throw new Error('Nenhuma aba encontrada no arquivo de Rupturas.')
@@ -546,14 +549,23 @@ function isoWeekLabel(iso: string): string {
 // Hash do arquivo (mesma estratégia do tradeProPipeline)
 // ---------------------------------------------------------------------------
 
-export async function calcularHashArquivo(file: File): Promise<string> {
+export async function calcularHashArquivo(
+  fileOrBuffer: File | ArrayBuffer,
+  fileName?: string,
+  fileSize?: number,
+): Promise<string> {
   try {
-    const buffer = await file.arrayBuffer()
+    const isFile = fileOrBuffer instanceof File
+    const buffer = isFile ? await fileOrBuffer.arrayBuffer() : fileOrBuffer
     const digest = await crypto.subtle.digest('SHA-256', buffer)
     const bytes = Array.from(new Uint8Array(digest))
     return bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
   } catch {
-    return `size-${file.size}-${file.name}`
+    const isFile = fileOrBuffer instanceof File
+    const name = fileName || (isFile ? fileOrBuffer.name : 'buffer')
+    const size =
+      fileSize || (isFile ? fileOrBuffer.size : (fileOrBuffer as ArrayBuffer).byteLength || 0)
+    return `size-${size}-${name}`
   }
 }
 

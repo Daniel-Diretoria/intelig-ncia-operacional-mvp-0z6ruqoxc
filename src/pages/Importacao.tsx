@@ -262,6 +262,9 @@ export const ImportacaoPage: React.FC = () => {
 
   // Abort controller para cancelamento seguro
   const abortControllerRef = useRef<AbortController | null>(null)
+  const isProcessingLockRef = useRef<boolean>(false)
+  const lastProgressUpdateRef = useRef<number>(0)
+  const lastProgressStageRef = useRef<string>('')
 
   const [importResult, setImportResult] = useState<{
     imported: number
@@ -433,7 +436,9 @@ export const ImportacaoPage: React.FC = () => {
       setReconciliation(null)
       setSelectedFile(file)
       try {
-        const hash = await calcularHashArquivo(file)
+        // Ler file.arrayBuffer() UMA única vez antes de hash e parse
+        let arrayBuffer: ArrayBuffer | null = await file.arrayBuffer()
+        const hash = await calcularHashArquivo(arrayBuffer, file.name, file.size)
         const isRupByName = file.name.toLowerCase().includes('ruptura')
 
         let parsed: Awaited<ReturnType<typeof parseExcelFile>> | null = null
@@ -442,31 +447,34 @@ export const ImportacaoPage: React.FC = () => {
 
         if (isRupByName) {
           try {
-            parsed = await parseExcelFile(file)
+            parsed = await parseExcelFile(arrayBuffer, file.name)
           } catch {
             // fallback se parse padrão falhar
           }
-          rupRows = await parseRupturasExcel(file)
+          rupRows = await parseRupturasExcel(arrayBuffer)
           isRup = true
         } else {
           try {
-            parsed = await parseExcelFile(file)
+            parsed = await parseExcelFile(arrayBuffer, file.name)
             isRup =
               parsed.isRupturaSheet ||
               detectRupturaFile(file.name, parsed.sheetName, parsed.headers)
             if (isRup) {
-              rupRows = await parseRupturasExcel(file)
+              rupRows = await parseRupturasExcel(arrayBuffer)
             }
           } catch (err) {
             // Se falhar ao ler como Validades, tenta ler como Rupturas
             try {
-              rupRows = await parseRupturasExcel(file)
+              rupRows = await parseRupturasExcel(arrayBuffer)
               isRup = true
             } catch {
               throw err
             }
           }
         }
+
+        // Liberar referência ao ArrayBuffer local para descarte imediato pelo GC
+        arrayBuffer = null
 
         setFileInfo({
           name: file.name,
@@ -637,7 +645,7 @@ export const ImportacaoPage: React.FC = () => {
 
   // Estatísticas de Resolução de Loja e Auditoria para a Prévia
   const previewStats = useMemo(() => {
-    if (stage === 'idle' || rawRows.length === 0) return null
+    if (stage === 'idle' || stage === 'importing' || rawRows.length === 0) return null
 
     let comCodigo = 0
     let resolvidas = 0
@@ -719,11 +727,16 @@ export const ImportacaoPage: React.FC = () => {
   const handleImport = useCallback(async () => {
     if (!validationReport || !fileInfo) return
 
-    // Previne imports simultâneos
-    if (stage === 'importing') return
+    // Previne imports simultâneos (stage ou lock de duplo clique)
+    if (stage === 'importing' || isProcessingLockRef.current) return
+    isProcessingLockRef.current = true
 
     const controller = new AbortController()
     abortControllerRef.current = controller
+
+    // Reseta controle de throttle
+    lastProgressUpdateRef.current = 0
+    lastProgressStageRef.current = ''
 
     setStage('importing')
     setImportProgress(5)
@@ -833,16 +846,33 @@ export const ImportacaoPage: React.FC = () => {
           retriesCount: 0,
         })
 
+        // Observabilidade: se importId seguro conhecido antecipadamente, atualiza para processing ANTES de executarPipeline
+        const safeImportId =
+          reconciliation?.importId ||
+          (duplicateHash?.status === 'failed' ? duplicateHash.importId : undefined)
+        if (safeImportId) {
+          try {
+            await pb.collection('import_history').update(safeImportId, {
+              status: 'processing',
+              data_importacao: new Date().toISOString(),
+            })
+          } catch {
+            // prossegue mesmo se update prévio falhar
+          }
+        }
+
         const rawTradePro = rawRows.map((r, i) => toRawRecord(r, mapping, i + 2))
         const pipeline = executarPipeline({
           rawRecords: rawRows,
           mapping,
           fileName: fileInfo.name,
           dataArquivo,
-          importId: undefined,
+          importId: safeImportId || undefined,
         })
         setPipelineResult(pipeline)
         setImportProgress(15)
+
+        const MIN_PROGRESS_INTERVAL = 200 // ms
 
         const result = await submitProcessValidades({
           fileName: fileInfo.name,
@@ -866,15 +896,32 @@ export const ImportacaoPage: React.FC = () => {
             maiorDataArquivo: pipeline.summary.maiorDataArquivo,
           },
           onProgress: (pState) => {
-            setProgressState(pState)
-            if (pState.stage === 'saving_raw') {
-              const rawRatio = pState.total > 0 ? pState.processed / pState.total : 0
-              setImportProgress(15 + Math.round(rawRatio * 35)) // 15% -> 50%
-            } else if (pState.stage === 'saving_base') {
-              const baseRatio = pState.total > 0 ? pState.processed / pState.total : 0
-              setImportProgress(50 + Math.round(baseRatio * 45)) // 50% -> 95%
-            } else if (pState.stage === 'finalizing' || pState.stage === 'done') {
-              setImportProgress(100)
+            const now = Date.now()
+            const isStageChange = lastProgressStageRef.current !== pState.stage
+            const isFinalEvent =
+              pState.stage === 'done' ||
+              pState.stage === 'failed' ||
+              pState.stage === 'finalizing' ||
+              (pState.total > 0 && pState.processed >= pState.total)
+            const elapsed = now - lastProgressUpdateRef.current
+
+            if (isStageChange || isFinalEvent || elapsed >= MIN_PROGRESS_INTERVAL) {
+              lastProgressUpdateRef.current = now
+              lastProgressStageRef.current = pState.stage
+
+              let newProgress = 15
+              if (pState.stage === 'saving_raw') {
+                const rawRatio = pState.total > 0 ? pState.processed / pState.total : 0
+                newProgress = 15 + Math.round(rawRatio * 35) // 15% -> 50%
+              } else if (pState.stage === 'saving_base') {
+                const baseRatio = pState.total > 0 ? pState.processed / pState.total : 0
+                newProgress = 50 + Math.round(baseRatio * 45) // 50% -> 95%
+              } else if (pState.stage === 'finalizing' || pState.stage === 'done') {
+                newProgress = 100
+              }
+
+              setProgressState(pState)
+              setImportProgress(newProgress)
             }
           },
         })
@@ -940,15 +987,37 @@ export const ImportacaoPage: React.FC = () => {
         }
       }
     } catch (err) {
+      const errMessage =
+        err instanceof Error ? err.message : 'Falha na comunicação com o banco de dados.'
       toast({
         title: 'Erro no processamento',
-        description:
-          err instanceof Error ? err.message : 'Falha na comunicação com o banco de dados.',
+        description: errMessage,
         variant: 'destructive',
       })
+
+      // Se houver importId ativo, registrar status retomável honesto no histórico
+      const activeId = reconciliation?.importId || duplicateHash?.importId
+      if (activeId) {
+        try {
+          await pb.collection('import_history').update(activeId, {
+            status: 'failed',
+            error_rows: 1,
+            errors_json: JSON.stringify({
+              _meta: {
+                error: errMessage,
+                isPartial: true,
+              },
+            }),
+          })
+        } catch {
+          // ignora falha de registro de erro
+        }
+      }
+
       setStage('validated')
     } finally {
       abortControllerRef.current = null
+      isProcessingLockRef.current = false
     }
   }, [
     validationReport,

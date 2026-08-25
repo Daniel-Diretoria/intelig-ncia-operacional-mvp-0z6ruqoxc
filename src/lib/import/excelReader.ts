@@ -278,9 +278,12 @@ export function parseWorksheetSparse(worksheet: XLSX.WorkSheet): {
 }
 
 export async function parseExcelFile(
-  file: File,
+  fileOrBuffer: File | ArrayBuffer,
+  fileName?: string,
 ): Promise<ParsedSheet & { isRupturaSheet?: boolean }> {
-  const buffer = await file.arrayBuffer()
+  const isFile = fileOrBuffer instanceof File
+  const name = fileName || (isFile ? fileOrBuffer.name : '')
+  const buffer = isFile ? await fileOrBuffer.arrayBuffer() : fileOrBuffer
   // cellDates: true para interpretar datas reais como objetos Date, cellStyles: false conforme especificação
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, cellStyles: false })
 
@@ -291,7 +294,7 @@ export async function parseExcelFile(
 
   const worksheet = workbook.Sheets[sheetName]
   const parsedSparse = parseWorksheetSparse(worksheet)
-  const dataArquivo = extractDataArquivo(file.name)
+  const dataArquivo = extractDataArquivo(name)
 
   return {
     ...parsedSparse,

@@ -405,11 +405,20 @@ export async function loadAlreadyPersistedRawKeys(importId: string): Promise<Set
  * Retorna um Set<string> com as chaves operacionais.
  */
 export async function loadAlreadyPersistedBaseKeys(importId: string): Promise<Set<string>> {
-  const persistedKeys = new Set<string>()
-  if (!importId) return persistedKeys
+  const persistedMap = await loadBaseOperationalKeyMap(importId)
+  return new Set(persistedMap.keys())
+}
+
+/**
+ * Carrega de forma paginada (perPage >= 100) o mapa chave_operacional -> id de `validades_base`
+ * para um determinado importId. Retorna Map<string, string> (chave_operacional -> id).
+ */
+export async function loadBaseOperationalKeyMap(importId: string): Promise<Map<string, string>> {
+  const keyToIdMap = new Map<string, string>()
+  if (!importId) return keyToIdMap
 
   let page = 1
-  const perPage = 50
+  const perPage = 200
   let hasMore = true
 
   while (hasMore) {
@@ -421,8 +430,9 @@ export async function loadAlreadyPersistedBaseKeys(importId: string): Promise<Se
 
       for (const item of res.items) {
         const chave = (item as unknown as { chave_operacional?: string }).chave_operacional
-        if (chave) {
-          persistedKeys.add(chave)
+        const id = (item as unknown as { id: string }).id
+        if (chave && id) {
+          keyToIdMap.set(chave, id)
         }
       }
 
@@ -436,7 +446,7 @@ export async function loadAlreadyPersistedBaseKeys(importId: string): Promise<Se
     }
   }
 
-  return persistedKeys
+  return keyToIdMap
 }
 /**
  * Compatibilidade com testes legados e chamadas que usam persistConcurrent:
@@ -790,88 +800,76 @@ export async function submitProcessValidades(
       }
     }
 
-    // --- 3. Persistir Base Atual em validades_base (upsert por chave via queue) -
-    const totalExpectedBase = isRawCompleteResume
-      ? reconciliation.validExpected + reconciliation.auditExpected
-      : baseCount
-
+    // --- 3. Persistir Base Atual em validades_base (O(1) Map lookup + batch pagination) -
     const baseProgressLabel = isRawCompleteResume
       ? `Consolidando Base Atual (0 de ${baseCount})...`
       : `Atualizando Base Atual (0 de ${baseCount})...`
 
     reportProgress('saving_base', baseProgressLabel, 0, baseCount, errors.length)
 
-    let existingBaseKeys = new Set<string>()
-    if (reconciliation?.state === 'CONSOLIDATION_PARTIAL' && importId) {
-      existingBaseKeys = await loadAlreadyPersistedBaseKeys(importId)
+    // Se o importId não for seguro para carregar chaves, retorne BLOCKED_UNSAFE / 0 writes
+    if (!importId) {
+      const blockedMsg = 'Identificador de importação inválido para consolidação.'
+      return {
+        success: false,
+        importId: '',
+        importedRows: 0,
+        rawRows: totalRawPersisted,
+        skippedRows: summary.rejeitados ?? 0,
+        errorRows: 1,
+        summary,
+        error: blockedMsg,
+      }
     }
+
+    // 3.1 Pré-carregar UMA VEZ e paginado (perPage >= 100) as chaves já existentes em validades_base para este importId
+    const existingBaseKeyMap = await loadBaseOperationalKeyMap(importId)
 
     const baseRecords = baseAtual as AnyRec[]
-    let keyedEntries: Array<{ index: number; rec: AnyRec; chave?: string; _rowNumber: number }> =
-      baseRecords.map((rec, index) => ({
-        index,
-        rec,
-        chave: pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined,
-        _rowNumber: index + 1,
-      }))
+    const allBaseEntries: Array<{
+      index: number
+      rec: AnyRec
+      chave?: string
+      _rowNumber: number
+    }> = baseRecords.map((rec, index) => ({
+      index,
+      rec,
+      chave: pick(rec, 'chaveOperacional', 'chave_operacional') as string | undefined,
+      _rowNumber: index + 1,
+    }))
 
-    // Se CONSOLIDATION_PARTIAL, pula registros cuja chave já exista com este importId
-    let alreadyPersistedBaseCount = 0
-    if (existingBaseKeys.size > 0) {
-      const pendingEntries = keyedEntries.filter((entry) => {
-        if (!entry.chave) return true
-        return !existingBaseKeys.has(entry.chave)
-      })
-      alreadyPersistedBaseCount = keyedEntries.length - pendingEntries.length
-      keyedEntries = pendingEntries
-    }
+    // Filtra somente itens pendentes (chave não está no existingBaseKeyMap) para create; itens existentes são skipped
+    const pendingBaseEntries = allBaseEntries.filter((entry) => {
+      if (!entry.chave) return true
+      return !existingBaseKeyMap.has(entry.chave)
+    })
 
-    // 3.1 Lookup de IDs existentes por chave com concurrency segura
-    const existingIds = new Map<number, string>()
-    if (keyedEntries.length > 0) {
-      await runPersistenceQueue(
-        keyedEntries,
-        async (entry, _idx, taskSignal) => {
-          if (taskSignal?.aborted || !entry.chave) return
-          try {
-            const found = await pb.collection('validades_base').getList(1, 1, {
-              filter: `chave_operacional = "${entry.chave}"`,
-            })
-            if (found.items.length > 0) {
-              existingIds.set(entry.index, (found.items[0] as unknown as { id: string }).id)
-            }
-          } catch {
-            // Ignora falha de lookup e prossegue para tentar criação
-          }
-        },
-        {
-          concurrency: PERSIST_CONCURRENCY,
-          signal,
-          stage: 'base_lookup',
-          extractErrorMessage: (e) =>
-            errMsg(e, { collection: 'validades_base', operation: 'lookup' }),
-        },
+    const alreadyPersistedBaseCount = allBaseEntries.length - pendingBaseEntries.length
+
+    if (alreadyPersistedBaseCount > 0) {
+      reportProgress(
+        'saving_base',
+        `Consolidando Base Atual: ${alreadyPersistedBaseCount} já consolidados, ${pendingBaseEntries.length} pendentes...`,
+        alreadyPersistedBaseCount,
+        baseCount,
+        errors.length,
       )
     }
 
-    // 3.2 Upsert dos registros de validades_base via persistenceQueue
+    // 3.2 Inserção dos registros pendentes de validades_base via persistenceQueue com ZERO getList por registro
     let baseRetriesRecovered = 0
     let baseNewlyPersisted = 0
-    if (keyedEntries.length > 0) {
+    if (pendingBaseEntries.length > 0) {
       const baseQueueResult = await runPersistenceQueue(
-        keyedEntries,
+        pendingBaseEntries,
         async (entry, _idx, taskSignal) => {
           if (taskSignal?.aborted) throw new Error('Operação cancelada.')
           const data = buildSnake(entry.rec, BASE_FIELDS)
           data.import_id = importId
           if (currentUserId) data.created_by = currentUserId
 
-          const existingId = existingIds.get(entry.index)
-          if (existingId) {
-            return pb.collection('validades_base').update(existingId, data)
-          } else {
-            return pb.collection('validades_base').create(data)
-          }
+          // ZERO getList por registro aqui: chave já verificada via existingBaseKeyMap
+          return pb.collection('validades_base').create(data)
         },
         {
           concurrency: PERSIST_CONCURRENCY,
@@ -880,7 +878,7 @@ export async function submitProcessValidades(
           getKey: (entry) => entry.chave || `base_idx_${entry.index}`,
           getRowNumber: (entry) => entry._rowNumber,
           extractErrorMessage: (e) =>
-            errMsg(e, { collection: 'validades_base', operation: 'upsert' }),
+            errMsg(e, { collection: 'validades_base', operation: 'create' }),
           onProgress: (p) => {
             const waitMsg = p.isRateLimited
               ? ' • Aguardando o banco liberar novas gravações...'
