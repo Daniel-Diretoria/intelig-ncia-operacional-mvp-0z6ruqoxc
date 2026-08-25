@@ -519,7 +519,68 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         loja.totalProdutosEmRisco = produtosSet.size
       }
 
-      const lojasAgregadas = Array.from(lojasMap.values()).sort((a, b) =>
+      // Merge pós-agregação: para entradas com mesmo codigo_loja, nome_loja normalizado e cidade (sem UF),
+      // consolidar contagens e unificar UF (usar a UF não-vazia quando disponível).
+      const mergedMap = new Map<string, LojaAgregada>()
+      const hierarchy: Record<StatusOperacionalFaixa, number> = {
+        Vencido: 0,
+        Crítico: 1,
+        Atenção: 2,
+        Moderado: 3,
+        Normal: 4,
+      }
+
+      for (const entry of lojasMap.values()) {
+        const normCode = entry.codigoLoja ? String(entry.codigoLoja).trim() : 'SEM_CODIGO'
+        const normName = entry.nomeLoja.trim().toUpperCase()
+        const normNetwork = entry.rede.trim().toUpperCase()
+        const normCity = entry.cidade.trim().toUpperCase()
+        // Chave de fusão sem considerar UF se uma delas for vazia
+        const mergeKey = `${normCode}|${normName}|${normNetwork}|${normCity}`
+
+        const existing = mergedMap.get(mergeKey)
+        if (!existing) {
+          mergedMap.set(mergeKey, {
+            ...entry,
+            itemsAtivos: [...entry.itemsAtivos],
+            itemsAuditoria: [...entry.itemsAuditoria],
+          })
+        } else {
+          // Unifica UF se a existente estiver vazia e a nova tiver UF
+          if (!existing.uf && entry.uf) {
+            existing.uf = entry.uf
+            existing.cidadeUf = formatCityUf(existing.cidade, entry.uf)
+            existing.lojaKey = getCompositeKey(
+              existing.codigoLoja,
+              existing.nomeLoja,
+              existing.rede,
+              existing.cidade,
+              existing.uf,
+            )
+          }
+          existing.totalOcorrenciasAtivas += entry.totalOcorrenciasAtivas
+          existing.totalRupturasAtivas += entry.totalRupturasAtivas
+          existing.totalQuantidade += entry.totalQuantidade
+          existing.itemsAtivos.push(...entry.itemsAtivos)
+          existing.itemsAuditoria.push(...entry.itemsAuditoria)
+
+          if (hierarchy[entry.statusMaisCritico] < hierarchy[existing.statusMaisCritico]) {
+            existing.statusMaisCritico = entry.statusMaisCritico
+          }
+
+          // Recalcula clientes e produtos distintos
+          const clientesSet = new Set<string>()
+          const produtosSet = new Set<string>()
+          existing.itemsAtivos.forEach((it) => {
+            if (it.cliente) clientesSet.add(it.cliente)
+            if (it.product) produtosSet.add(it.product)
+          })
+          existing.totalClientes = clientesSet.size || 1
+          existing.totalProdutosEmRisco = produtosSet.size
+        }
+      }
+
+      const lojasAgregadas = Array.from(mergedMap.values()).sort((a, b) =>
         a.identidade.localeCompare(b.identidade, 'pt-BR'),
       )
 

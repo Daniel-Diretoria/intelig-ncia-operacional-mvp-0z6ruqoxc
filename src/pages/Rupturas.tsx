@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   Download,
@@ -23,7 +23,7 @@ import {
 } from '@/components/rupturas/RupturasKpisCards'
 import { formatStoreIdentityTable } from '@/lib/export/validadeTableViewExport'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { deriveNetworkName } from '@/lib/format/storeIdentity'
+import { deriveNetworkName, buildStoreCompositeKey } from '@/lib/format/storeIdentity'
 import { normalizeStoreCode } from '@/lib/format/storeCode'
 import { exportRupturasTableViewXLSX } from '@/lib/export/rupturaTableViewExport'
 import type { Ruptura, RupturaMotivo } from '@/types/rupturas'
@@ -57,6 +57,7 @@ const initialFilterState: FilterState = {
 
 export function RupturasPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { toast } = useToast()
 
   // Alternância Ativas vs Histórico
@@ -64,6 +65,13 @@ export function RupturasPage() {
 
   // Filtros de barra
   const [filterState, setFilterState] = useState<FilterState>(initialFilterState)
+
+  useEffect(() => {
+    const lojaParam = searchParams.get('loja') || searchParams.get('storeId')
+    if (lojaParam) {
+      setFilterState((prev) => ({ ...prev, search: lojaParam }))
+    }
+  }, [searchParams])
 
   // Filtro de KPI clicável: 'lojasCriticas' | 'rupturaTotal' | null
   const [selectedKpi, setSelectedKpi] = useState<'lojasCriticas' | 'rupturaTotal' | null>(null)
@@ -839,9 +847,13 @@ export function RupturasPage() {
                             codigoLoja: item.codigo_loja,
                             loja: item.nome_loja,
                           })
-                          const storeCodeKey = item.codigo_loja
-                            ? `${item.codigo_loja}-${item.nome_loja}`
-                            : item.nome_loja
+                          const storeKey = buildStoreCompositeKey({
+                            codigoLoja: item.codigo_loja,
+                            nomeLoja: item.nome_loja,
+                            rede: deriveNetworkName(item.nome_loja),
+                            cidade: item.cidade,
+                            uf: item.estado,
+                          })
                           const codProd = (item as unknown as { cod_produto?: string }).cod_produto
 
                           // Badge de Motivo
@@ -877,8 +889,8 @@ export function RupturasPage() {
                                 <div
                                   className="min-w-0 cursor-pointer group"
                                   onClick={() => {
-                                    if (storeCodeKey) {
-                                      navigate(`/lojas/${encodeURIComponent(storeCodeKey)}`)
+                                    if (storeKey) {
+                                      navigate(`/lojas/${encodeURIComponent(storeKey)}`)
                                     }
                                   }}
                                 >

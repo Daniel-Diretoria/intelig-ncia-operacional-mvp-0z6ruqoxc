@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getBaseAtualSnapshot, type BaseAtualSnapshot, type LojaAgregada } from '@/lib/selectors'
-import { buildStoreCompositeKey, parseCityUf } from '@/lib/format/storeIdentity'
+import { buildStoreCompositeKey, parseCityUf, deriveNetworkName } from '@/lib/format/storeIdentity'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export interface StoreSummary {
@@ -33,6 +33,7 @@ export interface LojasFilter {
   rede?: string
   city?: string
   cidade?: string
+  cityUf?: string
   uf?: string
   state?: string
   situacao?:
@@ -74,13 +75,15 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
       const agregadas = snapshot.lojasAgregadas
       const activeRupturas = snapshot.rupturasAtivas.filter((r) => r.situacao_atual === 'Ativo')
 
-      // Mapeia rupturas ativas por storeId usando parseCityUf
+      // Mapeia rupturas ativas por storeId usando parseCityUf e deriveNetworkName
       const rupturasByStoreId = new Map<string, Ruptura[]>()
       for (const rup of activeRupturas) {
         const { city: rupCity, uf: rupState } = parseCityUf(rup.cidade, rup.estado)
+        const rupRede = deriveNetworkName(rup.nome_loja)
         const key = buildStoreCompositeKey({
           codigoLoja: rup.codigo_loja,
           nomeLoja: rup.nome_loja,
+          rede: rupRede,
           cidade: rupCity,
           uf: rupState,
         })
@@ -91,13 +94,15 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
 
       const summaries: StoreSummary[] = agregadas.map((l: LojaAgregada) => {
         const { city: lCity, uf: lUf } = parseCityUf(l.cidade, l.uf)
-        const storeId = buildStoreCompositeKey({
-          codigoLoja: l.codigoLoja,
-          nomeLoja: l.nomeLoja,
-          rede: l.rede,
-          cidade: lCity,
-          uf: lUf,
-        })
+        const storeId =
+          l.lojaKey ||
+          buildStoreCompositeKey({
+            codigoLoja: l.codigoLoja,
+            nomeLoja: l.nomeLoja,
+            rede: l.rede,
+            cidade: lCity,
+            uf: lUf,
+          })
 
         const marcasSet = new Set<string>()
         let validadesCriticasCount = 0
@@ -196,16 +201,30 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         if (store.networkName.toLowerCase() !== rede.toLowerCase()) return false
       }
 
-      // Filtro Cidade
+      // Filtro Cidade / CidadeUf
       const city = filters?.city ?? filters?.cidade
       if (city && city !== 'Todos' && city !== 'Todas as cidades') {
         if (store.city.toLowerCase() !== city.toLowerCase()) return false
       }
 
+      if (filters?.cityUf && filters.cityUf !== 'Todas as cidades' && filters.cityUf !== 'Todos') {
+        const { city: sCity, uf: sUf } = parseCityUf(store.city, store.uf)
+        const formattedStoreCityUf = formatCityUf(sCity, sUf).toLowerCase()
+        if (
+          formattedStoreCityUf !== filters.cityUf.toLowerCase() &&
+          !store.city.toLowerCase().includes(filters.cityUf.toLowerCase())
+        ) {
+          return false
+        }
+      }
+
       // Filtro UF / Estado
       const uf = filters?.uf ?? filters?.state
       if (uf && uf !== 'Todos' && uf !== 'Todos os estados') {
-        if (store.uf.toUpperCase() !== uf.toUpperCase()) return false
+        const { uf: sUf } = parseCityUf(store.city, store.uf)
+        if (sUf.toUpperCase() !== uf.toUpperCase() && store.uf.toUpperCase() !== uf.toUpperCase()) {
+          return false
+        }
       }
 
       // Filtro Situação: 'Todas' | 'Críticas' | 'Casos complexos' | 'Com rupturas' | 'Crítica' | 'Normal'

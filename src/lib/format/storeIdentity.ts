@@ -241,7 +241,6 @@ export function buildStoreCompositeKey(input: {
   const rawUf = (input.uf ?? input.estado ?? input.state ?? '').trim().toUpperCase()
   const { city, uf } = parseCityUf(rawCity, rawUf)
   const location = formatCityUf(city, uf)
-
   const normCode = code ? String(code).trim() : 'SEM_CODIGO'
   const normName = cleanName.trim().toUpperCase()
   const normNetwork = network.trim().toUpperCase()

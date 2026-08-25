@@ -418,7 +418,7 @@ export const StoreDetailPage: React.FC = () => {
 
               <div className="pt-2 border-t border-slate-100 flex justify-end">
                 <Link
-                  to={`/validades?loja=${encodeURIComponent(store.storeName)}`}
+                  to={`/validades?loja=${encodeURIComponent(store.storeId || store.storeName)}`}
                   className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold inline-flex items-center gap-1 hover:underline"
                 >
                   <span>Ver todas as validades</span>
@@ -494,7 +494,7 @@ export const StoreDetailPage: React.FC = () => {
 
               <div className="pt-2 border-t border-slate-100 flex justify-end">
                 <Link
-                  to={`/rupturas?loja=${encodeURIComponent(store.storeCode || store.storeName)}`}
+                  to={`/rupturas?loja=${encodeURIComponent(store.storeId || store.storeCode || store.storeName)}`}
                   className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold inline-flex items-center gap-1 hover:underline"
                 >
                   <span>Ver todas as rupturas</span>

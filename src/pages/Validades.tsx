@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useValidades } from '@/services'
 import type { ValidadeItem } from '@/types'
 import { DataTable, type Column } from '@/components/ui/data-table'
@@ -26,7 +26,7 @@ import {
 } from '@/components/validades/ValidadesFilters'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { formatCityUf } from '@/lib/format/storeIdentity'
+import { formatCityUf, buildStoreCompositeKey } from '@/lib/format/storeIdentity'
 import {
   formatStoreIdentityTable,
   exportValidadesTableViewXLSX,
@@ -39,11 +39,20 @@ const fmtInt = (v: number) => v.toLocaleString('pt-BR')
 
 export const ValidadesPage: React.FC = () => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { toast } = useToast()
 
   const [filterState, setFilterState] = useState<ValidadesFilterState>(emptyValidadesFilterState)
   const [appliedFilter, setAppliedFilter] =
     useState<ValidadesFilterState>(emptyValidadesFilterState)
+
+  useEffect(() => {
+    const lojaParam = searchParams.get('loja') || searchParams.get('storeId')
+    if (lojaParam) {
+      setFilterState((prev) => ({ ...prev, search: lojaParam }))
+      setAppliedFilter((prev) => ({ ...prev, search: lojaParam }))
+    }
+  }, [searchParams])
 
   // KPI clicável para filtro de faixa de dias
   const [activeKpiFaixa, setActiveKpiFaixa] = useState<'casosComplexos' | 'atencao' | null>(null)
@@ -303,14 +312,20 @@ export const ValidadesPage: React.FC = () => {
             codigoLoja: row.codigoLoja,
             loja: row.loja,
           })
-          const codeKey = row.codigoLoja ? `${row.codigoLoja}-${row.loja}` : row.loja
+          const storeKey = buildStoreCompositeKey({
+            codigoLoja: row.codigoLoja,
+            nomeLoja: row.loja,
+            rede: row.rede,
+            cidade: row.cidade,
+            uf: row.uf,
+          })
           return (
             <div
               className="min-w-0 cursor-pointer group"
               onClick={(e) => {
                 e.stopPropagation()
-                if (codeKey) {
-                  navigate(`/lojas/${encodeURIComponent(codeKey)}`)
+                if (storeKey) {
+                  navigate(`/lojas/${encodeURIComponent(storeKey)}`)
                 }
               }}
             >

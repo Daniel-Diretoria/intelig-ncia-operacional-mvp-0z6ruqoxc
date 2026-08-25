@@ -65,7 +65,7 @@ export const LojasPage: React.FC = () => {
     search: filterState.search.trim() || undefined,
     marca: filterState.marca !== 'Todas as marcas' ? filterState.marca : undefined,
     networkName: filterState.rede !== 'Todas as redes' ? filterState.rede : undefined,
-    city: filterState.cidade !== 'Todas as cidades' ? filterState.cidade : undefined,
+    cityUf: filterState.cidade !== 'Todas as cidades' ? filterState.cidade : undefined,
     uf: filterState.uf !== 'Todos os estados' ? filterState.uf : undefined,
     situacao: effectiveSituacao !== 'Todas' ? effectiveSituacao : undefined,
   })
@@ -124,8 +124,10 @@ export const LojasPage: React.FC = () => {
       if (s.networkName && s.networkName.trim() && s.networkName !== 'Rede não identificada') {
         redesSet.add(s.networkName.trim())
       }
-      if (s.city && s.city.trim()) cidadesSet.add(s.city.trim())
-      if (s.uf && s.uf.trim()) ufsSet.add(s.uf.trim().toUpperCase())
+      const { city, uf } = parseCityUf(s.city, s.uf)
+      const formatted = formatCityUf(city, uf)
+      if (formatted && formatted !== '—') cidadesSet.add(formatted)
+      if (uf) ufsSet.add(uf.trim().toUpperCase())
     }
 
     return {

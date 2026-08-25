@@ -13,8 +13,12 @@ import {
   X,
 } from 'lucide-react'
 import { useLojas, type StoreSummary } from '@/services/useLojas'
-import { formatStoreIdentityTable, formatCityUf } from '@/lib/format/storeIdentity'
+import { formatStoreIdentityTable, formatCityUf, parseCityUf } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
+import { computeConfrontoBidirecional } from '@/lib/engine/confrontoBidirecional'
+import type { ValidadeRecord } from '@/lib/engine/ruptureValidityReconciliationEngine'
+import { useRupturas } from '@/services/useRupturas'
+import { useValidades } from '@/services/useValidades'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { ValidadeItem, Ruptura } from '@/types'
@@ -41,10 +45,31 @@ export const DashboardPage: React.FC = () => {
     stores,
     validadesAtivas,
     rupturasAtivas,
-    isLoading,
+    isLoading: isLoadingLojas,
     error: errorLojas,
     refetch: refetchLojas,
   } = useLojas()
+
+  const {
+    isLoading: isLoadingRupturas,
+    error: errorRupturas,
+    refetch: refetchRupturas,
+  } = useRupturas()
+
+  const {
+    isLoading: isLoadingValidades,
+    error: errorValidades,
+    refetch: refetchValidades,
+  } = useValidades()
+
+  const isLoading = isLoadingLojas || isLoadingRupturas || isLoadingValidades
+  const error = errorLojas || errorRupturas || errorValidades
+
+  const refetch = useCallback(() => {
+    refetchLojas()
+    refetchRupturas()
+    refetchValidades()
+  }, [refetchLojas, refetchRupturas, refetchValidades])
 
   // Opções para os filtros executivos
   const filterOptions = useMemo(() => {
@@ -66,7 +91,8 @@ export const DashboardPage: React.FC = () => {
       })
       if (lojaLabel) lojasSet.add(lojaLabel)
 
-      const cUf = formatCityUf(s.city, s.uf)
+      const { city, uf } = parseCityUf(s.city, s.uf)
+      const cUf = formatCityUf(city, uf)
       if (cUf && cUf !== '—') cidadesUfSet.add(cUf)
     }
 
@@ -135,43 +161,62 @@ export const DashboardPage: React.FC = () => {
     })
   }, [validadesAtivas, filterState])
 
-  // Rupturas Ativas Filtradas
-  const filteredRupturasAtivas = useMemo(() => {
-    return rupturasAtivas
-      .filter((r) => r.situacao_atual === 'Ativo')
-      .filter((r) => {
-        if (filterState.marca !== 'Todas as marcas') {
-          if (!r.cliente || r.cliente.toLowerCase() !== filterState.marca.toLowerCase())
-            return false
-        }
-        if (filterState.rede !== 'Todas as redes') {
-          const rupRede = (r as any).rede || ''
-          if (!rupRede || rupRede.toLowerCase() !== filterState.rede.toLowerCase()) return false
-        }
-        if (filterState.loja !== 'Todas as lojas') {
-          const label = formatStoreIdentityTable({
-            codigoLoja: r.codigo_loja,
-            nomeLoja: r.nome_loja,
-          })
-          if (label.toLowerCase() !== filterState.loja.toLowerCase()) return false
-        }
-        if (filterState.cidadeUf !== 'Todas as cidades') {
-          const cUf = formatCityUf(r.cidade, r.estado)
-          if (cUf.toLowerCase() !== filterState.cidadeUf.toLowerCase()) return false
-        }
-        return true
-      })
-  }, [rupturasAtivas, filterState])
+  // Rupturas Ativas Pós-Confronto Bidirecional e Filtradas
+  const rupturasPosConfronto = useMemo(() => {
+    // Converte validadesAtivas para ValidadeRecord para o confronto bidirecional
+    const validadesRecords: ValidadeRecord[] = validadesAtivas.map((v) => ({
+      id: v.id,
+      produto: v.product,
+      cod_produto: v.sku !== 'Código não informado' ? v.sku : undefined,
+      cliente: v.cliente,
+      fornecedor: v.industria,
+      razao_social: v.loja,
+      nome_loja: v.loja,
+      codigo_loja: v.codigoLoja,
+      cidade: v.cidade,
+      estado: v.uf,
+      realizado: v.dataEntrada || v.ultimaAtualizacao,
+      validade_efetiva: v.validade,
+      quantidade: v.quantidade ?? v.estoque,
+      is_base_atual: true,
+    }))
+
+    const confronto = computeConfrontoBidirecional(rupturasAtivas, validadesRecords)
+
+    return confronto.ativas.filter((r) => {
+      if (filterState.marca !== 'Todas as marcas') {
+        if (!r.cliente || r.cliente.toLowerCase() !== filterState.marca.toLowerCase()) return false
+      }
+      if (filterState.rede !== 'Todas as redes') {
+        const rupRede = (r as any).rede || ''
+        if (!rupRede || rupRede.toLowerCase() !== filterState.rede.toLowerCase()) return false
+      }
+      if (filterState.loja !== 'Todas as lojas') {
+        const label = formatStoreIdentityTable({
+          codigoLoja: r.codigo_loja,
+          nomeLoja: r.nome_loja,
+        })
+        if (label.toLowerCase() !== filterState.loja.toLowerCase()) return false
+      }
+      if (filterState.cidadeUf !== 'Todas as cidades') {
+        const cUf = formatCityUf(r.cidade, r.estado)
+        if (cUf.toLowerCase() !== filterState.cidadeUf.toLowerCase()) return false
+      }
+      return true
+    })
+  }, [rupturasAtivas, validadesAtivas, filterState])
+
+  const filteredRupturasAtivas = rupturasPosConfronto
 
   // 4 KPIs Executivos
   const kpis = useMemo(() => {
     // 1. Casos complexos de validade: ocorrências ativas com 0 a 15 dias (status = Crítico)
     const complexosValidade = filteredValidadesAtivas.filter((v) => v.diasRestantes <= 15).length
 
-    // 2. Rupturas ativas (após confronto situacao_atual = 'Ativo')
-    const rupturasCount = filteredRupturasAtivas.length
+    // 2. Rupturas ativas pós-confronto bidirecional
+    const rupturasCount = rupturasPosConfronto.length
 
-    // 3. Lojas críticas: identidades distintas com pelo menos 1 caso 0-15d OU 1 ruptura ativa
+    // 3. Lojas críticas: identidades distintas com pelo menos 1 caso 0-15d OU 1 ruptura ativa pós-confronto
     const lojasCriticas = filteredStores.filter((s) => s.situacao === 'Crítica').length
 
     // 4. Produtos em risco: produtos distintos presentes nos grupos acima (validades 0-15d + rupturas ativas), sem duplicar
@@ -181,7 +226,7 @@ export const DashboardPage: React.FC = () => {
         produtosSet.add(v.product.trim().toUpperCase())
       }
     })
-    filteredRupturasAtivas.forEach((r) => {
+    rupturasPosConfronto.forEach((r) => {
       if (r.produto && r.produto.trim()) {
         produtosSet.add(r.produto.trim().toUpperCase())
       }
@@ -194,8 +239,7 @@ export const DashboardPage: React.FC = () => {
       lojasCriticas,
       produtosEmRisco,
     }
-  }, [filteredValidadesAtivas, filteredRupturasAtivas, filteredStores])
-
+  }, [filteredValidadesAtivas, rupturasPosConfronto, filteredStores])
   // Prioridades de ação: ranking de no máximo 10 lojas
   // Ordenação transparente (NUNCA score opaco):
   // 1. Lojas com AMBOS os riscos primeiro
