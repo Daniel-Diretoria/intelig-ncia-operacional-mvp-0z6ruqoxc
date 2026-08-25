@@ -40,8 +40,8 @@ describe('storeIdentityTable.test.ts — Formatação e Chave Composta da Loja',
     })
 
     expect(key1).not.toBe(key2)
-    expect(key1).toContain('165|FORT ATACADISTA KOBRASOL|FORT ATACADISTA|SÃO JOSÉ (SC)')
-    expect(key2).toContain('165|COMPER CENTRO|COMPER|CAMPO GRANDE (MS)')
+    expect(key1).toContain('165|FORT ATACADISTA KOBRASOL|FORT ATACADISTA|SÃO JOSÉ / SC')
+    expect(key2).toContain('165|COMPER CENTRO|COMPER|CAMPO GRANDE / MS')
   })
 
   it('buildStoreCompositeKey: preserva zeros à esquerda no código', () => {

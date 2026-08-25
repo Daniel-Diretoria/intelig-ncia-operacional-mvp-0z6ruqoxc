@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getBaseAtualSnapshot, type BaseAtualSnapshot, type LojaAgregada } from '@/lib/selectors'
-import { buildStoreCompositeKey } from '@/lib/format/storeIdentity'
+import { buildStoreCompositeKey, parseCityUf } from '@/lib/format/storeIdentity'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export interface StoreSummary {
@@ -48,6 +48,8 @@ export interface LojasFilter {
 export interface UseLojasResult {
   stores: StoreSummary[]
   filteredStores: StoreSummary[]
+  validadesAtivas: ValidadeItem[]
+  rupturasAtivas: Ruptura[]
   isLoading: boolean
   error: Error | null
   refetch: () => Promise<void>
@@ -56,6 +58,8 @@ export interface UseLojasResult {
 
 export function useLojas(filters?: LojasFilter): UseLojasResult {
   const [stores, setStores] = useState<StoreSummary[]>([])
+  const [validadesAtivas, setValidadesAtivas] = useState<ValidadeItem[]>([])
+  const [rupturasAtivas, setRupturasAtivas] = useState<Ruptura[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
 
@@ -64,17 +68,21 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
     setError(null)
     try {
       const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
-      const agregadas = snapshot.lojasAgregadas
-      const rupturasAtivas = snapshot.rupturasAtivas.filter((r) => r.situacao_atual === 'Ativo')
+      setValidadesAtivas(snapshot.validadesAtivas)
+      setRupturasAtivas(snapshot.rupturasAtivas)
 
-      // Mapeia rupturas ativas por storeId
+      const agregadas = snapshot.lojasAgregadas
+      const activeRupturas = snapshot.rupturasAtivas.filter((r) => r.situacao_atual === 'Ativo')
+
+      // Mapeia rupturas ativas por storeId usando parseCityUf
       const rupturasByStoreId = new Map<string, Ruptura[]>()
-      for (const rup of rupturasAtivas) {
+      for (const rup of activeRupturas) {
+        const { city: rupCity, uf: rupState } = parseCityUf(rup.cidade, rup.estado)
         const key = buildStoreCompositeKey({
           codigoLoja: rup.codigo_loja,
           nomeLoja: rup.nome_loja,
-          cidade: rup.cidade,
-          uf: rup.estado,
+          cidade: rupCity,
+          uf: rupState,
         })
         const list = rupturasByStoreId.get(key) || []
         list.push(rup)
@@ -82,12 +90,13 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
       }
 
       const summaries: StoreSummary[] = agregadas.map((l: LojaAgregada) => {
+        const { city: lCity, uf: lUf } = parseCityUf(l.cidade, l.uf)
         const storeId = buildStoreCompositeKey({
           codigoLoja: l.codigoLoja,
           nomeLoja: l.nomeLoja,
           rede: l.rede,
-          cidade: l.cidade,
-          uf: l.uf,
+          cidade: lCity,
+          uf: lUf,
         })
 
         const marcasSet = new Set<string>()
@@ -230,6 +239,8 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
   return {
     stores,
     filteredStores,
+    validadesAtivas,
+    rupturasAtivas,
     isLoading,
     error,
     refetch: fetchStores,

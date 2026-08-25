@@ -20,6 +20,7 @@ import {
   type StatusOperacionalFaixa,
 } from '@/lib/format/dateParser'
 import {
+  parseCityUf,
   formatStoreIdentity,
   formatStoreIdentityTable,
   buildStoreCompositeKey,
@@ -103,6 +104,55 @@ export interface LojaAgregada {
   itemsAuditoria: ValidadeItemAuditoria[]
 }
 
+/**
+ * Helper para carregar coleções com paginação robusta perPage=500.
+ * Usa loop while com try/catch por página e timeout de 15s.
+ */
+async function fetchPagedBaseRecords(
+  collectionName: 'validades_base' | 'rupturas_base',
+): Promise<Array<Record<string, unknown>>> {
+  const records: Array<Record<string, unknown>> = []
+  let page = 1
+  let totalPages = 1
+  const perPage = 500
+  const timeoutMs = 15000
+
+  while (page <= totalPages) {
+    try {
+      const pagePromise = pb.collection(collectionName).getList(page, perPage, {
+        filter: 'is_base_atual = true',
+        sort: '-created',
+      })
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Timeout de ${timeoutMs}ms excedido na página ${page}`)),
+          timeoutMs,
+        ),
+      )
+
+      const res = (await Promise.race([pagePromise, timeoutPromise])) as {
+        items: Array<Record<string, unknown>>
+        totalPages: number
+        totalItems: number
+      }
+
+      if (res && Array.isArray(res.items)) {
+        records.push(...res.items)
+        totalPages = res.totalPages || 1
+      }
+    } catch (err) {
+      console.warn(
+        `[fetchPagedBaseRecords] Falha ao carregar página ${page} de ${collectionName}:`,
+        err,
+      )
+    }
+    page++
+  }
+
+  return records
+}
+
 /** Cache em memória para evitar requisições redundantes */
 let cachedSnapshot: BaseAtualSnapshot | null = null
 let fetchPromise: Promise<BaseAtualSnapshot> | null = null
@@ -120,24 +170,18 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
 
   fetchPromise = (async () => {
     try {
-      // 1. Busca validades_base (Base Atual)
+      // 1. Busca validades_base (Base Atual) com paginação robusta
       let validadesRecords: Array<Record<string, unknown>> = []
       try {
-        validadesRecords = (await pb.collection('validades_base').getFullList({
-          filter: 'is_base_atual = true',
-          sort: '-created',
-        })) as unknown as Array<Record<string, unknown>>
+        validadesRecords = await fetchPagedBaseRecords('validades_base')
       } catch (err) {
         console.warn('[getBaseAtualSnapshot] Falha ao consultar validades_base:', err)
       }
 
-      // 2. Busca rupturas_base (Base Atual)
+      // 2. Busca rupturas_base (Base Atual) com paginação robusta
       let rupturasRecords: Array<Record<string, unknown>> = []
       try {
-        rupturasRecords = (await pb.collection('rupturas_base').getFullList({
-          filter: 'is_base_atual = true',
-          sort: '-created',
-        })) as unknown as Array<Record<string, unknown>>
+        rupturasRecords = await fetchPagedBaseRecords('rupturas_base')
       } catch (err) {
         console.warn('[getBaseAtualSnapshot] Falha ao consultar rupturas_base:', err)
       }
@@ -191,8 +235,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
             ? derivedFromStore
             : normalizeNetworkName((rec.rede || rec.fantasia || rawName || '') as string)
 
-        const cidade = (rec.cidade || '') as string
-        const uf = (rec.estado || rec.uf || '') as string
+        const rawCidade = (rec.cidade || '') as string
+        const rawUf = (rec.estado || rec.uf || '') as string
+        const { city: cidade, uf } = parseCityUf(rawCidade, rawUf)
 
         const cliente = (rec.cliente || rec.razao_social || cleanStoreName) as string
         const fornecedor = (rec.fornecedor || rec.representante || 'Diretoria') as string
@@ -264,8 +309,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
           nome_loja: rawName,
           razao_social: rec.razao_social as string,
         })
-        const rupCidade = (rec.cidade || '') as string
-        const rupUf = (rec.estado || rec.uf || '') as string
+        const rawRupCidade = (rec.cidade || '') as string
+        const rawRupUf = (rec.estado || rec.uf || '') as string
+        const { city: rupCidade, uf: rupUf } = parseCityUf(rawRupCidade, rawRupUf)
 
         const rawEntrada = rec.data_entrada || rec.primeira_ocorrencia || rec.data_visita
         const entradaParsed = parseOperationalDate(rawEntrada)
@@ -375,7 +421,8 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const code = item.codigoLoja || null
         const cleanName = item.loja
         const ident = formatStoreIdentity({ codigo_loja: code, nome_loja: cleanName })
-        const lojaKey = getCompositeKey(code, cleanName, item.rede, item.cidade, item.uf)
+        const { city: itemCity, uf: itemUf } = parseCityUf(item.cidade, item.uf)
+        const lojaKey = getCompositeKey(code, cleanName, item.rede, itemCity, itemUf)
 
         let loja = lojasMap.get(lojaKey)
         if (!loja) {
@@ -385,9 +432,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
             codigoLoja: code,
             nomeLoja: cleanName,
             rede: item.rede,
-            cidade: item.cidade,
-            uf: item.uf,
-            cidadeUf: formatCityUf(item.cidade, item.uf),
+            cidade: itemCity,
+            uf: itemUf,
+            cidadeUf: formatCityUf(itemCity, itemUf),
             totalClientes: 0,
             totalOcorrenciasAtivas: 0,
             totalRupturasAtivas: 0,
@@ -428,7 +475,8 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const code = rup.codigo_loja || null
         const cleanName = rup.nome_loja
         const rupRede = deriveNetworkName(rup.nome_loja)
-        const lojaKey = getCompositeKey(code, cleanName, rupRede, rup.cidade, rup.estado)
+        const { city: rupCity, uf: rupState } = parseCityUf(rup.cidade, rup.estado)
+        const lojaKey = getCompositeKey(code, cleanName, rupRede, rupCity, rupState)
         let loja = lojasMap.get(lojaKey)
         if (!loja) {
           // Caso a loja só tenha rupturas e nenhuma validade
@@ -439,9 +487,9 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
             codigoLoja: code,
             nomeLoja: cleanName,
             rede: rupRede,
-            cidade: rup.cidade,
-            uf: rup.estado,
-            cidadeUf: formatCityUf(rup.cidade, rup.estado),
+            cidade: rupCity,
+            uf: rupState,
+            cidadeUf: formatCityUf(rupCity, rupState),
             totalClientes: 0,
             totalOcorrenciasAtivas: 0,
             totalRupturasAtivas: 0,

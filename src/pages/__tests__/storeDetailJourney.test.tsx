@@ -174,6 +174,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -203,6 +205,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -240,6 +244,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -273,6 +279,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -306,6 +314,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -331,6 +341,8 @@ describe('storeDetailJourney.test.tsx — Contrato de Regressão da Tela /lojas/
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [mockStore],
       filteredStores: [mockStore],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),

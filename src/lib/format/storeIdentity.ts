@@ -152,6 +152,44 @@ export function removeRepeatedCodePrefix(name: string, code?: string | null): st
  * Fallback composto: `codigoLoja (preservado como texto com zeros) | nome normalizado | rede | cidade/UF`.
  * Duas lojas com mesmo código mas nome/rede/cidade distintos DEVEM permanecer separadas.
  */
+/**
+ * Extrai cidade e UF de forma robusta.
+ * - Se rawUf não-vazio: usa rawCity e rawUf como estão (limpos de espaços)
+ * - Se rawUf vazio: tenta extrair UF do final de rawCity via regex
+ * - Retorna { city: parteLimpa, uf: ufExtraida }
+ */
+export function parseCityUf(rawCity: unknown, rawUf: unknown): { city: string; uf: string } {
+  const c = typeof rawCity === 'string' ? rawCity.trim() : rawCity ? String(rawCity).trim() : ''
+  const u =
+    typeof rawUf === 'string'
+      ? rawUf.trim().toUpperCase()
+      : rawUf
+        ? String(rawUf).trim().toUpperCase()
+        : ''
+
+  if (u) {
+    // Se rawUf já existe e não é vazio, usa a cidade e o uf fornecidos
+    return { city: c, uf: u }
+  }
+
+  if (!c) {
+    return { city: '', uf: '' }
+  }
+
+  // Se rawUf está vazio, tenta extrair UF do final de rawCity
+  // Padrões como "Cidade / UF", "Cidade/UF", "Cidade - UF", "Cidade – UF", "Cidade — UF"
+  const ufRegex =
+    /\s*[/\-–—]\s*(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)$/i
+  const match = c.match(ufRegex)
+  if (match) {
+    const extractedUf = match[1].toUpperCase()
+    const cleanCity = c.slice(0, match.index).trim()
+    return { city: cleanCity, uf: extractedUf }
+  }
+
+  return { city: c, uf: '' }
+}
+
 export function buildStoreCompositeKey(input: {
   id?: string | null
   storeId?: string | null
@@ -199,8 +237,9 @@ export function buildStoreCompositeKey(input: {
   const rawRede = input.rede ?? input.networkName ?? deriveNetworkName(rawName)
   const network = rawRede ? normalizeNetworkName(rawRede) : deriveNetworkName(rawName)
 
-  const city = (input.cidade ?? input.city ?? '').trim()
-  const uf = (input.uf ?? input.estado ?? input.state ?? '').trim().toUpperCase()
+  const rawCity = (input.cidade ?? input.city ?? '').trim()
+  const rawUf = (input.uf ?? input.estado ?? input.state ?? '').trim().toUpperCase()
+  const { city, uf } = parseCityUf(rawCity, rawUf)
   const location = formatCityUf(city, uf)
 
   const normCode = code ? String(code).trim() : 'SEM_CODIGO'

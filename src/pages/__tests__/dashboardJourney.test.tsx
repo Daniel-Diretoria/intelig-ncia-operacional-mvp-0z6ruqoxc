@@ -7,6 +7,103 @@ import * as useLojasModule from '@/services/useLojas'
 import * as baseSelectors from '@/lib/selectors/baseAtualSelectors'
 import type { StoreSummary } from '@/services/useLojas'
 import type { BaseAtualSnapshot } from '@/lib/selectors'
+import type { ValidadeItem, Ruptura } from '@/types'
+
+const mockValidadesAtivas: ValidadeItem[] = [
+  {
+    id: 'v1',
+    product: 'PICANHA 1KG',
+    sku: 'SKU1',
+    lote: 'L1',
+    category: 'Mercearia',
+    validade: '2025-05-15',
+    diasRestantes: 5,
+    status: 'Crítico',
+    unidade: 'UN',
+    estoque: 10,
+    cliente: 'CHULETÃO',
+    industria: 'Chuletão',
+    rede: 'FORT ATACADISTA',
+    codigoLoja: '165',
+    loja: 'FORT ATACADISTA KOBRASOL',
+    cidade: 'São José',
+    uf: 'SC',
+    quantidade: 5,
+    dataEntrada: '2025-05-01',
+  },
+  {
+    id: 'v2',
+    product: 'COSTELA 1KG',
+    sku: 'SKU2',
+    lote: 'L2',
+    category: 'Mercearia',
+    validade: '2025-05-18',
+    diasRestantes: 8,
+    status: 'Crítico',
+    unidade: 'UN',
+    estoque: 10,
+    cliente: 'CHULETÃO',
+    industria: 'Chuletão',
+    rede: 'FORT ATACADISTA',
+    codigoLoja: '165',
+    loja: 'FORT ATACADISTA KOBRASOL',
+    cidade: 'São José',
+    uf: 'SC',
+    quantidade: 8,
+    dataEntrada: '2025-05-01',
+  },
+]
+
+const mockRupturasAtivas: Ruptura[] = [
+  {
+    id: 'r1',
+    data_visita: '2025-05-08',
+    codigo_loja: '165',
+    nome_loja: 'FORT ATACADISTA KOBRASOL',
+    cnpj_loja: '00.000.000/0001-00',
+    cidade: 'São José',
+    estado: 'SC',
+    codigo_cliente: 'C1',
+    cliente: 'CHULETÃO',
+    colaborador: 'Promotor 1',
+    categoria: 'Mercearia',
+    observacao: '',
+    data_entrada: '2025-05-08',
+    ultima_aparicao: '2025-05-08',
+    operational_key: 'op1',
+    dedup_key: 'dedup1',
+    source_import_id: 'imp1',
+    source_row: 1,
+    produto: 'FRALDINHA 1KG',
+    motivo: 'Ruptura Total',
+    dias_em_ruptura: 6,
+    situacao_atual: 'Ativo',
+  },
+  {
+    id: 'r2',
+    data_visita: '2025-05-07',
+    codigo_loja: '165',
+    nome_loja: 'COMPER CENTRO',
+    cnpj_loja: '00.000.000/0002-00',
+    cidade: 'Campo Grande',
+    estado: 'MS',
+    codigo_cliente: 'C2',
+    cliente: 'OUTRA MARCA',
+    colaborador: 'Promotor 2',
+    categoria: 'Mercearia',
+    observacao: '',
+    data_entrada: '2025-05-07',
+    ultima_aparicao: '2025-05-07',
+    operational_key: 'op2',
+    dedup_key: 'dedup2',
+    source_import_id: 'imp1',
+    source_row: 2,
+    produto: 'FRALDINHA 1KG',
+    motivo: 'Sem Estoque Mínimo',
+    dias_em_ruptura: 10,
+    situacao_atual: 'Ativo',
+  },
+]
 
 const mockStores: StoreSummary[] = [
   {
@@ -164,10 +261,11 @@ const mockSnapshot: BaseAtualSnapshot = {
 describe('dashboardJourney.test.tsx — Contrato de Regressão da Visão Estratégica (/)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: mockStores,
       filteredStores: mockStores,
+      validadesAtivas: mockValidadesAtivas,
+      rupturasAtivas: mockRupturasAtivas,
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -192,6 +290,71 @@ describe('dashboardJourney.test.tsx — Contrato de Regressão da Visão Estrat�
 
     expect(screen.queryByText(/Alertas Abertos/i)).toBeNull()
     expect(screen.queryByText(/Alertas Operacionais Recentes/i)).toBeNull()
+  })
+
+  // 1b. Dashboard não faz chamada separada a getBaseAtualSnapshot (usa apenas useLojas)
+  it('1b. Dashboard renderiza consumindo apenas useLojas e não chama getBaseAtualSnapshot diretamente', async () => {
+    const getBaseAtualSpy = vi.spyOn(baseSelectors, 'getBaseAtualSnapshot')
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Visão Estratégica')).toBeTruthy()
+    })
+
+    expect(getBaseAtualSpy).not.toHaveBeenCalled()
+  })
+
+  // 1c. Mostra estado de loading
+  it('1c. Dashboard mostra estado de loading quando useLojas.isLoading é true', async () => {
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [],
+      filteredStores: [],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    const { container } = render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(container.querySelector('.animate-pulse')).toBeTruthy()
+  })
+
+  // 1d. Mostra estado vazio sem dados
+  it('1d. Dashboard mostra estado vazio sem dados quando não há prioridades', async () => {
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [],
+      filteredStores: [],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Nenhuma loja com prioridade crítica encontrada')).toBeTruthy()
+      expect(screen.getByText('Nenhuma ocorrência de validade ativa no momento.')).toBeTruthy()
+      expect(screen.getByText('Nenhuma ruptura ativa no momento.')).toBeTruthy()
+    })
   })
 
   // 2. Ranking usa regra transparente: ambos > validades desc > rupturas desc > nome asc

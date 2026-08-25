@@ -257,6 +257,21 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
     expect(result.current.filteredStores[0].storeName).toBe('FORT ATACADISTA KOBRASOL')
   })
 
+  it('useLojas expõe validadesAtivas e rupturasAtivas após carga', async () => {
+    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+
+    const { result } = renderHook(() => useLojas())
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    expect(result.current.validadesAtivas.length).toBe(3)
+    expect(result.current.rupturasAtivas.length).toBe(1)
+    expect(result.current.validadesAtivas[0].product).toBe('PROD 1')
+    expect(result.current.rupturasAtivas[0].produto).toBe('PROD 2')
+  })
+
   it('filteredStores com filtro Situação="Críticas": só lojas com validades 0-15 OU ruptura', async () => {
     vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
 

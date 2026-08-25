@@ -13,7 +13,6 @@ import {
   X,
 } from 'lucide-react'
 import { useLojas, type StoreSummary } from '@/services/useLojas'
-import { getBaseAtualSnapshot, type BaseAtualSnapshot } from '@/lib/selectors'
 import { formatStoreIdentityTable, formatCityUf } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { Button } from '@/components/ui/button'
@@ -38,27 +37,14 @@ export const DashboardPage: React.FC = () => {
   const navigate = useNavigate()
   const [filterState, setFilterState] = useState<StrategicFilterState>(initialFilterState)
 
-  const { stores, isLoading: isLoadingLojas, error: errorLojas, refetch: refetchLojas } = useLojas()
-  const [snapshot, setSnapshot] = useState<BaseAtualSnapshot | null>(null)
-  const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(true)
-
-  const loadSnapshot = useCallback(async () => {
-    setIsLoadingSnapshot(true)
-    try {
-      const snap = await getBaseAtualSnapshot()
-      setSnapshot(snap)
-    } catch {
-      // tratado na UI
-    } finally {
-      setIsLoadingSnapshot(false)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    loadSnapshot()
-  }, [loadSnapshot])
-
-  const isLoading = isLoadingLojas || isLoadingSnapshot
+  const {
+    stores,
+    validadesAtivas,
+    rupturasAtivas,
+    isLoading,
+    error: errorLojas,
+    refetch: refetchLojas,
+  } = useLojas()
 
   // Opções para os filtros executivos
   const filterOptions = useMemo(() => {
@@ -127,8 +113,7 @@ export const DashboardPage: React.FC = () => {
 
   // Validades Ativas Filtradas
   const filteredValidadesAtivas = useMemo(() => {
-    if (!snapshot) return []
-    return snapshot.validadesAtivas.filter((v) => {
+    return validadesAtivas.filter((v) => {
       if (filterState.marca !== 'Todas as marcas') {
         if (!v.cliente || v.cliente.toLowerCase() !== filterState.marca.toLowerCase()) return false
       }
@@ -148,12 +133,11 @@ export const DashboardPage: React.FC = () => {
       }
       return true
     })
-  }, [snapshot, filterState])
+  }, [validadesAtivas, filterState])
 
   // Rupturas Ativas Filtradas
   const filteredRupturasAtivas = useMemo(() => {
-    if (!snapshot) return []
-    return snapshot.rupturasAtivas
+    return rupturasAtivas
       .filter((r) => r.situacao_atual === 'Ativo')
       .filter((r) => {
         if (filterState.marca !== 'Todas as marcas') {
@@ -177,7 +161,7 @@ export const DashboardPage: React.FC = () => {
         }
         return true
       })
-  }, [snapshot, filterState])
+  }, [rupturasAtivas, filterState])
 
   // 4 KPIs Executivos
   const kpis = useMemo(() => {

@@ -38,6 +38,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores,
       filteredStores: stores,
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -90,6 +92,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores,
       filteredStores: [stores[0]],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -116,6 +120,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores,
       filteredStores: stores,
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -144,6 +150,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [store],
       filteredStores: [store],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -181,6 +189,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores,
       filteredStores: stores,
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),
@@ -222,6 +232,8 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [store1, store2],
       filteredStores: [store1, store2],
+      validadesAtivas: [],
+      rupturasAtivas: [],
       isLoading: false,
       error: null,
       refetch: vi.fn(),

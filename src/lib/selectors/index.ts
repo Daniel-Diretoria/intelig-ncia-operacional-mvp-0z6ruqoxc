@@ -1,5 +1,6 @@
 export * from './baseAtualSelectors'
 export {
+  parseCityUf,
   formatStoreIdentity,
   formatStoreIdentityTable,
   buildStoreCompositeKey,
