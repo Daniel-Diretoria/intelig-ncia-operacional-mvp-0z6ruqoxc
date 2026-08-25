@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useValidades } from '@/services'
-import type { ValidadeItem, ValidadeDrill, ValidadeDrillLevel, CriticidadeLevel } from '@/types'
+import type { ValidadeItem } from '@/types'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { AlertBanner } from '@/components/ui/alert-banner'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -9,86 +9,64 @@ import { Button } from '@/components/ui/button'
 import {
   AlertOctagon,
   CalendarClock,
-  CheckCircle2,
-  Package,
   Store,
-  Users,
   Download,
   ChevronLeft,
   ChevronRight,
-  Brain,
   ClipboardList,
 } from 'lucide-react'
-import { classificarCriticidade, getCriticidadeFaixa } from '@/lib/data/criticidade'
-import { calcularKpis } from '@/lib/data/validadesCompute'
+import { classificarCriticidade } from '@/lib/data/criticidade'
 import { ValidadesKpis, type KpiTile } from '@/components/validades/ValidadesKpis'
-import {
-  ValidadesBreadcrumb,
-  type BreadcrumbItem,
-} from '@/components/validades/ValidadesBreadcrumb'
 import {
   ValidadesFilters,
   emptyValidadesFilterState,
   buildValidadesFilter,
   type ValidadesFilterState,
+  type FaixaVencimentoKey,
 } from '@/components/validades/ValidadesFilters'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
-import { ValidadesIntelligence } from '@/components/validades/ValidadesIntelligence'
-import { ExportModal } from '@/components/validades/ExportModal'
-import { OccurrenceDetailModal } from '@/components/validades/OccurrenceDetailModal'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { formatStoreIdentity, formatCityUf } from '@/lib/format/storeIdentity'
-import { cn } from '@/lib/utils'
+import { formatCityUf } from '@/lib/format/storeIdentity'
+import {
+  formatStoreIdentityTable,
+  exportValidadesTableViewXLSX,
+} from '@/lib/export/validadeTableViewExport'
+import { useToast } from '@/hooks/use-toast'
 
-type KpiId =
-  | 'total'
-  | 'criticos'
-  | 'atencao'
-  | 'moderado'
-  | 'ok'
-  | 'quantidade'
-  | 'lojas'
-  | 'clientes'
-
-const PAGE_SIZE = 10
+type PageSizeOption = 25 | 50 | 100
 
 const fmtInt = (v: number) => v.toLocaleString('pt-BR')
 
 export const ValidadesPage: React.FC = () => {
   const navigate = useNavigate()
+  const { toast } = useToast()
+
   const [filterState, setFilterState] = useState<ValidadesFilterState>(emptyValidadesFilterState)
   const [appliedFilter, setAppliedFilter] =
     useState<ValidadesFilterState>(emptyValidadesFilterState)
 
-  const [drill, setDrill] = useState<ValidadeDrill | undefined>(undefined)
-  const [selectedKpi, setSelectedKpi] = useState<KpiId | null>(null)
-
-  const [exportOpen, setExportOpen] = useState(false)
-  const [detailItem, setDetailItem] = useState<ValidadeItem | null>(null)
-  const [detailOpen, setDetailOpen] = useState(false)
+  // KPI clicável para filtro de faixa de dias
+  const [activeKpiFaixa, setActiveKpiFaixa] = useState<'casosComplexos' | 'atencao' | null>(null)
 
   const [sortKey, setSortKey] = useState<string>('diasRestantes')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSizeOption>(25)
 
+  // Constrói filtro efetivo combinando filtros da barra + filtro de clique do KPI
   const effectiveFilter = useMemo(() => {
     const base = buildValidadesFilter(appliedFilter)
     const merged: typeof base = { ...base }
-    if (drill) merged.drill = drill
-    if (selectedKpi) {
-      const map: Partial<Record<KpiId, CriticidadeLevel>> = {
-        criticos: 'Crítico',
-        atencao: 'Atenção',
-        moderado: 'Moderado',
-        ok: 'OK',
-      }
-      const nivel = map[selectedKpi]
-      if (nivel) {
-        merged.criticidades = [nivel]
-      }
+
+    // Se houver clique no KPI de faixa e a barra não tiver faixa explícita sobrescrevendo
+    if (activeKpiFaixa === 'casosComplexos') {
+      merged.criticidades = ['Vencido', 'Crítico']
+    } else if (activeKpiFaixa === 'atencao') {
+      merged.criticidades = ['Atenção']
     }
+
     return merged
-  }, [appliedFilter, drill, selectedKpi])
+  }, [appliedFilter, activeKpiFaixa])
 
   const { data: validades, isLoading, error, refetch } = useValidades(effectiveFilter)
 
@@ -98,18 +76,43 @@ export const ValidadesPage: React.FC = () => {
     return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
   }, [refetch])
 
-  const kpis = useMemo(() => calcularKpis(validades), [validades])
+  // Única Fonte de Verdade: KPIs calculados sobre validades filtrado (não sobre a página)
+  const kpis = useMemo(() => {
+    let complexosCount = 0
+    let atencaoCount = 0
+    const lojasCriticasSet = new Set<string>()
 
-  const handleApplyFilters = useCallback(() => {
-    setAppliedFilter(filterState)
+    for (const item of validades) {
+      if (item.diasRestantes <= 15) {
+        complexosCount++
+        const lojaIdent = item.codigoLoja
+          ? `${item.codigoLoja}-${item.loja}`
+          : item.loja || 'SEM_LOJA'
+        lojasCriticasSet.add(lojaIdent)
+      } else if (item.diasRestantes > 15 && item.diasRestantes <= 30) {
+        atencaoCount++
+      }
+    }
+
+    return {
+      ativas: validades.length,
+      casosComplexos: complexosCount,
+      atencao: atencaoCount,
+      lojasCriticas: lojasCriticasSet.size,
+    }
+  }, [validades])
+
+  // Atualização em tempo real quando o usuário digita/seleciona nos filtros
+  const handleFilterChange = useCallback((newState: ValidadesFilterState) => {
+    setFilterState(newState)
+    setAppliedFilter(newState)
     setPage(1)
-  }, [filterState])
+  }, [])
 
   const handleClearFilters = useCallback(() => {
     setFilterState(emptyValidadesFilterState)
     setAppliedFilter(emptyValidadesFilterState)
-    setDrill(undefined)
-    setSelectedKpi(null)
+    setActiveKpiFaixa(null)
     setPage(1)
   }, [])
 
@@ -122,156 +125,117 @@ export const ValidadesPage: React.FC = () => {
     }
   }
 
+  // Toggle de KPI clicável (casosComplexos / atencao)
   const handleKpiSelect = (id: string) => {
-    const kpiId = id as KpiId
-    if (selectedKpi === kpiId) {
-      setSelectedKpi(null)
-    } else {
-      setSelectedKpi(kpiId)
-      setDrill(undefined)
+    if (id === 'casosComplexos') {
+      setActiveKpiFaixa((prev) => (prev === 'casosComplexos' ? null : 'casosComplexos'))
+      setPage(1)
+    } else if (id === 'atencao') {
+      setActiveKpiFaixa((prev) => (prev === 'atencao' ? null : 'atencao'))
+      setPage(1)
     }
-    setPage(1)
   }
 
-  const handleRowClick = (row: ValidadeItem) => {
-    setDetailItem(row)
-    setDetailOpen(true)
-  }
-
-  const drillInto = (item: ValidadeItem) => {
-    if (!drill || drill.level === 'overview') {
-      setDrill({ level: 'cliente', cliente: item.cliente })
-    } else if (drill.level === 'cliente') {
-      setDrill({ level: 'loja', cliente: drill.cliente, loja: item.loja })
-    } else if (drill.level === 'loja') {
-      setDrill({
-        level: 'produto',
-        cliente: drill.cliente,
-        loja: drill.loja,
-        produto: item.product,
-      })
-    } else if (drill.level === 'produto') {
-      setDrill({
-        level: 'ocorrencia',
-        cliente: drill.cliente,
-        loja: drill.loja,
-        produto: drill.produto,
-        ocorrenciaId: item.id,
-      })
-    }
-    setSelectedKpi(null)
-    setPage(1)
-  }
-
-  const handleBreadcrumbNavigate = (level: ValidadeDrillLevel) => {
-    if (level === 'overview') {
-      setDrill(undefined)
-    } else if (level === 'cliente') {
-      setDrill({ level: 'cliente', cliente: drill?.cliente })
-    } else if (level === 'loja') {
-      setDrill({ level: 'loja', cliente: drill?.cliente, loja: drill?.loja })
-    } else if (level === 'produto') {
-      setDrill({
-        level: 'produto',
-        cliente: drill?.cliente,
-        loja: drill?.loja,
-        produto: drill?.produto,
-      })
-    }
-    setPage(1)
-  }
-
-  const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
-    const items: BreadcrumbItem[] = [{ label: 'Visão Geral', level: 'overview' }]
-    if (selectedKpi) {
-      const labels: Record<KpiId, string> = {
-        total: 'Todas as ocorrências',
-        criticos: 'Produtos Críticos (1–15 dias)',
-        atencao: 'Atenção (16–25 dias)',
-        moderado: 'Moderado (26–35 dias)',
-        ok: 'OK (> 35 dias)',
-        quantidade: 'Quantidade total',
-        lojas: 'Lojas afetadas',
-        clientes: 'Clientes afetados',
-      }
-      items.push({ label: labels[selectedKpi], level: 'overview' })
-    }
-    if (drill) {
-      if (drill.cliente) items.push({ label: drill.cliente, level: 'cliente' })
-      if (drill.loja) items.push({ label: drill.loja, level: 'loja' })
-      if (drill.produto) items.push({ label: drill.produto, level: 'produto' })
-      if (drill.ocorrenciaId)
-        items.push({ label: `Ocorrência ${drill.ocorrenciaId}`, level: 'ocorrencia' })
-    }
-    return items
-  }, [drill, selectedKpi])
-
+  // Ordenação de dados (Única fonte de verdade: sortedData deriva de validades)
   const sortedData = useMemo(() => {
     const list = [...validades]
     if (!sortKey) return list
+
     list.sort((a, b) => {
       let valA: unknown = (a as unknown as Record<string, unknown>)[sortKey]
       let valB: unknown = (b as unknown as Record<string, unknown>)[sortKey]
-      if (sortKey === 'validade' || sortKey === 'ultimaAtualizacao') {
-        valA = new Date(valA as string).getTime()
-        valB = new Date(valB as string).getTime()
+
+      if (sortKey === 'loja') {
+        valA = formatStoreIdentityTable({ codigoLoja: a.codigoLoja, loja: a.loja })
+        valB = formatStoreIdentityTable({ codigoLoja: b.codigoLoja, loja: b.loja })
+      } else if (sortKey === 'criticidade') {
+        valA = classificarCriticidade(a.diasRestantes)
+        valB = classificarCriticidade(b.diasRestantes)
+      } else if (
+        sortKey === 'validade' ||
+        sortKey === 'dataEntrada' ||
+        sortKey === 'ultimaAtualizacao'
+      ) {
+        const timeA = valA ? new Date(valA as string).getTime() : 0
+        const timeB = valB ? new Date(valB as string).getTime() : 0
+        valA = isNaN(timeA) ? 0 : timeA
+        valB = isNaN(timeB) ? 0 : timeB
       }
+
       if (typeof valA === 'number' && typeof valB === 'number') {
         return sortOrder === 'asc' ? valA - valB : valB - valA
       }
+
       const sA = String(valA ?? '')
       const sB = String(valB ?? '')
-      if (sA < sB) return sortOrder === 'asc' ? -1 : 1
-      if (sA > sB) return sortOrder === 'asc' ? 1 : -1
-      return 0
+      const cmp = sA.localeCompare(sB, 'pt-BR', { numeric: true, sensitivity: 'base' })
+      return sortOrder === 'asc' ? cmp : -cmp
     })
+
     return list
   }, [validades, sortKey, sortOrder])
 
-  const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE))
+  // Paginação com seletor de page size (25 / 50 / 100)
+  const totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const paginatedData = useMemo(
-    () => sortedData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [sortedData, currentPage],
+    () => sortedData.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sortedData, currentPage, pageSize],
   )
 
+  // Opções de filtros derivadas dinamicamente da base atual
   const uniqueSorted = (vals: Array<string | undefined | null>) =>
-    [...new Set(vals.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    [...new Set(vals.filter((v): v is string => Boolean(v && v.trim())))].sort((a, b) =>
+      a.localeCompare(b, 'pt-BR'),
+    )
+
   const toOptions = (arr: string[]) => arr.map((v) => ({ label: v, value: v }))
+
+  // Opções formatadas de Loja: "CÓDIGO • NOME"
+  const storeOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const v of validades) {
+      if (v.loja) {
+        const ident = formatStoreIdentityTable({ codigoLoja: v.codigoLoja, loja: v.loja })
+        map.set(v.loja, ident)
+      }
+    }
+    return Array.from(map.entries())
+      .map(([val, label]) => ({ label, value: val }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+  }, [validades])
+
   const filterOptions = useMemo(
     () => ({
       clientes: toOptions(uniqueSorted(validades.map((v) => v.cliente))),
-      industrias: toOptions(uniqueSorted(validades.map((v) => v.industria))),
       redes: toOptions(uniqueSorted(validades.map((v) => v.rede))),
-      lojas: toOptions(uniqueSorted(validades.map((v) => v.loja))),
+      lojas: storeOptions,
       cidades: toOptions(uniqueSorted(validades.map((v) => v.cidade))),
       produtos: toOptions(uniqueSorted(validades.map((v) => v.product))),
-      promotores: toOptions(uniqueSorted(validades.map((v) => v.promotor))),
-      supervisores: toOptions(uniqueSorted(validades.map((v) => v.supervisor))),
-      categorias: [],
     }),
-    [validades],
+    [validades, storeOptions],
   )
 
+  // Exatamente 4 KPIs
   const kpiTiles: KpiTile[] = useMemo(
     () => [
       {
-        id: 'total',
-        label: 'Ocorrências',
-        value: fmtInt(kpis.total),
+        id: 'ativas',
+        label: 'Validades ativas',
+        value: fmtInt(kpis.ativas),
         icon: ClipboardList,
         chipClass: 'bg-slate-100 text-slate-700',
-        hint: 'Total na Base Atual',
-        active: selectedKpi === 'total',
+        hint: 'Total filtrado',
+        active: false,
       },
       {
-        id: 'criticos',
-        label: 'Críticos',
-        value: fmtInt(kpis.criticos),
+        id: 'casosComplexos',
+        label: 'Casos complexos',
+        value: fmtInt(kpis.casosComplexos),
         icon: AlertOctagon,
         chipClass: 'bg-red-100 text-red-700',
-        hint: '1 a 15 dias',
-        active: selectedKpi === 'criticos',
+        hint: '≤ 15 dias para vencer',
+        active: activeKpiFaixa === 'casosComplexos',
       },
       {
         id: 'atencao',
@@ -279,87 +243,65 @@ export const ValidadesPage: React.FC = () => {
         value: fmtInt(kpis.atencao),
         icon: CalendarClock,
         chipClass: 'bg-amber-100 text-amber-800',
-        hint: '16 a 25 dias',
-        active: selectedKpi === 'atencao',
+        hint: '16 a 30 dias para vencer',
+        active: activeKpiFaixa === 'atencao',
       },
       {
-        id: 'moderado',
-        label: 'Moderado',
-        value: fmtInt(kpis.moderado),
-        icon: CalendarClock,
-        chipClass: 'bg-amber-50 text-amber-900 border border-amber-200',
-        hint: '26 a 35 dias',
-        active: selectedKpi === 'moderado',
-      },
-      {
-        id: 'ok',
-        label: 'OK',
-        value: fmtInt(kpis.ok),
-        icon: CheckCircle2,
-        chipClass: 'bg-emerald-100 text-emerald-700',
-        hint: '> 35 dias',
-        active: selectedKpi === 'ok',
-      },
-      {
-        id: 'quantidade',
-        label: 'Volume em risco',
-        value: `${fmtInt(kpis.quantidadeTotal)} un`,
-        icon: Package,
-        chipClass: 'bg-indigo-100 text-indigo-700',
-        hint: 'Unidades envolvidas',
-        active: selectedKpi === 'quantidade',
-      },
-      {
-        id: 'lojas',
-        label: 'Lojas afetadas',
-        value: fmtInt(kpis.lojasAfetadas),
+        id: 'lojasCriticas',
+        label: 'Lojas críticas',
+        value: fmtInt(kpis.lojasCriticas),
         icon: Store,
         chipClass: 'bg-blue-100 text-blue-700',
-        hint: 'Lojas distintas',
-        active: selectedKpi === 'lojas',
-      },
-      {
-        id: 'clientes',
-        label: 'Clientes afetados',
-        value: fmtInt(kpis.clientesAfetados),
-        icon: Users,
-        chipClass: 'bg-purple-100 text-purple-700',
-        hint: 'Clientes distintos',
-        active: selectedKpi === 'clientes',
+        hint: 'Lojas com lote ≤ 15 dias',
+        active: false,
       },
     ],
-    [kpis, selectedKpi],
+    [kpis, activeKpiFaixa],
   )
 
+  // Exportação XLSX contextual única
+  const handleExportXLSX = useCallback(() => {
+    if (sortedData.length === 0) return
+
+    try {
+      const { count, fileName } = exportValidadesTableViewXLSX(
+        sortedData,
+        appliedFilter.cliente !== 'Todos' ? appliedFilter.cliente : null,
+      )
+
+      toast({
+        title: 'Exportação concluída',
+        description: `${count} ocorrência(s) exportada(s) com sucesso em ${fileName}.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro na exportação',
+        description: err instanceof Error ? err.message : 'Falha ao gerar arquivo XLSX.',
+        variant: 'destructive',
+      })
+    }
+  }, [sortedData, appliedFilter.cliente, toast])
+
+  // Exatamente 8 colunas na ordem especificada:
+  // 1. Loja
+  // 2. Marca (cliente)
+  // 3. Realizado (dataEntrada)
+  // 4. Produto (product com truncamento e hover)
+  // 5. Dias pra vencer (diasRestantes)
+  // 6. Validade (validade)
+  // 7. Criticidade (CriticidadeBadge)
+  // 8. Data de Entrada (ultimaAtualizacao)
   const columns: Column<ValidadeItem>[] = useMemo(
     () => [
       {
-        key: 'cliente',
-        header: 'Cliente',
-        className: 'min-w-[160px]',
-        sortable: true,
-        render: (row) => (
-          <div className="min-w-0">
-            <p className="font-semibold text-slate-900 leading-tight truncate">{row.cliente}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5 truncate">{row.rede}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'industria',
-        header: 'Fornecedor',
-        className: 'min-w-[120px] text-slate-600',
-        sortable: true,
-      },
-      {
         key: 'loja',
         header: 'Loja',
-        className: 'min-w-[180px] text-slate-600',
+        className: 'min-w-[200px]',
         sortable: true,
         render: (row) => {
-          const storeIdent = formatStoreIdentity({
-            codigo_loja: row.codigoLoja,
-            nome_loja: row.loja,
+          const storeTableIdent = formatStoreIdentityTable({
+            codigoLoja: row.codigoLoja,
+            loja: row.loja,
           })
           const codeKey = row.codigoLoja ? `${row.codigoLoja}-${row.loja}` : row.loja
           return (
@@ -372,8 +314,11 @@ export const ValidadesPage: React.FC = () => {
                 }
               }}
             >
-              <p className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
-                {storeIdent}
+              <p
+                className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate"
+                title={storeTableIdent}
+              >
+                {storeTableIdent}
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {formatCityUf(row.cidade, row.uf)}
@@ -383,13 +328,27 @@ export const ValidadesPage: React.FC = () => {
         },
       },
       {
+        key: 'cliente',
+        header: 'Marca',
+        className: 'min-w-[140px] text-slate-700 font-medium',
+        sortable: true,
+        render: (row) => row.cliente || '—',
+      },
+      {
+        key: 'dataEntrada',
+        header: 'Realizado',
+        className: 'min-w-[110px] tabular-nums text-slate-700',
+        sortable: true,
+        render: (row) => formatDisplayDate(row.dataEntrada, '—'),
+      },
+      {
         key: 'product',
         header: 'Produto',
-        className: 'min-w-[180px]',
+        className: 'min-w-[200px] max-w-[320px]',
         sortable: true,
         render: (row) => (
-          <div className="min-w-0">
-            <p className="font-medium text-slate-900 truncate">{row.product}</p>
+          <div className="min-w-0" title={row.product}>
+            <p className="font-medium text-slate-900 truncate">{row.product || '—'}</p>
             <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
               {row.sku && row.sku !== 'Código não informado'
                 ? `SKU: ${row.sku}`
@@ -399,77 +358,50 @@ export const ValidadesPage: React.FC = () => {
         ),
       },
       {
-        key: 'quantidade',
-        header: 'Qtd.',
-        align: 'right',
+        key: 'diasRestantes',
+        header: 'Dias pra vencer',
+        align: 'center',
         sortable: true,
-        render: (row) => {
-          const qty = row.quantidade ?? row.estoque
-          return (
-            <span className="font-semibold text-slate-900 tabular-nums">
-              {fmtInt(qty)}{' '}
-              <span className="text-[10px] text-slate-400 font-normal">
-                {qty === 1 ? 'unidade' : 'unidades'}
-              </span>
-            </span>
-          )
-        },
+        className: 'tabular-nums font-semibold text-slate-900',
+        render: (row) => (
+          <span
+            className={
+              row.diasRestantes < 0
+                ? 'text-rose-600 font-bold'
+                : row.diasRestantes <= 15
+                  ? 'text-red-600 font-bold'
+                  : row.diasRestantes <= 30
+                    ? 'text-amber-600 font-semibold'
+                    : 'text-slate-800'
+            }
+          >
+            {row.diasRestantes}
+          </span>
+        ),
       },
       {
         key: 'validade',
         header: 'Validade',
         sortable: true,
-        className: 'tabular-nums text-slate-700',
-        render: (row) => formatDisplayDate(row.validade),
-      },
-      {
-        key: 'diasRestantes',
-        header: 'Dias rest.',
-        align: 'center',
-        sortable: true,
-        render: (row) => {
-          const nivel = classificarCriticidade(row.diasRestantes)
-          return <CriticidadeBadge level={nivel} diasRestantes={row.diasRestantes} />
-        },
+        className: 'tabular-nums text-slate-700 min-w-[110px]',
+        render: (row) => formatDisplayDate(row.validade, '—'),
       },
       {
         key: 'criticidade',
         header: 'Criticidade',
         align: 'center',
         sortable: true,
+        className: 'min-w-[130px]',
         render: (row) => {
           const nivel = classificarCriticidade(row.diasRestantes)
-          const faixa = getCriticidadeFaixa(nivel)
-          return (
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 text-xs font-semibold',
-                faixa.textClass,
-              )}
-            >
-              <span className={cn('w-2 h-2 rounded-full', faixa.chipClass.split(' ')[0])} />
-              {faixa.label}
-            </span>
-          )
+          return <CriticidadeBadge level={nivel} diasRestantes={row.diasRestantes} />
         },
       },
       {
-        key: 'promotor',
-        header: 'Promotor',
-        className: 'min-w-[110px] text-slate-600',
-        sortable: true,
-      },
-      {
-        key: 'supervisor',
-        header: 'Supervisor',
-        className: 'min-w-[120px] text-slate-600',
-        sortable: true,
-      },
-      {
         key: 'ultimaAtualizacao',
-        header: 'Últ. atualização',
+        header: 'Data de Entrada',
         sortable: true,
-        className: 'tabular-nums text-slate-500 text-xs',
+        className: 'tabular-nums text-slate-500 text-xs min-w-[110px]',
         render: (row) => formatDisplayDate(row.ultimaAtualizacao, '—'),
       },
     ],
@@ -499,32 +431,28 @@ export const ValidadesPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Botão Único de Exportação XLSX da Visão Atual */}
         <Button
-          onClick={() => setExportOpen(true)}
-          disabled={isLoading}
-          className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs self-start sm:self-center font-semibold text-xs rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          onClick={handleExportXLSX}
+          disabled={isLoading || sortedData.length === 0}
+          className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs self-start sm:self-center font-semibold text-xs rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
-          <span>Exportar Ocorrências</span>
+          <span>Exportar visão atual (.xlsx)</span>
         </Button>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — 4 tiles */}
       <ValidadesKpis tiles={kpiTiles} onSelect={handleKpiSelect} isLoading={isLoading} />
 
-      {/* Filtros */}
+      {/* Barra de Filtros Sempre Visível */}
       <ValidadesFilters
         state={filterState}
-        onChange={setFilterState}
-        onApply={handleApplyFilters}
+        onChange={handleFilterChange}
         onClear={handleClearFilters}
         options={filterOptions}
       />
-
-      {/* Breadcrumb de drill-down */}
-      {(drill || selectedKpi) && (
-        <ValidadesBreadcrumb items={breadcrumbItems} onNavigate={handleBreadcrumbNavigate} />
-      )}
 
       {/* Erro */}
       {error && (
@@ -536,27 +464,50 @@ export const ValidadesPage: React.FC = () => {
         />
       )}
 
-      {/* Tabela */}
+      {/* Tabela de 8 Colunas */}
       {!error && (
         <>
           {sortedData.length === 0 && !isLoading ? (
             <EmptyState
               title="Nenhuma validade encontrada para os filtros aplicados."
-              description="Ajuste a busca, os filtros ou o drill-down para visualizar ocorrências."
+              description="Ajuste a busca ou os filtros para visualizar ocorrências."
               actionLabel="Limpar filtros"
               onAction={handleClearFilters}
             />
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>
-                  {sortedData.length} ocorrência(ões){drill ? ` no nível ${drill.level}` : ''}
-                  {selectedKpi && ' • KPI selecionado'}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <span className="font-medium text-slate-700">
+                  {sortedData.length} ocorrência(s) encontrada(s)
+                  {activeKpiFaixa === 'casosComplexos' && ' • Filtro de KPI: Casos complexos'}
+                  {activeKpiFaixa === 'atencao' && ' • Filtro de KPI: Atenção'}
                 </span>
-                <span>
-                  Página {currentPage} de {totalPages}
-                </span>
+
+                <div className="flex items-center gap-4">
+                  {/* Seletor de Page Size: 25 / 50 / 100 */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500">Itens por página:</span>
+                    <select
+                      aria-label="Itens por página"
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value) as PageSizeOption)
+                        setPage(1)
+                      }}
+                      className="h-8 px-2 py-0.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+
+                  <span>
+                    Página {currentPage} de {totalPages}
+                  </span>
+                </div>
               </div>
+
               <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                 <DataTable
                   columns={columns}
@@ -565,80 +516,55 @@ export const ValidadesPage: React.FC = () => {
                   sortKey={sortKey}
                   sortOrder={sortOrder}
                   onSort={handleSort}
-                  onRowClick={handleRowClick}
                   emptyMessage="Nenhuma validade encontrada."
                 />
               </div>
-              {/* Paginação Premium */}
-              {totalPages > 1 && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs text-xs text-slate-600">
-                  <span>
-                    Mostrando{' '}
-                    <strong className="text-slate-900">{(currentPage - 1) * PAGE_SIZE + 1}</strong>–
-                    <strong className="text-slate-900">
-                      {Math.min(currentPage * PAGE_SIZE, sortedData.length)}
-                    </strong>{' '}
-                    de <strong className="text-slate-900">{sortedData.length}</strong> ocorrência(s)
+
+              {/* Paginação */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs text-xs text-slate-600">
+                <span>
+                  Mostrando{' '}
+                  <strong className="text-slate-900">
+                    {sortedData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+                  </strong>
+                  –
+                  <strong className="text-slate-900">
+                    {Math.min(currentPage * pageSize, sortedData.length)}
+                  </strong>{' '}
+                  de <strong className="text-slate-900">{sortedData.length}</strong> ocorrência(s)
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 mr-1">
+                    Página <strong className="text-slate-900">{currentPage}</strong> de{' '}
+                    <strong className="text-slate-900">{totalPages}</strong>
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 mr-1">
-                      Página <strong className="text-slate-900">{currentPage}</strong> de{' '}
-                      <strong className="text-slate-900">{totalPages}</strong>
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage <= 1}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                      <span>Anterior</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage >= totalPages}
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
-                    >
-                      <span>Próxima</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1 || isLoading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Anterior</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages || isLoading}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    <span>Próxima</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-              )}
+              </div>
             </div>
           )}
         </>
       )}
-
-      {/* Inteligência */}
-      <section className="space-y-3 pt-2">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-            <Brain className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900 tracking-tight">
-              Inteligência Operacional
-            </h3>
-            <p className="text-xs text-slate-500">
-              Blocos analíticos com volume em risco agrupado por fornecedor/cliente.
-            </p>
-          </div>
-        </div>
-        <ValidadesIntelligence items={sortedData} isLoading={isLoading} />
-      </section>
-
-      {/* Modais */}
-      <ExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} items={sortedData} />
-      <OccurrenceDetailModal
-        isOpen={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        item={detailItem}
-        onDrill={drillInto}
-      />
     </div>
   )
 }
