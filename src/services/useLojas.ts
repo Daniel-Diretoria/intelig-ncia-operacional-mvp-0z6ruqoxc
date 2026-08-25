@@ -1,44 +1,61 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getBaseAtualSnapshot, type BaseAtualSnapshot, type LojaAgregada } from '@/lib/selectors'
+import { buildStoreCompositeKey } from '@/lib/format/storeIdentity'
 import type { ValidadeItem, Ruptura } from '@/types'
 
-export interface StoreEntity {
-  storeId: string
-  storeCode: string
-  storeName: string
-  razaoSocial?: string
-  networkName: string
+export interface StoreSummary {
+  storeId: string // chave composta segura (NUNCA só código)
+  storeCode: string // "085", "007", "" se não houver
+  storeName: string // nome limpo
+  networkName: string // rede canônica
   city: string
-  state: string
-  totalClientes: number
-  totalOcorrenciasAtivas: number
-  totalRupturasAtivas: number
-  totalProdutos: number
-  totalQuantidade: number
-  statusMaisCritico: 'Crítico' | 'Atenção' | 'Moderado' | 'Normal'
+  uf: string
+  marcasCount: number // marcas distintas atendidas
+  marcasList: string[] // lista para tooltip
+  validadesCriticasCount: number // 0-15 dias
+  validadesAtencaoCount: number // 16-30 dias (para KPI "Casos complexos" = críticas + atenção ou contagem)
+  rupturasAtivasCount: number
+  situacao: 'Crítica' | 'Normal' // Crítica = validades 0-15 OU ruptura ativa
+  // Campos complementares para o detalhe da loja
   itemsAtivos: ValidadeItem[]
   itemsAuditoria: ValidadeItem[]
+  rupturasList: Ruptura[]
 }
+
+// Alias para compatibilidade se algum código legado referenciar StoreEntity
+export type StoreEntity = StoreSummary
 
 export interface LojasFilter {
   search?: string
+  marca?: string
+  cliente?: string
   networkName?: string
+  rede?: string
   city?: string
+  cidade?: string
+  uf?: string
   state?: string
-  statusMaisCritico?: string
+  situacao?:
+    | 'Todas'
+    | 'Críticas'
+    | 'Casos complexos'
+    | 'Com rupturas'
+    | 'Crítica'
+    | 'Normal'
+    | string
 }
 
 export interface UseLojasResult {
-  stores: StoreEntity[]
-  filteredStores: StoreEntity[]
+  stores: StoreSummary[]
+  filteredStores: StoreSummary[]
   isLoading: boolean
   error: Error | null
   refetch: () => Promise<void>
-  getStoreById: (storeId: string) => StoreEntity | undefined
+  getStoreById: (storeId: string) => StoreSummary | undefined
 }
 
 export function useLojas(filters?: LojasFilter): UseLojasResult {
-  const [stores, setStores] = useState<StoreEntity[]>([])
+  const [stores, setStores] = useState<StoreSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
 
@@ -48,25 +65,81 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
     try {
       const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
       const agregadas = snapshot.lojasAgregadas
+      const rupturasAtivas = snapshot.rupturasAtivas.filter((r) => r.situacao_atual === 'Ativo')
 
-      const entities: StoreEntity[] = agregadas.map((l: LojaAgregada) => ({
-        storeId: l.codigoLoja ? `${l.codigoLoja}-${l.nomeLoja}` : l.lojaKey,
-        storeCode: l.codigoLoja || 'Não identificado',
-        storeName: l.nomeLoja,
-        networkName: l.rede,
-        city: l.cidade,
-        state: l.uf,
-        totalClientes: l.totalClientes,
-        totalOcorrenciasAtivas: l.totalOcorrenciasAtivas,
-        totalRupturasAtivas: l.totalRupturasAtivas,
-        totalProdutos: l.totalProdutosEmRisco,
-        totalQuantidade: l.totalQuantidade,
-        statusMaisCritico: l.statusMaisCritico as StoreEntity['statusMaisCritico'],
-        itemsAtivos: l.itemsAtivos,
-        itemsAuditoria: l.itemsAuditoria,
-      }))
+      // Mapeia rupturas ativas por storeId
+      const rupturasByStoreId = new Map<string, Ruptura[]>()
+      for (const rup of rupturasAtivas) {
+        const key = buildStoreCompositeKey({
+          codigoLoja: rup.codigo_loja,
+          nomeLoja: rup.nome_loja,
+          cidade: rup.cidade,
+          uf: rup.estado,
+        })
+        const list = rupturasByStoreId.get(key) || []
+        list.push(rup)
+        rupturasByStoreId.set(key, list)
+      }
 
-      setStores(entities)
+      const summaries: StoreSummary[] = agregadas.map((l: LojaAgregada) => {
+        const storeId = buildStoreCompositeKey({
+          codigoLoja: l.codigoLoja,
+          nomeLoja: l.nomeLoja,
+          rede: l.rede,
+          cidade: l.cidade,
+          uf: l.uf,
+        })
+
+        const marcasSet = new Set<string>()
+        let validadesCriticasCount = 0
+        let validadesAtencaoCount = 0
+
+        // Processa validades ativas da loja
+        for (const it of l.itemsAtivos) {
+          if (it.cliente && it.cliente.trim()) {
+            marcasSet.add(it.cliente.trim())
+          }
+          if (it.diasRestantes <= 15) {
+            validadesCriticasCount++
+          } else if (it.diasRestantes > 15 && it.diasRestantes <= 30) {
+            validadesAtencaoCount++
+          }
+        }
+
+        // Processa rupturas da loja
+        const storeRupturas = rupturasByStoreId.get(storeId) || []
+        for (const rup of storeRupturas) {
+          if (rup.cliente && rup.cliente.trim()) {
+            marcasSet.add(rup.cliente.trim())
+          }
+        }
+
+        const rupturasAtivasCount = l.totalRupturasAtivas || storeRupturas.length
+        const situacao: 'Crítica' | 'Normal' =
+          validadesCriticasCount > 0 || rupturasAtivasCount > 0 ? 'Crítica' : 'Normal'
+
+        const marcasList = Array.from(marcasSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+        return {
+          storeId,
+          storeCode: l.codigoLoja || '',
+          storeName: l.nomeLoja,
+          networkName: l.rede,
+          city: l.cidade,
+          uf: l.uf,
+          marcasCount: marcasList.length,
+          marcasList,
+          validadesCriticasCount,
+          validadesAtencaoCount,
+          rupturasAtivasCount,
+          situacao,
+          itemsAtivos: l.itemsAtivos,
+          itemsAuditoria: l.itemsAuditoria,
+          rupturasList: storeRupturas,
+        }
+      })
+
+      setStores(summaries)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Falha ao processar base de lojas'))
     } finally {
@@ -87,7 +160,8 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
 
   const filteredStores = useMemo(() => {
     return stores.filter((store) => {
-      if (filters?.search) {
+      // Filtro de busca (código, nome da loja, cidade, rede)
+      if (filters?.search && filters.search.trim()) {
         const q = filters.search.toLowerCase().trim()
         const matchCode = store.storeCode.toLowerCase().includes(q)
         const matchName = store.storeName.toLowerCase().includes(q)
@@ -95,28 +169,60 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
         const matchNetwork = store.networkName.toLowerCase().includes(q)
         if (!matchCode && !matchName && !matchCity && !matchNetwork) return false
       }
-      if (filters?.networkName && filters.networkName !== 'Todos') {
-        if (store.networkName !== filters.networkName) return false
+
+      // Filtro Marca (cliente)
+      const marca = filters?.marca ?? filters?.cliente
+      if (marca && marca !== 'Todos' && marca !== 'Todas as marcas') {
+        const hasMarca = store.marcasList.some(
+          (m) =>
+            m.toLowerCase() === marca.toLowerCase() ||
+            m.toLowerCase().includes(marca.toLowerCase()),
+        )
+        if (!hasMarca) return false
       }
-      if (filters?.city && filters.city !== 'Todos') {
-        if (store.city !== filters.city) return false
+
+      // Filtro Rede
+      const rede = filters?.networkName ?? filters?.rede
+      if (rede && rede !== 'Todos' && rede !== 'Todas as redes') {
+        if (store.networkName.toLowerCase() !== rede.toLowerCase()) return false
       }
-      if (filters?.state && filters.state !== 'Todos') {
-        if (store.state !== filters.state) return false
+
+      // Filtro Cidade
+      const city = filters?.city ?? filters?.cidade
+      if (city && city !== 'Todos' && city !== 'Todas as cidades') {
+        if (store.city.toLowerCase() !== city.toLowerCase()) return false
       }
-      if (filters?.statusMaisCritico && filters.statusMaisCritico !== 'Todos') {
-        if (store.statusMaisCritico !== filters.statusMaisCritico) return false
+
+      // Filtro UF / Estado
+      const uf = filters?.uf ?? filters?.state
+      if (uf && uf !== 'Todos' && uf !== 'Todos os estados') {
+        if (store.uf.toUpperCase() !== uf.toUpperCase()) return false
       }
+
+      // Filtro Situação: 'Todas' | 'Críticas' | 'Casos complexos' | 'Com rupturas' | 'Crítica' | 'Normal'
+      if (filters?.situacao && filters.situacao !== 'Todas' && filters.situacao !== 'Todos') {
+        if (filters.situacao === 'Críticas' || filters.situacao === 'Crítica') {
+          if (store.situacao !== 'Crítica') return false
+        } else if (filters.situacao === 'Casos complexos') {
+          if (store.validadesCriticasCount <= 0) return false
+        } else if (filters.situacao === 'Com rupturas') {
+          if (store.rupturasAtivasCount <= 0) return false
+        } else if (filters.situacao === 'Normal') {
+          if (store.situacao !== 'Normal') return false
+        }
+      }
+
       return true
     })
   }, [stores, filters])
 
+  // getStoreById: resolve por storeId composto exato via decodeURIComponent.
+  // NUNCA fazer fallback para match por código parcial. Se o storeId não bater exatamente, retorna undefined.
   const getStoreById = useCallback(
     (storeId: string) => {
+      if (!storeId) return undefined
       const decoded = decodeURIComponent(storeId)
-      return stores.find(
-        (s) => s.storeId === decoded || s.storeCode === decoded || s.storeName === decoded,
-      )
+      return stores.find((s) => s.storeId === decoded)
     },
     [stores],
   )

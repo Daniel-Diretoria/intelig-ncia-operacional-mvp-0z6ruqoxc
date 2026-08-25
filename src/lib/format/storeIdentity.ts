@@ -146,6 +146,126 @@ export function removeRepeatedCodePrefix(name: string, code?: string | null): st
  * Saída estrita: "CÓDIGO • NOME DA LOJA" ou "Código não identificado • NOME DA LOJA".
  * NUNCA gera códigos duplicados nem inventa "000".
  */
+/**
+ * Constrói a chave composta segura e única de identificação da loja.
+ * Prioridade: se existir ID persistido único do backend (id ou storeId), usar esse.
+ * Fallback composto: `codigoLoja (preservado como texto com zeros) | nome normalizado | rede | cidade/UF`.
+ * Duas lojas com mesmo código mas nome/rede/cidade distintos DEVEM permanecer separadas.
+ */
+export function buildStoreCompositeKey(input: {
+  id?: string | null
+  storeId?: string | null
+  codigoLoja?: string | number | null
+  codigo_loja?: string | number | null
+  storeCode?: string | number | null
+  nomeLoja?: string | null
+  nome_loja?: string | null
+  storeName?: string | null
+  loja?: string | null
+  razaoSocial?: string | null
+  razao_social?: string | null
+  rede?: string | null
+  networkName?: string | null
+  cidade?: string | null
+  city?: string | null
+  uf?: string | null
+  estado?: string | null
+  state?: string | null
+}): string {
+  // Se existir ID persistido único explícito com formato de ID de banco
+  // (ex: PB id de 15 caracteres alfanuméricos sem separadores de composição), preservamos se fornecido
+  // Mas para identificação operacional de loja composta entre validades e rupturas:
+  const rawCode = input.codigoLoja ?? input.codigo_loja ?? input.storeCode ?? ''
+  const code =
+    extractStoreRealCode({
+      codigoLoja: rawCode,
+      nomeLoja: input.nomeLoja ?? input.nome_loja ?? input.storeName ?? input.loja,
+      razaoSocial: input.razaoSocial ?? input.razao_social,
+    }) || ''
+
+  const rawName =
+    input.nomeLoja ??
+    input.nome_loja ??
+    input.storeName ??
+    input.loja ??
+    input.razaoSocial ??
+    input.razao_social ??
+    ''
+  const cleanName = extractStoreCleanName({
+    codigoLoja: rawCode,
+    nomeLoja: rawName,
+  })
+
+  const rawRede = input.rede ?? input.networkName ?? deriveNetworkName(rawName)
+  const network = rawRede ? normalizeNetworkName(rawRede) : deriveNetworkName(rawName)
+
+  const city = (input.cidade ?? input.city ?? '').trim()
+  const uf = (input.uf ?? input.estado ?? input.state ?? '').trim().toUpperCase()
+  const location = formatCityUf(city, uf)
+
+  const normCode = code ? String(code).trim() : 'SEM_CODIGO'
+  const normName = cleanName.trim().toUpperCase()
+  const normNetwork = network.trim().toUpperCase()
+  const normLocation = location.trim().toUpperCase()
+
+  return `${normCode}|${normName}|${normNetwork}|${normLocation}`
+}
+
+/**
+ * Formata o nome da loja especificamente para exibição na tabela e exportação:
+ * "CÓDIGO — NOME" (usando em-dash '—' no lugar de '•').
+ * Se sem código numérico confiável: "SEM CÓDIGO — NOME".
+ * Preserva zeros à esquerda e evita inventar valores.
+ */
+export function formatStoreIdentityTable(
+  input:
+    | {
+        codigoLoja?: string | number | null
+        codigo_loja?: string | number | null
+        storeCode?: string | number | null
+        nomeLoja?: string | null
+        nome_loja?: string | null
+        storeName?: string | null
+        loja?: string | null
+        razaoSocial?: string | null
+        razao_social?: string | null
+      }
+    | string
+    | null
+    | undefined,
+): string {
+  if (!input) {
+    return 'SEM CÓDIGO — Loja não identificada'
+  }
+
+  let code: string | null = null
+  let cleanName = ''
+
+  if (typeof input === 'string') {
+    const { extractedCode, cleanName: cName } = extractFromCombined(input)
+    code = extractedCode
+    cleanName = removeRepeatedCodePrefix(cName, code)
+    if (!cleanName) cleanName = input.trim()
+  } else {
+    code = extractStoreRealCode({
+      codigoLoja: input.codigoLoja ?? input.codigo_loja ?? input.storeCode,
+      nomeLoja: input.nomeLoja ?? input.nome_loja ?? input.storeName ?? input.loja,
+      razaoSocial: input.razaoSocial ?? input.razao_social,
+    })
+    cleanName = extractStoreCleanName({
+      codigoLoja: input.codigoLoja ?? input.codigo_loja ?? input.storeCode,
+      nomeLoja: input.nomeLoja ?? input.nome_loja ?? input.storeName ?? input.loja,
+      razaoSocial: input.razaoSocial ?? input.razao_social,
+    })
+  }
+
+  if (code) {
+    return `${code} — ${cleanName || 'Loja não identificada'}`
+  }
+
+  return `SEM CÓDIGO — ${cleanName || 'Loja não identificada'}`
+}
+
 export function formatStoreIdentity(input: StoreIdentityInput | string | null | undefined): string {
   if (!input) {
     return 'Código não identificado • Loja não identificada'

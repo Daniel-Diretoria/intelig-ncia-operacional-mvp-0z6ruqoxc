@@ -2,37 +2,8 @@ import * as XLSX from 'xlsx'
 import type { ValidadeItem } from '@/types'
 import { classificarCriticidade } from '@/lib/data/criticidade'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { formatStoreIdentity } from '@/lib/format/storeIdentity'
-
-/**
- * Formata o nome da loja especificamente para exibição na tabela e exportação:
- * "CÓDIGO — NOME" (usando em-dash '—' no lugar de '•').
- * Se sem código numérico confiável: "SEM CÓDIGO — NOME".
- * Preserva zeros à esquerda e evita inventar valores.
- */
-export function formatStoreIdentityTable(item: {
-  codigoLoja?: string | number | null
-  loja?: string | null
-  razaoSocial?: string | null
-}): string {
-  const formatted = formatStoreIdentity({
-    codigo_loja: item.codigoLoja,
-    nome_loja: item.loja,
-    razao_social: item.razaoSocial,
-  })
-
-  // formatted pode ser:
-  // "00250 • FORT ATACADISTA FLORESTA"
-  // "Código não identificado • FORT ATACADISTA"
-  // "Código não identificado • Loja não identificada"
-  if (formatted.startsWith('Código não identificado • ')) {
-    const cleanName = formatted.replace('Código não identificado • ', '').trim()
-    return `SEM CÓDIGO — ${cleanName || 'Loja não identificada'}`
-  }
-
-  // Substituir o separador central " • " por " — "
-  return formatted.replace(' • ', ' — ')
-}
+import { formatStoreIdentityTable } from '@/lib/format/storeIdentity'
+export { formatStoreIdentityTable }
 
 /**
  * Gera o nome do arquivo XLSX:

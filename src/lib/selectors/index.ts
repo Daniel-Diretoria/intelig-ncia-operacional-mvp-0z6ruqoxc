@@ -1,6 +1,8 @@
 export * from './baseAtualSelectors'
 export {
   formatStoreIdentity,
+  formatStoreIdentityTable,
+  buildStoreCompositeKey,
   extractStoreRealCode,
   extractStoreCleanName,
   deriveNetworkName,

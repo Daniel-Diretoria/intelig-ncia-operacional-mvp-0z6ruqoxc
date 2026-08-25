@@ -21,6 +21,8 @@ import {
 } from '@/lib/format/dateParser'
 import {
   formatStoreIdentity,
+  formatStoreIdentityTable,
+  buildStoreCompositeKey,
   extractStoreRealCode,
   extractStoreCleanName,
   deriveNetworkName,
@@ -351,15 +353,29 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
       // Agregações por Loja
       const lojasMap = new Map<string, LojaAgregada>()
 
+      // Helper para obter a chave composta segura
+      const getCompositeKey = (
+        code: string | null | undefined,
+        name: string,
+        rede: string,
+        cidade: string,
+        uf: string,
+      ) => {
+        return buildStoreCompositeKey({
+          codigoLoja: code,
+          nomeLoja: name,
+          rede,
+          cidade,
+          uf,
+        })
+      }
+
       // Agrega validades ativas e auditoria por loja
       const processItemForLoja = (item: ValidadeItem, isAuditoria = false) => {
         const code = item.codigoLoja || null
         const cleanName = item.loja
         const ident = formatStoreIdentity({ codigo_loja: code, nome_loja: cleanName })
-        // Chave de agrupamento segura: se tem código, usa código. Se não, usa combinação normalizada de nome + cidade (ou CNPJ)
-        const lojaKey = code
-          ? `COD_${code}`
-          : `NAME_${cleanName.toLowerCase()}_${item.cidade.toLowerCase()}`
+        const lojaKey = getCompositeKey(code, cleanName, item.rede, item.cidade, item.uf)
 
         let loja = lojasMap.get(lojaKey)
         if (!loja) {
@@ -411,14 +427,35 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
       for (const rup of rupturasAtivas) {
         const code = rup.codigo_loja || null
         const cleanName = rup.nome_loja
-        const lojaKey = code
-          ? `COD_${code}`
-          : `NAME_${cleanName.toLowerCase()}_${rup.cidade.toLowerCase()}`
-        const loja = lojasMap.get(lojaKey)
-        if (loja) {
-          if (rup.situacao_atual === 'Ativo') {
-            loja.totalRupturasAtivas++
+        const rupRede = deriveNetworkName(rup.nome_loja)
+        const lojaKey = getCompositeKey(code, cleanName, rupRede, rup.cidade, rup.estado)
+        let loja = lojasMap.get(lojaKey)
+        if (!loja) {
+          // Caso a loja só tenha rupturas e nenhuma validade
+          const ident = formatStoreIdentity({ codigo_loja: code, nome_loja: cleanName })
+          loja = {
+            lojaKey,
+            identidade: ident,
+            codigoLoja: code,
+            nomeLoja: cleanName,
+            rede: rupRede,
+            cidade: rup.cidade,
+            uf: rup.estado,
+            cidadeUf: formatCityUf(rup.cidade, rup.estado),
+            totalClientes: 0,
+            totalOcorrenciasAtivas: 0,
+            totalRupturasAtivas: 0,
+            totalProdutosEmRisco: 0,
+            totalQuantidade: 0,
+            statusMaisCritico: 'Normal',
+            itemsAtivos: [],
+            itemsAuditoria: [],
           }
+          lojasMap.set(lojaKey, loja)
+        }
+
+        if (rup.situacao_atual === 'Ativo') {
+          loja.totalRupturasAtivas++
         }
       }
 
