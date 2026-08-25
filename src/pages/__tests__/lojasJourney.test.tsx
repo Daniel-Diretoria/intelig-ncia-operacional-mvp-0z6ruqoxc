@@ -435,7 +435,198 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     expect(cardUrgente).toBeTruthy()
     fireEvent.click(cardUrgente!)
 
-    // Verifica que o texto "Filtro: Lojas críticas" aparece na barra de contagem
-    expect(screen.getByText(/• Filtro: Lojas críticas/i)).toBeTruthy()
+    // Verifica que entra no Drill Nível 1 com breadcrumb e indicador
+    expect(screen.getByText(/Lojas com atenção urgente/i)).toBeTruthy()
+    expect(screen.getByText(/Visualizando/i)).toBeTruthy()
+  })
+
+  // 11. Cenários de Drill-Down e Exportação da Gestão por Supervisor
+  it('11. Card clicado com supervisor -> Drill Nível 1 ativo, breadcrumb visível e tabela com 8 colunas', () => {
+    const store1 = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA ATENCAO',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 2,
+      rupturasAtivasCount: 1,
+      situacao: 'Crítica',
+    })
+    const store2 = createMockStore({
+      storeId: 's2',
+      storeCode: '086',
+      storeName: 'LOJA NORMAL',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 0,
+      rupturasAtivasCount: 0,
+      situacao: 'Normal',
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [store1, store2],
+      filteredStores: [store1, store2],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter
+        initialEntries={['/lojas?supervisor=CAROLINE+OLIVEIRA&drill=lojas&indicador=criticas']}
+      >
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Breadcrumb deve estar presente
+    expect(screen.getByText('Supervisor')).toBeTruthy()
+    expect(screen.getByText('Caroline Oliveira')).toBeTruthy()
+    expect(screen.getByText('Lojas com atenção urgente')).toBeTruthy()
+
+    // Apenas a loja crítica (store1) deve estar na lista do indicador "criticas"
+    expect(screen.getByText('085 — LOJA ATENCAO')).toBeTruthy()
+    expect(screen.queryByText('086 — LOJA NORMAL')).toBeNull()
+
+    // 8 Colunas do Drill Lojas presentes no cabeçalho
+    expect(screen.getByText('Principal motivo')).toBeTruthy()
+    expect(screen.getByText('Validades 0-15d')).toBeTruthy()
+  })
+
+  it('12. Clique em loja no drill nível 1 -> Drill nível 2 (produtos) com tabela de produtos mesclada e ação recomendada', () => {
+    const store = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA DRILL',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 1,
+      rupturasAtivasCount: 1,
+      situacao: 'Crítica',
+      itemsAtivos: [
+        {
+          id: 'v1',
+          cliente: 'Nestlé',
+          product: 'Ninho 400g',
+          codigoLoja: '085',
+          loja: '085 — LOJA DRILL',
+          cidade: 'São Paulo',
+          uf: 'SP',
+          sku: '7891000',
+          lote: 'L1',
+          category: 'Laticínios',
+          unidade: 'UN',
+          estoque: 10,
+          quantidade: 10,
+          diasRestantes: 5,
+          validade: '2025-05-15',
+          dataEntrada: '2025-05-01',
+          status: 'Crítico',
+        },
+      ],
+      rupturasList: [
+        {
+          id: 'r1',
+          operational_key: 'op-1',
+          dedup_key: '085|Ninho 400g|Nestlé',
+          source_import_id: 'imp-1',
+          source_row: 1,
+          cnpj_loja: '12345678000199',
+          codigo_cliente: 'CLI-1',
+          categoria: 'Laticínios',
+          observacao: '',
+          data_entrada: '2025-05-01',
+          ultima_aparicao: '2025-05-01',
+          cliente: 'Nestlé',
+          produto: 'Ninho 400g',
+          codigo_loja: '085',
+          nome_loja: 'LOJA DRILL',
+          cidade: 'São Paulo',
+          estado: 'SP',
+          motivo: 'Ruptura Total',
+          situacao_atual: 'Ativo',
+          data_visita: '2025-05-01',
+          dias_em_ruptura: 3,
+          colaborador: 'Promotor Teste',
+        },
+      ],
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [store],
+      filteredStores: [store],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn().mockReturnValue(store),
+    })
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/lojas?supervisor=CAROLINE+OLIVEIRA&drill=produtos&indicador=criticas&loja=s1',
+        ]}
+      >
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Breadcrumb nível 2
+    expect(screen.getByText('Produtos')).toBeTruthy()
+    expect(screen.getByText(/085 — LOJA DRILL/i)).toBeTruthy()
+
+    // Produto mesclado (Ambos)
+    expect(screen.getByText('Ninho 400g')).toBeTruthy()
+    expect(screen.getByText('Ambos')).toBeTruthy()
+    expect(
+      screen.getByText(/Priorizar reposição sem ampliar estoque do lote crítico/i),
+    ).toBeTruthy()
+  })
+
+  it('13. Botão Voltar para Lojas preserva supervisor e indicador', () => {
+    const store = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA DRILL',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 1,
+      rupturasAtivasCount: 0,
+      situacao: 'Crítica',
+      itemsAtivos: [],
+      rupturasList: [],
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [store],
+      filteredStores: [store],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn().mockReturnValue(store),
+    })
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/lojas?supervisor=CAROLINE+OLIVEIRA&drill=produtos&indicador=complexos&loja=s1',
+        ]}
+      >
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    const backBtn = screen.getByRole('button', { name: /Voltar para Lojas/i })
+    fireEvent.click(backBtn)
+
+    // Volta ao nível 1
+    expect(screen.getByText(/Validades críticas 0-15d/i)).toBeTruthy()
   })
 })

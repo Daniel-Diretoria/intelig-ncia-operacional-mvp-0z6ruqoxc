@@ -1,10 +1,11 @@
 import * as XLSX from 'xlsx'
 import type { StoreSummary } from '@/services/useLojas'
 import type { ValidadeItem, Ruptura } from '@/types'
-import { formatStoreIdentityTable } from '@/lib/format/storeIdentity'
+import { formatStoreIdentityTable, buildCityUfCanonicalizer } from '@/lib/format/storeIdentity'
 import { formatCityUf } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { classificarCriticidade } from '@/lib/data/criticidade'
+import { getAcaoRecomendada } from '@/lib/resolve/acaoRecomendada'
 
 /**
  * Gera o nome do arquivo XLSX para a listagem de lojas:
@@ -122,6 +123,184 @@ export function getStoreDetailExportFileName(
  *   5. Dias em Ruptura (número)
  *   6. Situação
  */
+/**
+ * Normaliza strings para nomes de arquivo seguros (sem acentos, caracteres especiais viram underscore).
+ */
+function sanitizeFileNamePart(part: string | undefined | null, fallback = 'GERAL'): string {
+  if (!part || !part.trim()) return fallback
+  return part
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/gi, '_')
+    .replace(/_+/g, '_')
+}
+
+/**
+ * Indicador label map para nomes amigáveis em arquivos
+ */
+export const INDICADOR_LABEL_MAP: Record<string, string> = {
+  todas: 'Lojas_sob_responsabilidade',
+  criticas: 'Lojas_com_atencao_urgente',
+  complexos: 'Validades_criticas_0-15d',
+  rupturas: 'Rupturas_ativas',
+}
+
+/**
+ * Item para a tabela de Drill Nível 2 (Produtos)
+ */
+export interface SupervisorDrillProductRow {
+  cliente: string
+  produto: string
+  tipoRisco: 'Validade' | 'Ruptura' | 'Ambos'
+  realizado: string // ISO ou formatted
+  validade?: string // ISO ou formatted ou null
+  diasRestantes?: number | null
+  diasEmRuptura?: number | null
+  quantidade?: number | null
+  criticidade: string // Badge text
+  acaoRecomendada: string
+}
+
+/**
+ * Exporta as lojas do Drill Nível 1 (/lojas?drill=lojas) com as 8 colunas especificadas:
+ * 1. Loja (Código — Nome)
+ * 2. Cidade/UF (canônica)
+ * 3. Rede
+ * 4. Marcas (número)
+ * 5. Validades 0-15d
+ * 6. Rupturas ativas
+ * 7. Principal motivo ("Validade", "Ruptura" ou "Ambos")
+ * 8. Criticidade ("Crítica" ou "Normal")
+ *
+ * Nome do arquivo: Supervisor_[NOME]_[INDICADOR]_DD-MM-YYYY.xlsx
+ */
+export function exportSupervisorDrillLojasXLSX(
+  items: StoreSummary[],
+  supervisorName: string,
+  indicador: string,
+  customDate?: Date,
+): { count: number; fileName: string } {
+  if (items.length === 0) {
+    throw new Error('Nenhuma loja para exportar.')
+  }
+
+  const canonicalize = buildCityUfCanonicalizer(items)
+
+  const rows = items.map((store) => {
+    const { city, uf } = canonicalize(store.city, store.uf)
+    const valCrit = store.validadesCriticasCount || 0
+    const rupAtiv = store.rupturasAtivasCount || 0
+
+    let principalMotivo = '—'
+    if (valCrit > 0 && rupAtiv > 0) {
+      principalMotivo = 'Ambos'
+    } else if (valCrit > 0) {
+      principalMotivo = 'Validade'
+    } else if (rupAtiv > 0) {
+      principalMotivo = 'Ruptura'
+    }
+
+    return {
+      Loja: formatStoreIdentityTable({
+        codigoLoja: store.storeCode,
+        nomeLoja: store.storeName,
+      }),
+      'Cidade/UF': formatCityUf(city, uf),
+      Rede: store.networkName,
+      Marcas: store.marcasCount,
+      'Validades 0-15d': valCrit,
+      'Rupturas ativas': rupAtiv,
+      'Principal motivo': principalMotivo,
+      Criticidade: store.situacao,
+    }
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Lojas Supervisor')
+
+  const now = customDate || new Date()
+  const dd = String(now.getDate()).padStart(2, '0')
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const yyyy = now.getFullYear()
+  const dateStr = `${dd}-${mm}-${yyyy}`
+
+  const supSanitized = sanitizeFileNamePart(supervisorName, 'SUPERVISOR')
+  const indSanitized = sanitizeFileNamePart(
+    INDICADOR_LABEL_MAP[indicador] || indicador,
+    'INDICADOR',
+  )
+
+  const fileName = `Supervisor_${supSanitized}_${indSanitized}_${dateStr}.xlsx`
+  XLSX.writeFile(wb, fileName)
+
+  return { count: items.length, fileName }
+}
+
+/**
+ * Exporta os produtos do Drill Nível 2 (/lojas?drill=produtos) com as 10 colunas:
+ * 1. Marca
+ * 2. Produto
+ * 3. Tipo de risco ("Validade", "Ruptura" ou "Ambos")
+ * 4. Realizado (dd/MM/yyyy)
+ * 5. Validade (dd/MM/yyyy)
+ * 6. Dias restantes (número)
+ * 7. Dias em ruptura (número)
+ * 8. Quantidade
+ * 9. Criticidade
+ * 10. Ação recomendada
+ *
+ * Nome do arquivo: Supervisor_[NOME]_[CODIGO]_[LOJA]_Produtos_DD-MM-YYYY.xlsx
+ */
+export function exportSupervisorDrillProdutosXLSX(
+  items: SupervisorDrillProductRow[],
+  supervisorName: string,
+  storeCode: string,
+  storeName: string,
+  indicador: string,
+  customDate?: Date,
+): { count: number; fileName: string } {
+  if (items.length === 0) {
+    throw new Error('Nenhum produto para exportar.')
+  }
+
+  const rows = items.map((item) => ({
+    Marca: item.cliente || '—',
+    Produto: item.produto || '—',
+    'Tipo de risco': item.tipoRisco,
+    Realizado: item.realizado || '—',
+    Validade: item.validade || '—',
+    'Dias restantes':
+      item.diasRestantes !== null && item.diasRestantes !== undefined ? item.diasRestantes : '—',
+    'Dias em ruptura':
+      item.diasEmRuptura !== null && item.diasEmRuptura !== undefined ? item.diasEmRuptura : '—',
+    Quantidade: item.quantidade !== null && item.quantidade !== undefined ? item.quantidade : '—',
+    Criticidade: item.criticidade,
+    'Ação recomendada': item.acaoRecomendada,
+  }))
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Produtos Loja')
+
+  const now = customDate || new Date()
+  const dd = String(now.getDate()).padStart(2, '0')
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const yyyy = now.getFullYear()
+  const dateStr = `${dd}-${mm}-${yyyy}`
+
+  const supSanitized = sanitizeFileNamePart(supervisorName, 'SUPERVISOR')
+  const codeSanitized = sanitizeFileNamePart(storeCode, 'SEM_CODIGO')
+  const storeSanitized = sanitizeFileNamePart(storeName, 'LOJA')
+
+  const fileName = `Supervisor_${supSanitized}_${codeSanitized}_${storeSanitized}_Produtos_${dateStr}.xlsx`
+  XLSX.writeFile(wb, fileName)
+
+  return { count: items.length, fileName }
+}
+
 export function exportStoreDetailXLSX(
   store: { storeCode?: string | null; storeName: string },
   validades: ValidadeItem[],
