@@ -434,4 +434,21 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
     expect(store.rupturasAtivasCount).toBe(1)
     expect(store.situacao).toBe('Crítica')
   })
+
+  it('useLojas preenche supervisorKey, supervisorName e supervisoresList corretamente', async () => {
+    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+
+    const { result } = renderHook(() => useLojas())
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    expect(result.current.stores.length).toBe(3)
+    result.current.stores.forEach((s) => {
+      expect(s.supervisorKey).toBeDefined()
+      expect(s.supervisorName).toBeDefined()
+      expect(Array.isArray(s.supervisoresList)).toBe(true)
+    })
+  })
 })

@@ -216,6 +216,7 @@ export interface ValidadeItem {
   uf?: string
   promotor?: string
   supervisor?: string
+  codSupervisor?: string
   quantidade?: number // quantidade de unidades envolvidas na ocorrência
   precoUnitario?: number // preço médio unitário (R$) para estimativa de exposição financeira
   ultimaAtualizacao?: string // ISO date-time string

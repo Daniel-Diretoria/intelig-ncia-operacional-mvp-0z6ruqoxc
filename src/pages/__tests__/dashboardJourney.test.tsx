@@ -122,6 +122,9 @@ const mockStores: StoreSummary[] = [
     itemsAtivos: [],
     itemsAuditoria: [],
     rupturasList: [],
+    supervisorKey: 'CAROLINE OLIVEIRA',
+    supervisorName: 'CAROLINE OLIVEIRA',
+    supervisoresList: [{ nome: 'CAROLINE OLIVEIRA', marcas: ['CHULETÃO'] }],
   },
   {
     storeId: '165|COMPER CENTRO|COMPER|CAMPO GRANDE (MS)',
@@ -139,6 +142,9 @@ const mockStores: StoreSummary[] = [
     itemsAtivos: [],
     itemsAuditoria: [],
     rupturasList: [],
+    supervisorKey: 'MARCOS SILVA',
+    supervisorName: 'MARCOS SILVA',
+    supervisoresList: [{ nome: 'MARCOS SILVA', marcas: ['OUTRA MARCA'] }],
   },
 ]
 

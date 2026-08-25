@@ -6,6 +6,7 @@ import {
   deriveNetworkName,
   formatCityUf,
 } from '@/lib/format/storeIdentity'
+import { resolveStoreSupervisors } from '@/lib/resolve/supervisorResolver'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export interface StoreSummary {
@@ -25,6 +26,10 @@ export interface StoreSummary {
   itemsAtivos: ValidadeItem[]
   itemsAuditoria: ValidadeItem[]
   rupturasList: Ruptura[]
+  // Atribuição de supervisor
+  supervisorKey: string // "CAROLINE OLIVEIRA" ou "sem-supervisor"
+  supervisorName: string // "CAROLINE OLIVEIRA" ou "Sem supervisor definido"
+  supervisoresList: Array<{ nome: string; marcas: string[] }>
 }
 
 // Alias para compatibilidade se algum código legado referenciar StoreEntity
@@ -155,6 +160,9 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
           itemsAtivos: l.itemsAtivos,
           itemsAuditoria: l.itemsAuditoria,
           rupturasList: storeRupturas,
+          supervisorKey: 'sem-supervisor',
+          supervisorName: 'Sem supervisor definido',
+          supervisoresList: [],
         }
       })
 
@@ -244,8 +252,26 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
             itemsAtivos: allItemsAtivos,
             itemsAuditoria: allItemsAuditoria,
             rupturasList: allRupturasList,
+            supervisorKey: 'sem-supervisor',
+            supervisorName: 'Sem supervisor definido',
+            supervisoresList: [],
           })
         }
+      }
+
+      // Atribuição de supervisor por loja
+      for (const s of deduplicatedSummaries) {
+        const storeKey = buildStoreCompositeKey({
+          codigoLoja: s.storeCode,
+          nomeLoja: s.storeName,
+          rede: s.networkName,
+          cidade: s.city,
+          uf: s.uf,
+        })
+        const supResolution = resolveStoreSupervisors(s.itemsAtivos, s.rupturasList, storeKey)
+        s.supervisorKey = supResolution.supervisorKey
+        s.supervisorName = supResolution.supervisorName
+        s.supervisoresList = supResolution.supervisoresList
       }
 
       // Defesa em profundidade: filtrar duplicatas exatas de storeId

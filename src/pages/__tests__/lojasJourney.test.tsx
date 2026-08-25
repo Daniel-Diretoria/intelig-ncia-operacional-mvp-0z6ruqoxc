@@ -23,6 +23,9 @@ const createMockStore = (overrides: Partial<StoreSummary> = {}): StoreSummary =>
   itemsAtivos: [],
   itemsAuditoria: [],
   rupturasList: [],
+  supervisorKey: 'CAROLINE OLIVEIRA',
+  supervisorName: 'CAROLINE OLIVEIRA',
+  supervisoresList: [{ nome: 'CAROLINE OLIVEIRA', marcas: ['CHULETÃO'] }],
   ...overrides,
 })
 
@@ -275,5 +278,164 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     expect(screen.queryByText(/0 loja\(s\) encontrada\(s\)/i)).toBeNull()
     expect(screen.queryByText(/Nenhuma loja registrada/i)).toBeNull()
     expect(screen.queryByText(/Nenhuma loja corresponde/i)).toBeNull()
+  })
+
+  // 8. Filtro de supervisor reduz lojas na tabela
+  it('8. Filtro de supervisor reduz lojas na tabela', () => {
+    const store1 = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA CAROLINE',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+    })
+    const store2 = createMockStore({
+      storeId: 's2',
+      storeCode: '086',
+      storeName: 'LOJA MARCOS',
+      supervisorKey: 'MARCOS SILVA',
+      supervisorName: 'Marcos Silva',
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [store1, store2],
+      filteredStores: [store1, store2],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Inicialmente mostra as 2 lojas
+    expect(screen.getByText('085 — LOJA CAROLINE')).toBeTruthy()
+    expect(screen.getByText('086 — LOJA MARCOS')).toBeTruthy()
+
+    // Seleciona o supervisor "CAROLINE OLIVEIRA"
+    const supervisorSelect = screen.getByLabelText('Supervisor')
+    fireEvent.change(supervisorSelect, { target: { value: 'CAROLINE OLIVEIRA' } })
+
+    // Agora deve exibir apenas a loja da Caroline
+    expect(screen.getByText('085 — LOJA CAROLINE')).toBeTruthy()
+    expect(screen.queryByText('086 — LOJA MARCOS')).toBeNull()
+    expect(screen.getByText('1 loja(s) encontrada(s)')).toBeTruthy()
+  })
+
+  // 9. Cards de supervisor mostram totais corretos
+  it('9. Cards de supervisor mostram totais corretos', () => {
+    const storeSup1 = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA SUP 1',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 3,
+      rupturasAtivasCount: 0,
+      situacao: 'Crítica',
+    })
+    const storeSup2 = createMockStore({
+      storeId: 's2',
+      storeCode: '086',
+      storeName: 'LOJA SUP 2',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 0,
+      rupturasAtivasCount: 2,
+      situacao: 'Crítica',
+    })
+    const storeOutro = createMockStore({
+      storeId: 's3',
+      storeCode: '087',
+      storeName: 'LOJA OUTRO SUP',
+      supervisorKey: 'MARCOS SILVA',
+      supervisorName: 'Marcos Silva',
+      validadesCriticasCount: 5,
+      rupturasAtivasCount: 5,
+      situacao: 'Crítica',
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [storeSup1, storeSup2, storeOutro],
+      filteredStores: [storeSup1, storeSup2, storeOutro],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Seleciona Caroline
+    const supervisorSelect = screen.getByLabelText('Supervisor')
+    fireEvent.change(supervisorSelect, { target: { value: 'CAROLINE OLIVEIRA' } })
+
+    // Deve mostrar os títulos dos 4 cards de supervisor
+    expect(screen.getByText('Lojas sob responsabilidade')).toBeTruthy()
+    expect(screen.getByText('Lojas com atenção urgente')).toBeTruthy()
+    expect(screen.getByText('Validades críticas 0-15d')).toBeTruthy()
+    expect(screen.getByText('Rupturas ativas')).toBeTruthy()
+
+    // Totais de Caroline:
+    // Total de lojas: 2
+    // Lojas urgentes (validade > 0 || ruptura > 0): 2
+    // Lojas com validade crítica (validadesCriticasCount > 0): 1
+    // Lojas com rupturas ativas (rupturasAtivasCount > 0): 1
+    expect(screen.getByText('Lojas sob este supervisor')).toBeTruthy()
+  })
+
+  // 10. Card "Lojas com atenção urgente" clicado → texto "Filtro: Lojas críticas" aparece
+  it('10. Card "Lojas com atenção urgente" clicado → texto "Filtro: Lojas críticas" aparece', () => {
+    const storeSup = createMockStore({
+      storeId: 's1',
+      storeCode: '085',
+      storeName: 'LOJA SUP 1',
+      supervisorKey: 'CAROLINE OLIVEIRA',
+      supervisorName: 'Caroline Oliveira',
+      validadesCriticasCount: 1,
+      rupturasAtivasCount: 0,
+      situacao: 'Crítica',
+    })
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [storeSup],
+      filteredStores: [storeSup],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Seleciona supervisor
+    const supervisorSelect = screen.getByLabelText('Supervisor')
+    fireEvent.change(supervisorSelect, { target: { value: 'CAROLINE OLIVEIRA' } })
+
+    // Clica no card "Lojas com atenção urgente"
+    const cardUrgente = screen.getByText('Lojas com atenção urgente').closest('div')
+    expect(cardUrgente).toBeTruthy()
+    fireEvent.click(cardUrgente!)
+
+    // Verifica que o texto "Filtro: Lojas críticas" aparece na barra de contagem
+    expect(screen.getByText(/• Filtro: Lojas críticas/i)).toBeTruthy()
   })
 })

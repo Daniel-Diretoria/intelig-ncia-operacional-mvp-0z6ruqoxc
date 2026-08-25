@@ -21,6 +21,9 @@ const mockStore: StoreSummary = {
   validadesAtencaoCount: 1,
   rupturasAtivasCount: 1,
   situacao: 'Crítica',
+  supervisorKey: 'CAROLINE OLIVEIRA',
+  supervisorName: 'CAROLINE OLIVEIRA',
+  supervisoresList: [{ nome: 'CAROLINE OLIVEIRA', marcas: ['CHULETÃO'] }],
   itemsAtivos: [
     {
       id: 'v1',

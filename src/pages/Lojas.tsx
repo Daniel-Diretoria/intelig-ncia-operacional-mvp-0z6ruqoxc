@@ -51,6 +51,7 @@ export const LojasPage: React.FC = () => {
   const { toast } = useToast()
 
   const [filterState, setFilterState] = useState<FilterState>(initialFilterState)
+  const [selectedSupervisor, setSelectedSupervisor] = useState<string>('Todos')
   // KPI selecionado via clique rápido: 'criticas' | 'complexos' | 'rupturas' | null
   const [selectedKpi, setSelectedKpi] = useState<'criticas' | 'complexos' | 'rupturas' | null>(null)
 
@@ -74,7 +75,34 @@ export const LojasPage: React.FC = () => {
     situacao: effectiveSituacao !== 'Todas' ? effectiveSituacao : undefined,
   })
 
-  // 4 KPIs calculados estritamente sobre filteredStores
+  // Supervisores distintos derivados de stores
+  const supervisoresUnicos = useMemo(() => {
+    const map = new Map<string, string>() // key -> displayName
+    for (const s of stores) {
+      if (s.supervisorKey && !map.has(s.supervisorKey)) {
+        map.set(s.supervisorKey, s.supervisorName || s.supervisorKey)
+      }
+    }
+    const sorted = Array.from(map.entries())
+      .filter(([k]) => k !== 'sem-supervisor')
+      .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+    const semSupervisor = map.get('sem-supervisor')
+    if (semSupervisor) {
+      sorted.push(['sem-supervisor', semSupervisor])
+    }
+    return sorted
+  }, [stores])
+
+  // Lojas filtradas por supervisor combinadas com os demais filtros
+  const supervisorFilteredStores = useMemo(() => {
+    if (selectedSupervisor === 'Todos') return filteredStores
+    if (selectedSupervisor === 'sem-supervisor') {
+      return filteredStores.filter((s) => s.supervisorKey === 'sem-supervisor')
+    }
+    return filteredStores.filter((s) => s.supervisorKey === selectedSupervisor)
+  }, [filteredStores, selectedSupervisor])
+
+  // KPIs normais (quando selectedSupervisor === 'Todos') calculados estritamente sobre filteredStores
   const kpis = useMemo(() => {
     const total = filteredStores.length
     const criticas = filteredStores.filter((s) => s.situacao === 'Crítica').length
@@ -91,12 +119,42 @@ export const LojasPage: React.FC = () => {
     }
   }, [filteredStores])
 
+  // KPIs de supervisor (quando selectedSupervisor !== 'Todos')
+  // Card 1 — Lojas sob responsabilidade: supervisorFilteredStores.length
+  // Card 2 — Lojas com atenção urgente: lojas onde validadesCriticasCount > 0 || rupturasAtivasCount > 0 (conte loja UMA vez)
+  // Card 3 — Validades críticas 0-15 dias: lojas com ao menos 1 validade crítica (para bater com filtro de tabela) / ou contagem correspondente ao clique
+  // Conforme regra: O total em cada card DEVE ser exatamente igual ao total de registros exibidos na tabela após o clique.
+  // Card 1 -> Todas as lojas do supervisor: supervisorFilteredStores.length
+  // Card 2 -> situacao: 'Críticas' -> supervisorFilteredStores.filter(s => s.situacao === 'Crítica').length (lojas com validadesCriticas > 0 || rupturasAtivas > 0)
+  // Card 3 -> situacao: 'Casos complexos' -> supervisorFilteredStores.filter(s => s.validadesCriticasCount > 0).length
+  // Card 4 -> situacao: 'Com rupturas' -> supervisorFilteredStores.filter(s => s.rupturasAtivasCount > 0).length
+  const supervisorKpis = useMemo(() => {
+    const totalLojas = supervisorFilteredStores.length
+    const atencaoUrgente = supervisorFilteredStores.filter(
+      (s) => s.validadesCriticasCount > 0 || s.rupturasAtivasCount > 0,
+    ).length
+    const validadesCriticas = supervisorFilteredStores.filter(
+      (s) => s.validadesCriticasCount > 0,
+    ).length
+    const rupturasAtivas = supervisorFilteredStores.filter((s) => s.rupturasAtivasCount > 0).length
+
+    return {
+      totalLojas,
+      atencaoUrgente,
+      validadesCriticas,
+      rupturasAtivas,
+    }
+  }, [supervisorFilteredStores])
+
+  // Lojas a exibir na tabela e paginação:
+  const displayStores = supervisorFilteredStores
+
   // Ordenação padrão:
   // 1. Validades até 15 dias (desc)
   // 2. Rupturas ativas (desc)
   // 3. Loja nome/identidade (asc)
   const sortedStores = useMemo(() => {
-    const list = [...filteredStores]
+    const list = [...displayStores]
     list.sort((a, b) => {
       // 1. Validades até 15 dias desc
       if (b.validadesCriticasCount !== a.validadesCriticasCount) {
@@ -112,7 +170,7 @@ export const LojasPage: React.FC = () => {
       return nameA.localeCompare(nameB, 'pt-BR', { numeric: true, sensitivity: 'base' })
     })
     return list
-  }, [filteredStores])
+  }, [displayStores])
 
   const canonicalize = useMemo(() => buildCityUfCanonicalizer(stores), [stores])
 
@@ -154,12 +212,16 @@ export const LojasPage: React.FC = () => {
 
   const handleClearFilters = useCallback(() => {
     setFilterState(initialFilterState)
+    setSelectedSupervisor('Todos')
     setSelectedKpi(null)
     setCurrentPage(1)
   }, [])
 
-  const handleKpiToggle = (kpiKey: 'criticas' | 'complexos' | 'rupturas') => {
-    if (selectedKpi === kpiKey) {
+  const handleKpiToggle = (kpiKey: 'criticas' | 'complexos' | 'rupturas' | 'todas') => {
+    if (kpiKey === 'todas') {
+      setSelectedKpi(null)
+      setFilterState((s) => ({ ...s, situacao: 'Todas' }))
+    } else if (selectedKpi === kpiKey) {
       setSelectedKpi(null)
       setFilterState((s) => ({ ...s, situacao: 'Todas' }))
     } else {
@@ -177,11 +239,25 @@ export const LojasPage: React.FC = () => {
     filterState.rede !== 'Todas as redes' ||
     filterState.cidade !== 'Todas as cidades' ||
     filterState.uf !== 'Todos os estados' ||
-    effectiveSituacao !== 'Todas'
+    effectiveSituacao !== 'Todas' ||
+    selectedSupervisor !== 'Todos'
 
   // Chips ativos para remoção individual
   const activeChips = useMemo(() => {
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = []
+
+    if (selectedSupervisor !== 'Todos') {
+      const supLabel =
+        supervisoresUnicos.find(([k]) => k === selectedSupervisor)?.[1] || selectedSupervisor
+      chips.push({
+        id: 'supervisor',
+        label: `Supervisor: ${supLabel}`,
+        onRemove: () => {
+          setSelectedSupervisor('Todos')
+          setCurrentPage(1)
+        },
+      })
+    }
 
     if (filterState.search.trim()) {
       chips.push({
@@ -309,126 +385,309 @@ export const LojasPage: React.FC = () => {
           </Button>
         </div>
 
-        {/* 4 KPIs Obrigatórios */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Lojas monitoradas (informativo) */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Lojas monitoradas
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-                <Store className="w-4 h-4" />
-              </div>
+        {/* Bloco Gestão por Supervisor com Seletor e 4 Cards */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+                Gestão por Supervisor
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Visão consolidada de responsabilidade e criticidade por supervisor.
+              </p>
             </div>
-            {isLoading ? (
-              <div className="mt-2 space-y-1">
-                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
-                <div className="h-3 bg-slate-100 rounded w-28 animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-slate-900 mt-2">{kpis.total}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Pontos de venda filtrados</p>
-              </>
-            )}
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="supervisor-select"
+                className="text-xs font-semibold text-slate-600 whitespace-nowrap"
+              >
+                Supervisor:
+              </label>
+              <select
+                id="supervisor-select"
+                aria-label="Supervisor"
+                value={selectedSupervisor}
+                onChange={(e) => {
+                  setSelectedSupervisor(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9 px-3 py-1 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer min-w-[200px]"
+              >
+                <option value="Todos">Todos</option>
+                {supervisoresUnicos.map(([key, name]) => (
+                  <option key={key} value={key}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* KPI 2: Lojas críticas (clicável) */}
-          <div
-            onClick={() => !isLoading && handleKpiToggle('criticas')}
-            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
-              isLoading
-                ? 'border-slate-200/80 cursor-default'
-                : selectedKpi === 'criticas'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
-                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Lojas críticas
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
-                <AlertTriangle className="w-4 h-4" />
+          {/* 4 Cards (Mudam quando supervisor específico está selecionado) */}
+          {selectedSupervisor === 'Todos' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* KPI 1: Lojas monitoradas (informativo) */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas monitoradas
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                    <Store className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-28 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-slate-900 mt-2">{kpis.total}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Pontos de venda filtrados</p>
+                  </>
+                )}
               </div>
-            </div>
-            {isLoading ? (
-              <div className="mt-2 space-y-1">
-                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
-                <div className="h-3 bg-slate-100 rounded w-36 animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-red-600 mt-2">{kpis.criticas}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Validade ≤ 15d ou ruptura ativa</p>
-              </>
-            )}
-          </div>
 
-          {/* KPI 3: Lojas com casos complexos (clicável) */}
-          <div
-            onClick={() => !isLoading && handleKpiToggle('complexos')}
-            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
-              isLoading
-                ? 'border-slate-200/80 cursor-default'
-                : selectedKpi === 'complexos'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
-                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Lojas com casos complexos
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                <CalendarClock className="w-4 h-4" />
+              {/* KPI 2: Lojas críticas (clicável) */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('criticas')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'criticas'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas críticas
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-36 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-red-600 mt-2">{kpis.criticas}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Validade ≤ 15d ou ruptura ativa
+                    </p>
+                  </>
+                )}
               </div>
-            </div>
-            {isLoading ? (
-              <div className="mt-2 space-y-1">
-                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
-                <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-amber-700 mt-2">{kpis.complexos}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 validade 0-15d</p>
-              </>
-            )}
-          </div>
 
-          {/* KPI 4: Lojas com rupturas (clicável) */}
-          <div
-            onClick={() => !isLoading && handleKpiToggle('rupturas')}
-            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
-              isLoading
-                ? 'border-slate-200/80 cursor-default'
-                : selectedKpi === 'rupturas'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
-                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Lojas com rupturas
-              </span>
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Package className="w-4 h-4" />
+              {/* KPI 3: Lojas com casos complexos (clicável) */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('complexos')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'complexos'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas com casos complexos
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <CalendarClock className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-amber-700 mt-2">{kpis.complexos}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 validade 0-15d</p>
+                  </>
+                )}
+              </div>
+
+              {/* KPI 4: Lojas com rupturas (clicável) */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('rupturas')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'rupturas'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas com rupturas
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Package className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-blue-700 mt-2">{kpis.comRupturas}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 ruptura ativa</p>
+                  </>
+                )}
               </div>
             </div>
-            {isLoading ? (
-              <div className="mt-2 space-y-1">
-                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
-                <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Card 1: Lojas sob responsabilidade (clicável: limpa filtro situação) */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('todas')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : effectiveSituacao === 'Todas' && !selectedKpi
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas sob responsabilidade
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                    <Store className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-28 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-slate-900 mt-2">
+                      {supervisorKpis.totalLojas}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Lojas sob este supervisor</p>
+                  </>
+                )}
               </div>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-blue-700 mt-2">{kpis.comRupturas}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 ruptura ativa</p>
-              </>
-            )}
-          </div>
+
+              {/* Card 2: Lojas com atenção urgente (clicável: aplica situacao: 'Críticas') */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('criticas')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'criticas' || effectiveSituacao === 'Críticas'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Lojas com atenção urgente
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-36 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-red-600 mt-2">
+                      {supervisorKpis.atencaoUrgente}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Validade ≤ 15d ou ruptura ativa
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Card 3: Validades críticas 0-15d (clicável: aplica situacao: 'Casos complexos') */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('complexos')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'complexos' || effectiveSituacao === 'Casos complexos'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Validades críticas 0-15d
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <CalendarClock className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-amber-700 mt-2">
+                      {supervisorKpis.validadesCriticas}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 validade 0-15d</p>
+                  </>
+                )}
+              </div>
+
+              {/* Card 4: Rupturas ativas (clicável: aplica situacao: 'Com rupturas') */}
+              <div
+                onClick={() => !isLoading && handleKpiToggle('rupturas')}
+                className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+                  isLoading
+                    ? 'border-slate-200/80 cursor-default'
+                    : selectedKpi === 'rupturas' || effectiveSituacao === 'Com rupturas'
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                      : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Rupturas ativas
+                  </span>
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Package className="w-4 h-4" />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                    <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-blue-700 mt-2">
+                      {supervisorKpis.rupturasAtivas}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 ruptura ativa</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Barra de Filtros Compacta SEMPRE Visível */}

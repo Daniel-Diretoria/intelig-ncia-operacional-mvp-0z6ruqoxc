@@ -243,6 +243,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
         const fornecedor = (rec.fornecedor || rec.representante || 'Diretoria') as string
         const lote = (rec.numero_lote || '') as string
         const promotor = (rec.colaborador || '') as string
+        const codSupervisor = (rec.cod_supervisor || rec.codSupervisor || '') as string
         const supervisor = (rec.supervisor || '') as string
 
         // Data de entrada / última aparição
@@ -273,6 +274,7 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
           status: statusOp,
           promotor,
           supervisor,
+          codSupervisor: codSupervisor || undefined,
           dataEntrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : undefined,
           ultimaAtualizacao: rec.updated ? String(rec.updated) : undefined,
           chaveOperacional: (rec.chave_operacional as string) || undefined,
