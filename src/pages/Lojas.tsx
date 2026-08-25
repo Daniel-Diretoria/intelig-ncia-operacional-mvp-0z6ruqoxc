@@ -25,6 +25,7 @@ import {
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { classificarCriticidade } from '@/lib/data/criticidade'
 import { getAcaoRecomendada } from '@/lib/resolve/acaoRecomendada'
+import { normalizeSupervisorKey } from '@/lib/resolve/supervisorResolver'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -128,23 +129,71 @@ export const LojasPage: React.FC = () => {
     situacao: effectiveSituacao !== 'Todas' ? effectiveSituacao : undefined,
   })
 
-  // Supervisores distintos derivados de stores
-  const supervisoresUnicos = useMemo(() => {
-    const map = new Map<string, string>() // key -> displayName
+  // Mapa de canonicalização de supervisores: canonicalName -> { displayName, keys: Set<string> }
+  const supervisorGroups = useMemo(() => {
+    const map = new Map<string, { displayName: string; keys: Set<string> }>()
+    let semSupervisorName = 'Sem supervisor definido'
+
     for (const s of stores) {
-      if (s.supervisorKey && !map.has(s.supervisorKey)) {
-        map.set(s.supervisorKey, s.supervisorName || s.supervisorKey)
+      if (!s.supervisorKey) continue
+
+      if (s.supervisorKey === 'sem-supervisor') {
+        if (s.supervisorName && s.supervisorName.trim()) {
+          semSupervisorName = s.supervisorName
+        }
+        continue
       }
+
+      // Canonicalizar pelo nome de exibição (normalizado: uppercase, sem acentos, trim)
+      // Se supervisorName não estiver preenchido, usa supervisorKey
+      const rawName = (s.supervisorName || s.supervisorKey || '').trim()
+      const canonical = normalizeSupervisorKey(rawName) || normalizeSupervisorKey(s.supervisorKey)
+
+      if (!canonical) continue
+
+      let group = map.get(canonical)
+      if (!group) {
+        // Escolhe o displayName inicial mais legível
+        const isRawNameReadable = rawName && !/^\d+$/.test(rawName)
+        const initialDisplayName = isRawNameReadable ? rawName : s.supervisorKey
+        group = {
+          displayName: initialDisplayName,
+          keys: new Set<string>(),
+        }
+        map.set(canonical, group)
+      }
+
+      // Se encontrarmos um nome mais legível no grupo (ex: não numérico vs numérico), atualizamos displayName
+      if (rawName && !/^\d+$/.test(rawName) && /^\d+$/.test(group.displayName)) {
+        group.displayName = rawName
+      }
+
+      group.keys.add(s.supervisorKey)
     }
-    const sorted = Array.from(map.entries())
-      .filter(([k]) => k !== 'sem-supervisor')
-      .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
-    const semSupervisor = map.get('sem-supervisor')
-    if (semSupervisor) {
-      sorted.push(['sem-supervisor', semSupervisor])
-    }
-    return sorted
+
+    return { map, semSupervisorName }
   }, [stores])
+
+  // Lista única para o dropdown do seletor
+  const supervisoresUnicos = useMemo(() => {
+    const sorted = Array.from(supervisorGroups.map.entries())
+      .map(([canonicalName, group]) => ({
+        value: canonicalName,
+        displayName: group.displayName,
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'pt-BR'))
+
+    // Adiciona "Sem supervisor definido" no final se houver lojas sem supervisor
+    const hasSemSupervisor = stores.some((s) => s.supervisorKey === 'sem-supervisor')
+    if (hasSemSupervisor) {
+      sorted.push({
+        value: 'sem-supervisor',
+        displayName: supervisorGroups.semSupervisorName,
+      })
+    }
+
+    return sorted
+  }, [supervisorGroups, stores])
 
   // Lojas filtradas por supervisor combinadas com os demais filtros
   const supervisorFilteredStores = useMemo(() => {
@@ -152,8 +201,32 @@ export const LojasPage: React.FC = () => {
     if (selectedSupervisor === 'sem-supervisor') {
       return filteredStores.filter((s) => s.supervisorKey === 'sem-supervisor')
     }
-    return filteredStores.filter((s) => s.supervisorKey === selectedSupervisor)
-  }, [filteredStores, selectedSupervisor])
+
+    // Busca o grupo canônico selecionado (compatível com canonicalName ou supervisorKey direta)
+    const normSelected = normalizeSupervisorKey(selectedSupervisor)
+    let group = supervisorGroups.map.get(normSelected)
+    if (!group) {
+      // Fallback: procura grupo que contenha a chave
+      for (const g of supervisorGroups.map.values()) {
+        if (g.keys.has(selectedSupervisor) || g.keys.has(normSelected)) {
+          group = g
+          break
+        }
+      }
+    }
+
+    if (group) {
+      return filteredStores.filter((s) => group!.keys.has(s.supervisorKey))
+    }
+
+    // Fallback de segurança se não encontrar no mapa
+    return filteredStores.filter(
+      (s) =>
+        s.supervisorKey === selectedSupervisor ||
+        normalizeSupervisorKey(s.supervisorName) === normSelected ||
+        normalizeSupervisorKey(s.supervisorKey) === normSelected,
+    )
+  }, [filteredStores, selectedSupervisor, supervisorGroups])
 
   // KPIs normais (quando selectedSupervisor === 'Todos') calculados estritamente sobre filteredStores
   const kpis = useMemo(() => {
@@ -405,18 +478,28 @@ export const LojasPage: React.FC = () => {
     rupturas: 'Rupturas ativas',
   }
 
-  // Nome do supervisor selecionado
+  // Nome do supervisor selecionado (exibição legível)
   const selectedSupervisorName = useMemo(() => {
     if (selectedSupervisor === 'Todos') return 'Todos'
-    if (selectedSupervisor === 'sem-supervisor') return 'Sem supervisor definido'
-    const found = supervisoresUnicos.find(([k]) => k === selectedSupervisor)
-    return found ? found[1] : selectedSupervisor
-  }, [selectedSupervisor, supervisoresUnicos])
+    if (selectedSupervisor === 'sem-supervisor')
+      return supervisorGroups.semSupervisorName || 'Sem supervisor definido'
+    const norm = normalizeSupervisorKey(selectedSupervisor)
+    const group = supervisorGroups.map.get(norm)
+    if (group) return group.displayName
+    const found = supervisoresUnicos.find(
+      (item) => item.value === selectedSupervisor || item.value === norm,
+    )
+    return found ? found.displayName : selectedSupervisor
+  }, [selectedSupervisor, supervisorGroups, supervisoresUnicos])
 
   // Navegação Drill Helpers
   const handleEnterDrillLevel1 = useCallback(
     (indicador: 'todas' | 'criticas' | 'complexos' | 'rupturas') => {
-      const sup = selectedSupervisor === 'Todos' ? 'CAROLINE OLIVEIRA' : selectedSupervisor
+      let sup = selectedSupervisor
+      if (sup === 'Todos') {
+        // Pega o primeiro supervisor canônico disponível ou fallback
+        sup = supervisoresUnicos[0]?.value || 'CAROLINE OLIVEIRA'
+      }
       setSearchParams({
         supervisor: sup,
         drill: 'lojas',
@@ -437,7 +520,7 @@ export const LojasPage: React.FC = () => {
       }
       setCurrentPage(1)
     },
-    [selectedSupervisor, setSearchParams],
+    [selectedSupervisor, supervisoresUnicos, setSearchParams],
   )
 
   const handleEnterDrillLevel2 = useCallback(
@@ -605,13 +688,13 @@ export const LojasPage: React.FC = () => {
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = []
 
     if (selectedSupervisor !== 'Todos') {
-      const supLabel =
-        supervisoresUnicos.find(([k]) => k === selectedSupervisor)?.[1] || selectedSupervisor
+      const supLabel = selectedSupervisorName
       chips.push({
         id: 'supervisor',
         label: `Supervisor: ${supLabel}`,
         onRemove: () => {
           setSelectedSupervisor('Todos')
+          setSearchParams({})
           setCurrentPage(1)
         },
       })
@@ -833,9 +916,9 @@ export const LojasPage: React.FC = () => {
                 className="h-9 px-3 py-1 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer min-w-[200px]"
               >
                 <option value="Todos">Todos</option>
-                {supervisoresUnicos.map(([key, name]) => (
-                  <option key={key} value={key}>
-                    {name}
+                {supervisoresUnicos.map((sup) => (
+                  <option key={sup.value} value={sup.value}>
+                    {sup.displayName}
                   </option>
                 ))}
               </select>

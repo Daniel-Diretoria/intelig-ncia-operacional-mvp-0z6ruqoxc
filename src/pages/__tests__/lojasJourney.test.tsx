@@ -328,6 +328,81 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     expect(screen.getByText('1 loja(s) encontrada(s)')).toBeTruthy()
   })
 
+  it('8b. Canonicalização de supervisores: chaves distintas com mesmo nome canônico geram 1 única opção no select e unem todas as lojas', () => {
+    // 87 lojas com cod_supervisor="CAROLINE OLIVEIRA" (key="CAROLINE OLIVEIRA")
+    const lojasGrupo1: StoreSummary[] = Array.from({ length: 87 }).map((_, i) =>
+      createMockStore({
+        storeId: `s-g1-${i}`,
+        storeCode: `G1-${i}`,
+        storeName: `LOJA G1 ${i}`,
+        supervisorKey: 'CAROLINE OLIVEIRA',
+        supervisorName: 'CAROLINE OLIVEIRA',
+        validadesCriticasCount: i < 70 ? 1 : 0,
+        rupturasAtivasCount: i >= 60 && i < 80 ? 1 : 0,
+        situacao: i < 70 || (i >= 60 && i < 80) ? 'Crítica' : 'Normal',
+      }),
+    )
+
+    // 3 lojas com cod_supervisor="3" (key="3", supervisorName="CAROLINE OLIVEIRA")
+    const lojasGrupo2: StoreSummary[] = Array.from({ length: 3 }).map((_, i) =>
+      createMockStore({
+        storeId: `s-g2-${i}`,
+        storeCode: `G2-${i}`,
+        storeName: `LOJA G2 ${i}`,
+        supervisorKey: '3',
+        supervisorName: 'CAROLINE OLIVEIRA',
+        validadesCriticasCount: 1,
+        rupturasAtivasCount: 1,
+        situacao: 'Crítica',
+      }),
+    )
+
+    // 1 loja de outro supervisor
+    const outraLoja = createMockStore({
+      storeId: 's-outro',
+      storeCode: 'OUTRO-1',
+      storeName: 'LOJA OUTRO',
+      supervisorKey: 'MARCOS SILVA',
+      supervisorName: 'MARCOS SILVA',
+    })
+
+    const allStores = [...lojasGrupo1, ...lojasGrupo2, outraLoja]
+
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: allStores,
+      filteredStores: allStores,
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    const supervisorSelect = screen.getByLabelText('Supervisor') as HTMLSelectElement
+    const options = Array.from(supervisorSelect.options).map((o) => ({
+      value: o.value,
+      text: o.text,
+    }))
+
+    // Deve conter "Todos", "CAROLINE OLIVEIRA" (uma única vez) e "MARCOS SILVA"
+    const carolineOptions = options.filter((o) => o.text === 'CAROLINE OLIVEIRA')
+    expect(carolineOptions).toHaveLength(1)
+    expect(carolineOptions[0].value).toBe('CAROLINE OLIVEIRA')
+
+    // Ao selecionar CAROLINE OLIVEIRA, todas as 90 lojas (87 + 3) devem ser cobertas
+    fireEvent.change(supervisorSelect, { target: { value: 'CAROLINE OLIVEIRA' } })
+
+    expect(screen.getByText('90')).toBeTruthy() // Lojas sob responsabilidade
+    expect(screen.getByText('90 loja(s) encontrada(s)')).toBeTruthy()
+  })
+
   // 9. Cards de supervisor mostram totais corretos
   it('9. Cards de supervisor mostram totais corretos', () => {
     const storeSup1 = createMockStore({

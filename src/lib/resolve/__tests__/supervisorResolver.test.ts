@@ -28,8 +28,11 @@ describe('supervisorResolver unit tests', () => {
   it('normalizeSupervisorKey: remove acentos, trim, uppercase', () => {
     expect(normalizeSupervisorKey('  caroline oliveira  ')).toBe('CAROLINE OLIVEIRA')
     expect(normalizeSupervisorKey('José Da Silva')).toBe('JOSE DA SILVA')
+    expect(normalizeSupervisorKey('CAROLINE OLIVEIRA')).toBe('CAROLINE OLIVEIRA')
+    expect(normalizeSupervisorKey('  CAROLINE   OLIVEIRA  ')).toBe('CAROLINE OLIVEIRA')
     expect(normalizeSupervisorKey('')).toBe('')
     expect(normalizeSupervisorKey(null)).toBe('')
+    expect(normalizeSupervisorKey(undefined)).toBe('')
   })
 
   it('1. Registro mais recente vence: duas validades mesma Loja×Marca, uma com data mais recente -> supervisor da mais recente', () => {

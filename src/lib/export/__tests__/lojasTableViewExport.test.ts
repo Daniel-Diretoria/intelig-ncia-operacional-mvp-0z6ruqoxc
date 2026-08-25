@@ -50,7 +50,8 @@ describe('lojasTableViewExport — Exportações da Gestão de Lojas e Drill Sup
       itemsAuditoria: [],
       supervisoresList: [{ nome: 'CAROLINE OLIVEIRA', marcas: ['Nestle'] }],
       rupturasList: [],
-    },  ]
+    },
+  ]
 
   it('1. exportSupervisorDrillLojasXLSX — Exporta lojas com 8 colunas e formato de nome correto', () => {
     const writeFileSpy = vi.spyOn(XLSX, 'writeFile').mockImplementation(() => {})

@@ -8,7 +8,7 @@ export function getAcaoRecomendada(
   diasEmRuptura?: number,
 ): string {
   if (tipo === 'ambos') {
-    return 'Priorizar reposição sem ampliar estoque do lote crítico. Validar retirada do vencido.'
+    return 'Priorizar reposição sem ampliar estoque do lote crítico.'
   }
 
   if (tipo === 'validade') {

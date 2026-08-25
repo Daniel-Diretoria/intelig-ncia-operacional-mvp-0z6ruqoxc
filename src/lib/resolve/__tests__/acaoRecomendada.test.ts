@@ -41,15 +41,17 @@ describe('acaoRecomendada.ts — Regras puras de recomendação de ação', () =
     )
   })
 
-  it('5. Ambos (validade crítica + ruptura ativa) -> Priorizar reposição sem ampliar estoque do lote crítico', () => {
-    expect(getAcaoRecomendada('ambos', 5, 2)).toBe(
-      'Priorizar reposição sem ampliar estoque do lote crítico. Validar retirada do vencido.',
-    )
-    expect(getAcaoRecomendada('ambos', 12, 1)).toBe(
-      'Priorizar reposição sem ampliar estoque do lote crítico. Validar retirada do vencido.',
-    )
-    expect(getAcaoRecomendada('ambos')).toBe(
-      'Priorizar reposição sem ampliar estoque do lote crítico. Validar retirada do vencido.',
-    )
+  it('5. Ambos (validade crítica + ruptura ativa) -> Priorizar reposição sem ampliar estoque do lote crítico (sem falar em vencido)', () => {
+    const res1 = getAcaoRecomendada('ambos', 5, 2)
+    expect(res1).toBe('Priorizar reposição sem ampliar estoque do lote crítico.')
+    expect(res1).not.toContain('vencido')
+
+    const res2 = getAcaoRecomendada('ambos', 12, 1)
+    expect(res2).toBe('Priorizar reposição sem ampliar estoque do lote crítico.')
+    expect(res2).not.toContain('vencido')
+
+    const res3 = getAcaoRecomendada('ambos')
+    expect(res3).toBe('Priorizar reposição sem ampliar estoque do lote crítico.')
+    expect(res3).not.toContain('vencido')
   })
 })
