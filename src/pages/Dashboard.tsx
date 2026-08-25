@@ -596,7 +596,13 @@ export const DashboardPage: React.FC = () => {
           </Link>
         </div>
 
-        {priorityStores.length === 0 ? (
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-10 bg-slate-50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        ) : priorityStores.length === 0 ? (
           <div className="p-10 text-center space-y-2">
             <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center">
               <Store className="w-5 h-5" />
@@ -731,7 +737,13 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {validadesMaisUrgentes.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-2.5 py-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-9 bg-slate-50 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : validadesMaisUrgentes.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">
               Nenhuma ocorrência de validade ativa no momento.
             </div>
@@ -807,7 +819,13 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {rupturasMaisAntigas.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-2.5 py-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-9 bg-slate-50 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : rupturasMaisAntigas.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">
               Nenhuma ruptura ativa no momento.
             </div>

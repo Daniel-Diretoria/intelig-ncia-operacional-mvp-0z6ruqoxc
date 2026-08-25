@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -151,6 +151,9 @@ export function RupturasPage() {
       tempoMedioDias: tempoMedio,
     }
   }, [filteredRupturas])
+
+  const totalFilteredCount =
+    viewMode === 'historico' ? historicoRupturas.length : filteredRupturas.length
 
   // Ordenação dos dados
   const sortedItems = useMemo(() => {
@@ -455,7 +458,7 @@ export function RupturasPage() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Ativas ({filteredRupturas.length})
+            Ativas ({isLoading ? '...' : filteredRupturas.length})
           </button>
           <button
             type="button"
@@ -469,7 +472,7 @@ export function RupturasPage() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Histórico ({historicoRupturas.length})
+            Histórico ({isLoading ? '...' : historicoRupturas.length})
           </button>
         </div>
 
@@ -737,7 +740,59 @@ export function RupturasPage() {
       {/* TABELA ENXUTA — 7 COLUNAS */}
       {!error && (
         <>
-          {sortedItems.length === 0 && !isLoading ? (
+          {isLoading ? (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <span className="font-medium text-slate-500 animate-pulse">
+                  Carregando dados...
+                </span>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
+                        <th className="py-3 px-4 min-w-[200px]">Loja</th>
+                        <th className="py-3 px-4 min-w-[130px]">Marca</th>
+                        <th className="py-3 px-4 min-w-[110px]">Data da Visita</th>
+                        <th className="py-3 px-4 min-w-[200px]">Produto</th>
+                        <th className="py-3 px-4 min-w-[140px]">Motivo</th>
+                        <th className="py-3 px-4 text-center min-w-[120px]">Dias em Ruptura</th>
+                        <th className="py-3 px-4 min-w-[130px]">Situação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <tr key={i} className="h-12">
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-44 animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-24 animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-20 animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-36 animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-28 animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="h-4 bg-slate-100 rounded w-10 mx-auto animate-pulse" />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="h-4 bg-slate-100 rounded w-16 animate-pulse" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : sortedItems.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
               <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
                 <Info className="w-6 h-6" />
@@ -800,180 +855,172 @@ export function RupturasPage() {
 
               {/* Tabela de 7 colunas */}
               <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-                {isLoading ? (
-                  <div className="p-8 space-y-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <div key={i} className="h-10 bg-slate-50 rounded-lg animate-pulse" />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
-                          <th
-                            className="py-3 px-4 min-w-[200px] cursor-pointer hover:bg-slate-100/60"
-                            onClick={() => handleSort('nome_loja')}
-                          >
-                            Loja
-                          </th>
-                          <th className="py-3 px-4 min-w-[130px]">Marca</th>
-                          <th
-                            className="py-3 px-4 min-w-[110px] tabular-nums cursor-pointer hover:bg-slate-100/60"
-                            onClick={() => handleSort('data_visita')}
-                          >
-                            Data da Visita
-                          </th>
-                          <th
-                            className="py-3 px-4 min-w-[200px] max-w-[280px] cursor-pointer hover:bg-slate-100/60"
-                            onClick={() => handleSort('produto')}
-                          >
-                            Produto
-                          </th>
-                          <th className="py-3 px-4 min-w-[140px]">Motivo</th>
-                          <th
-                            className="py-3 px-4 text-center tabular-nums cursor-pointer hover:bg-slate-100/60"
-                            onClick={() => handleSort('dias_em_ruptura')}
-                          >
-                            Dias em Ruptura{' '}
-                            {sortKey === 'dias_em_ruptura' && (sortOrder === 'desc' ? '↓' : '↑')}
-                          </th>
-                          <th className="py-3 px-4 min-w-[130px]">Situação</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {paginatedItems.map((item) => {
-                          const storeIdent = formatStoreIdentityTable({
-                            codigoLoja: item.codigo_loja,
-                            loja: item.nome_loja,
-                          })
-                          const storeKey = buildStoreCompositeKey({
-                            codigoLoja: item.codigo_loja,
-                            nomeLoja: item.nome_loja,
-                            rede: deriveNetworkName(item.nome_loja),
-                            cidade: item.cidade,
-                            uf: item.estado,
-                          })
-                          const codProd = (item as unknown as { cod_produto?: string }).cod_produto
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
+                        <th
+                          className="py-3 px-4 min-w-[200px] cursor-pointer hover:bg-slate-100/60"
+                          onClick={() => handleSort('nome_loja')}
+                        >
+                          Loja
+                        </th>
+                        <th className="py-3 px-4 min-w-[130px]">Marca</th>
+                        <th
+                          className="py-3 px-4 min-w-[110px] tabular-nums cursor-pointer hover:bg-slate-100/60"
+                          onClick={() => handleSort('data_visita')}
+                        >
+                          Data da Visita
+                        </th>
+                        <th
+                          className="py-3 px-4 min-w-[200px] max-w-[280px] cursor-pointer hover:bg-slate-100/60"
+                          onClick={() => handleSort('produto')}
+                        >
+                          Produto
+                        </th>
+                        <th className="py-3 px-4 min-w-[140px]">Motivo</th>
+                        <th
+                          className="py-3 px-4 text-center tabular-nums cursor-pointer hover:bg-slate-100/60"
+                          onClick={() => handleSort('dias_em_ruptura')}
+                        >
+                          Dias em Ruptura{' '}
+                          {sortKey === 'dias_em_ruptura' && (sortOrder === 'desc' ? '↓' : '↑')}
+                        </th>
+                        <th className="py-3 px-4 min-w-[130px]">Situação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedItems.map((item) => {
+                        const storeIdent = formatStoreIdentityTable({
+                          codigoLoja: item.codigo_loja,
+                          loja: item.nome_loja,
+                        })
+                        const storeKey = buildStoreCompositeKey({
+                          codigoLoja: item.codigo_loja,
+                          nomeLoja: item.nome_loja,
+                          rede: deriveNetworkName(item.nome_loja),
+                          cidade: item.cidade,
+                          uf: item.estado,
+                        })
+                        const codProd = (item as unknown as { cod_produto?: string }).cod_produto
 
-                          // Badge de Motivo
-                          const motivoBadgeClass =
-                            item.motivo === 'Ruptura Total'
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : item.motivo === 'Sem Estoque Mínimo'
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                : 'bg-slate-100 text-slate-700 border-slate-200'
+                        // Badge de Motivo
+                        const motivoBadgeClass =
+                          item.motivo === 'Ruptura Total'
+                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                            : item.motivo === 'Sem Estoque Mínimo'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
 
-                          // Dias em Ruptura
-                          const dias = item.dias_em_ruptura ?? 0
-                          const diasClass =
-                            dias > 5
-                              ? 'text-rose-600 font-extrabold'
-                              : dias > 2
-                                ? 'text-amber-600 font-bold'
-                                : 'text-slate-700 font-semibold'
+                        // Dias em Ruptura
+                        const dias = item.dias_em_ruptura ?? 0
+                        const diasClass =
+                          dias > 5
+                            ? 'text-rose-600 font-extrabold'
+                            : dias > 2
+                              ? 'text-amber-600 font-bold'
+                              : 'text-slate-700 font-semibold'
 
-                          // Situação
-                          const isHistorico =
-                            viewMode === 'historico' ||
-                            Boolean((item as RupturaEncerrada).statusHistorico)
-                          const statusHistorico = (item as RupturaEncerrada).statusHistorico
+                        // Situação
+                        const isHistorico =
+                          viewMode === 'historico' ||
+                          Boolean((item as RupturaEncerrada).statusHistorico)
+                        const statusHistorico = (item as RupturaEncerrada).statusHistorico
 
-                          return (
-                            <tr
-                              key={item.id || item.operational_key}
-                              className="hover:bg-slate-50/60 transition-colors"
-                            >
-                              {/* 1. Loja */}
-                              <td className="py-3 px-4 min-w-[200px]">
-                                <div
-                                  className="min-w-0 cursor-pointer group"
-                                  onClick={() => {
-                                    if (storeKey) {
-                                      navigate(`/lojas/${encodeURIComponent(storeKey)}`)
-                                    }
-                                  }}
+                        return (
+                          <tr
+                            key={item.id || item.operational_key}
+                            className="hover:bg-slate-50/60 transition-colors"
+                          >
+                            {/* 1. Loja */}
+                            <td className="py-3 px-4 min-w-[200px]">
+                              <div
+                                className="min-w-0 cursor-pointer group"
+                                onClick={() => {
+                                  if (storeKey) {
+                                    navigate(`/lojas/${encodeURIComponent(storeKey)}`)
+                                  }
+                                }}
+                              >
+                                <p
+                                  className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate"
+                                  title={storeIdent}
                                 >
-                                  <p
-                                    className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate"
-                                    title={storeIdent}
-                                  >
-                                    {storeIdent}
-                                  </p>
-                                </div>
-                              </td>
+                                  {storeIdent}
+                                </p>
+                              </div>
+                            </td>
 
-                              {/* 2. Marca */}
-                              <td className="py-3 px-4 text-slate-700 font-medium whitespace-nowrap">
-                                {item.cliente || '—'}
-                              </td>
+                            {/* 2. Marca */}
+                            <td className="py-3 px-4 text-slate-700 font-medium whitespace-nowrap">
+                              {item.cliente || '—'}
+                            </td>
 
-                              {/* 3. Data da Visita */}
-                              <td className="py-3 px-4 tabular-nums text-slate-700 whitespace-nowrap">
-                                {formatDisplayDate(item.data_visita, '—')}
-                              </td>
+                            {/* 3. Data da Visita */}
+                            <td className="py-3 px-4 tabular-nums text-slate-700 whitespace-nowrap">
+                              {formatDisplayDate(item.data_visita, '—')}
+                            </td>
 
-                              {/* 4. Produto */}
-                              <td className="py-3 px-4 max-w-[200px] truncate" title={item.produto}>
-                                <div className="min-w-0">
-                                  <p className="font-medium text-slate-900 truncate">
-                                    {item.produto || '—'}
-                                  </p>
-                                  {codProd && (
-                                    <span className="text-[10px] text-slate-400 block font-mono">
-                                      {codProd}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
+                            {/* 4. Produto */}
+                            <td className="py-3 px-4 max-w-[200px] truncate" title={item.produto}>
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-900 truncate">
+                                  {item.produto || '—'}
+                                </p>
+                                {codProd && (
+                                  <span className="text-[10px] text-slate-400 block font-mono">
+                                    {codProd}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
 
-                              {/* 5. Motivo */}
-                              <td className="py-3 px-4 whitespace-nowrap">
+                            {/* 5. Motivo */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] font-medium ${motivoBadgeClass}`}
+                              >
+                                {item.motivo || '—'}
+                              </Badge>
+                            </td>
+
+                            {/* 6. Dias em Ruptura */}
+                            <td className="py-3 px-4 text-center tabular-nums">
+                              <span className={diasClass}>{dias}</span>
+                            </td>
+
+                            {/* 7. Situação */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {!isHistorico ? (
                                 <Badge
                                   variant="outline"
-                                  className={`text-[10px] font-medium ${motivoBadgeClass}`}
+                                  className="bg-rose-50 text-rose-700 border-rose-200 font-semibold text-[11px]"
                                 >
-                                  {item.motivo || '—'}
+                                  Ativa
                                 </Badge>
-                              </td>
-
-                              {/* 6. Dias em Ruptura */}
-                              <td className="py-3 px-4 text-center tabular-nums">
-                                <span className={diasClass}>{dias}</span>
-                              </td>
-
-                              {/* 7. Situação */}
-                              <td className="py-3 px-4 whitespace-nowrap">
-                                {!isHistorico ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-rose-50 text-rose-700 border-rose-200 font-semibold text-[11px]"
-                                  >
-                                    Ativa
-                                  </Badge>
-                                ) : statusHistorico === 'Encerrada por validade posterior' ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-emerald-50 text-emerald-700 border-emerald-200 font-medium text-[11px]"
-                                  >
-                                    Encerrada por validade posterior
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-blue-50 text-blue-700 border-blue-200 font-medium text-[11px]"
-                                  >
-                                    {statusHistorico || 'Encerrada'}
-                                  </Badge>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                              ) : statusHistorico === 'Encerrada por validade posterior' ? (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-emerald-50 text-emerald-700 border-emerald-200 font-medium text-[11px]"
+                                >
+                                  Encerrada por validade posterior
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-blue-50 text-blue-700 border-blue-200 font-medium text-[11px]"
+                                >
+                                  {statusHistorico || 'Encerrada'}
+                                </Badge>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {/* Paginação */}

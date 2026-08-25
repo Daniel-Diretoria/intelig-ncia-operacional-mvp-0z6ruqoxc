@@ -199,6 +199,56 @@ export const StoreDetailPage: React.FC = () => {
 
   const hasExportData = store.itemsAtivos.length > 0 || store.rupturasList.length > 0
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-fade-in pb-12">
+        {/* Botão Voltar */}
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/lojas')}
+            className="gap-1 text-xs text-slate-600 hover:text-slate-900 -ml-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Voltar para lojas</span>
+          </Button>
+        </div>
+
+        {/* Header Skeleton */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs animate-pulse">
+          <div className="h-4 bg-slate-100 rounded w-24 mb-2" />
+          <div className="h-7 bg-slate-200 rounded w-72 mb-2" />
+          <div className="h-4 bg-slate-100 rounded w-48" />
+        </div>
+
+        {/* 4 KPIs Skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs animate-pulse"
+            >
+              <div className="h-4 bg-slate-100 rounded w-28 mb-3" />
+              <div className="h-8 bg-slate-200 rounded w-16 mb-2" />
+              <div className="h-3 bg-slate-100 rounded w-36" />
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs Skeleton */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-4">
+          <div className="h-6 bg-slate-100 rounded w-48 animate-pulse" />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-10 bg-slate-50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 animate-fade-in pb-12">
       {/* Botão Voltar */}
@@ -207,13 +257,12 @@ export const StoreDetailPage: React.FC = () => {
           variant="ghost"
           size="sm"
           onClick={() => navigate('/lojas')}
-          className="text-slate-600 hover:text-slate-900 gap-1.5 h-8 text-xs font-medium"
+          className="gap-1 text-xs text-slate-600 hover:text-slate-900 -ml-2"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Voltar para Lojas</span>
+          <span>Voltar para lojas</span>
         </Button>
       </div>
-
       {/* Header do Detalhe da Loja */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">

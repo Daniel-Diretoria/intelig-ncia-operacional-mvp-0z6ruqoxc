@@ -14,7 +14,7 @@ import {
   Info,
 } from 'lucide-react'
 import { useLojas, type StoreSummary } from '@/services/useLojas'
-import { formatStoreIdentityTable, formatCityUf } from '@/lib/format/storeIdentity'
+import { formatStoreIdentityTable, formatCityUf, parseCityUf } from '@/lib/format/storeIdentity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -304,99 +304,126 @@ export const LojasPage: React.FC = () => {
         </div>
 
         {/* 4 KPIs Obrigatórios */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs animate-pulse"
-              >
-                <div className="h-4 bg-slate-100 rounded w-24 mb-3" />
-                <div className="h-8 bg-slate-200 rounded w-16 mb-2" />
-                <div className="h-3 bg-slate-100 rounded w-32" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* KPI 1: Lojas monitoradas (informativo) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Lojas monitoradas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                <Store className="w-4 h-4" />
               </div>
-            ))}
+            </div>
+            {isLoading ? (
+              <div className="mt-2 space-y-1">
+                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                <div className="h-3 bg-slate-100 rounded w-28 animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-slate-900 mt-2">{kpis.total}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Pontos de venda filtrados</p>
+              </>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* KPI 1: Lojas monitoradas (informativo) */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Lojas monitoradas
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-                  <Store className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-slate-900 mt-2">{kpis.total}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Pontos de venda filtrados</p>
-            </div>
 
-            {/* KPI 2: Lojas críticas (clicável) */}
-            <div
-              onClick={() => handleKpiToggle('criticas')}
-              className={`bg-white p-5 rounded-2xl border shadow-xs cursor-pointer transition-all hover:shadow-sm ${
-                selectedKpi === 'criticas'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20'
-                  : 'border-slate-200/80 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Lojas críticas
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
+          {/* KPI 2: Lojas críticas (clicável) */}
+          <div
+            onClick={() => !isLoading && handleKpiToggle('criticas')}
+            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+              isLoading
+                ? 'border-slate-200/80 cursor-default'
+                : selectedKpi === 'criticas'
+                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Lojas críticas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4" />
               </div>
-              <p className="text-2xl font-bold text-red-600 mt-2">{kpis.criticas}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Validade ≤ 15d ou ruptura ativa</p>
             </div>
-
-            {/* KPI 3: Lojas com casos complexos (clicável) */}
-            <div
-              onClick={() => handleKpiToggle('complexos')}
-              className={`bg-white p-5 rounded-2xl border shadow-xs cursor-pointer transition-all hover:shadow-sm ${
-                selectedKpi === 'complexos'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20'
-                  : 'border-slate-200/80 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Lojas com casos complexos
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                  <CalendarClock className="w-4 h-4" />
-                </div>
+            {isLoading ? (
+              <div className="mt-2 space-y-1">
+                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                <div className="h-3 bg-slate-100 rounded w-36 animate-pulse" />
               </div>
-              <p className="text-2xl font-bold text-amber-700 mt-2">{kpis.complexos}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 validade 0-15d</p>
-            </div>
-
-            {/* KPI 4: Lojas com rupturas (clicável) */}
-            <div
-              onClick={() => handleKpiToggle('rupturas')}
-              className={`bg-white p-5 rounded-2xl border shadow-xs cursor-pointer transition-all hover:shadow-sm ${
-                selectedKpi === 'rupturas'
-                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20'
-                  : 'border-slate-200/80 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Lojas com rupturas
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <Package className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-blue-700 mt-2">{kpis.comRupturas}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 ruptura ativa</p>
-            </div>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-red-600 mt-2">{kpis.criticas}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Validade ≤ 15d ou ruptura ativa</p>
+              </>
+            )}
           </div>
-        )}
+
+          {/* KPI 3: Lojas com casos complexos (clicável) */}
+          <div
+            onClick={() => !isLoading && handleKpiToggle('complexos')}
+            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+              isLoading
+                ? 'border-slate-200/80 cursor-default'
+                : selectedKpi === 'complexos'
+                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Lojas com casos complexos
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <CalendarClock className="w-4 h-4" />
+              </div>
+            </div>
+            {isLoading ? (
+              <div className="mt-2 space-y-1">
+                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-amber-700 mt-2">{kpis.complexos}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 validade 0-15d</p>
+              </>
+            )}
+          </div>
+
+          {/* KPI 4: Lojas com rupturas (clicável) */}
+          <div
+            onClick={() => !isLoading && handleKpiToggle('rupturas')}
+            className={`bg-white p-5 rounded-2xl border shadow-xs transition-all ${
+              isLoading
+                ? 'border-slate-200/80 cursor-default'
+                : selectedKpi === 'rupturas'
+                  ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20 cursor-pointer hover:shadow-sm'
+                  : 'border-slate-200/80 hover:border-slate-300 cursor-pointer hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Lojas com rupturas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Package className="w-4 h-4" />
+              </div>
+            </div>
+            {isLoading ? (
+              <div className="mt-2 space-y-1">
+                <div className="h-8 bg-slate-200 rounded w-16 animate-pulse" />
+                <div className="h-3 bg-slate-100 rounded w-32 animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-blue-700 mt-2">{kpis.comRupturas}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Ao menos 1 ruptura ativa</p>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Barra de Filtros Compacta SEMPRE Visível */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs space-y-3.5">
@@ -605,7 +632,61 @@ export const LojasPage: React.FC = () => {
         {/* Tabela de 7 Colunas Exatas */}
         {!error && (
           <>
-            {sortedStores.length === 0 && !isLoading ? (
+            {isLoading ? (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                  <span className="font-medium text-slate-500 animate-pulse">
+                    Carregando dados...
+                  </span>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
+                          <th className="py-3 px-4 min-w-[220px]">Loja</th>
+                          <th className="py-3 px-4 min-w-[140px]">Cidade / UF</th>
+                          <th className="py-3 px-4 min-w-[130px]">Rede</th>
+                          <th className="py-3 px-4 text-center min-w-[130px]">Marcas atendidas</th>
+                          <th className="py-3 px-4 text-center min-w-[140px]">
+                            Validades até 15 dias
+                          </th>
+                          <th className="py-3 px-4 text-center min-w-[120px]">Rupturas ativas</th>
+                          <th className="py-3 px-4 text-center min-w-[100px]">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <tr key={i} className="h-12">
+                            <td className="py-3 px-4">
+                              <div className="h-4 bg-slate-100 rounded w-48 animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="h-4 bg-slate-100 rounded w-24 animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="h-4 bg-slate-100 rounded w-28 animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="h-4 bg-slate-100 rounded w-8 mx-auto animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="h-4 bg-slate-100 rounded w-8 mx-auto animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="h-4 bg-slate-100 rounded w-8 mx-auto animate-pulse" />
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="h-4 bg-slate-100 rounded w-16 mx-auto animate-pulse" />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : sortedStores.length === 0 ? (
               <div className="p-12 text-center bg-white rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
                 <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
                   <Info className="w-6 h-6" />
@@ -669,140 +750,130 @@ export const LojasPage: React.FC = () => {
 
                 {/* Tabela de 7 Colunas */}
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-                  {isLoading ? (
-                    <div className="p-8 space-y-3">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <div key={i} className="h-10 bg-slate-50 rounded-lg animate-pulse" />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
-                            <th className="py-3 px-4 min-w-[220px]">Loja</th>
-                            <th className="py-3 px-4 min-w-[140px]">Cidade / UF</th>
-                            <th className="py-3 px-4 min-w-[130px]">Rede</th>
-                            <th className="py-3 px-4 text-center min-w-[130px]">
-                              Marcas atendidas
-                            </th>
-                            <th className="py-3 px-4 text-center min-w-[140px]">
-                              Validades até 15 dias
-                            </th>
-                            <th className="py-3 px-4 text-center min-w-[120px]">Rupturas ativas</th>
-                            <th className="py-3 px-4 text-center min-w-[100px]">Situação</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {paginatedStores.map((store) => {
-                            const storeDisplay = formatStoreIdentityTable({
-                              codigoLoja: store.storeCode,
-                              nomeLoja: store.storeName,
-                            })
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/70 border-b border-slate-200 text-slate-600 font-semibold select-none">
+                          <th className="py-3 px-4 min-w-[220px]">Loja</th>
+                          <th className="py-3 px-4 min-w-[140px]">Cidade / UF</th>
+                          <th className="py-3 px-4 min-w-[130px]">Rede</th>
+                          <th className="py-3 px-4 text-center min-w-[130px]">Marcas atendidas</th>
+                          <th className="py-3 px-4 text-center min-w-[140px]">
+                            Validades até 15 dias
+                          </th>
+                          <th className="py-3 px-4 text-center min-w-[120px]">Rupturas ativas</th>
+                          <th className="py-3 px-4 text-center min-w-[100px]">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedStores.map((store) => {
+                          const storeDisplay = formatStoreIdentityTable({
+                            codigoLoja: store.storeCode,
+                            nomeLoja: store.storeName,
+                          })
 
-                            const tooltipMarcas =
-                              store.marcasList.length > 5
-                                ? `${store.marcasList.slice(0, 5).join(', ')} (+${store.marcasList.length - 5})`
-                                : store.marcasList.join(', ') || 'Nenhuma marca'
+                          const tooltipMarcas =
+                            store.marcasList.length > 5
+                              ? `${store.marcasList.slice(0, 5).join(', ')} (+${store.marcasList.length - 5})`
+                              : store.marcasList.join(', ') || 'Nenhuma marca'
 
-                            return (
-                              <tr
-                                key={store.storeId}
-                                onClick={() =>
-                                  navigate(`/lojas/${encodeURIComponent(store.storeId)}`)
-                                }
-                                className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
-                              >
-                                {/* 1. Loja */}
-                                <td className="py-3 px-4 min-w-[220px]">
-                                  <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                                    {storeDisplay}
-                                  </div>
-                                </td>
+                          return (
+                            <tr
+                              key={store.storeId}
+                              onClick={() =>
+                                navigate(`/lojas/${encodeURIComponent(store.storeId)}`)
+                              }
+                              className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
+                            >
+                              {/* 1. Loja */}
+                              <td className="py-3 px-4 min-w-[220px]">
+                                <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                                  {storeDisplay}
+                                </div>
+                              </td>
 
-                                {/* 2. Cidade / UF */}
-                                <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                                  {formatCityUf(store.city, store.uf)}
-                                </td>
+                              {/* 2. Cidade / UF */}
+                              <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                                {formatCityUf(store.city, store.uf)}
+                              </td>
 
-                                {/* 3. Rede */}
-                                <td className="py-3 px-4 text-slate-700 font-medium whitespace-nowrap">
-                                  {store.networkName}
-                                </td>
+                              {/* 3. Rede */}
+                              <td className="py-3 px-4 text-slate-700 font-medium whitespace-nowrap">
+                                {store.networkName}
+                              </td>
 
-                                {/* 4. Marcas atendidas */}
-                                <td className="py-3 px-4 text-center whitespace-nowrap">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="inline-flex">
-                                        <Badge
-                                          variant="outline"
-                                          className="bg-slate-50 text-slate-700 border-slate-200 font-semibold cursor-help"
-                                        >
-                                          {store.marcasCount}
-                                        </Badge>
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-xs text-xs">
-                                      <p className="font-semibold mb-1">Marcas atendidas:</p>
-                                      <p>{tooltipMarcas}</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </td>
+                              {/* 4. Marcas atendidas */}
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex">
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-slate-50 text-slate-700 border-slate-200 font-semibold cursor-help"
+                                      >
+                                        {store.marcasCount}
+                                      </Badge>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    <p className="font-semibold mb-1">Marcas atendidas:</p>
+                                    <p>{tooltipMarcas}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </td>
 
-                                {/* 5. Validades até 15 dias */}
-                                <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {/* 5. Validades até 15 dias */}
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    store.validadesCriticasCount > 0
+                                      ? 'bg-red-50 text-red-700 border-red-200 font-bold'
+                                      : 'bg-slate-50 text-slate-500 border-slate-200 font-medium'
+                                  }
+                                >
+                                  {store.validadesCriticasCount}
+                                </Badge>
+                              </td>
+
+                              {/* 6. Rupturas ativas */}
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    store.rupturasAtivasCount > 0
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200 font-bold'
+                                      : 'bg-slate-50 text-slate-500 border-slate-200 font-medium'
+                                  }
+                                >
+                                  {store.rupturasAtivasCount}
+                                </Badge>
+                              </td>
+
+                              {/* 7. Situação */}
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                {store.situacao === 'Crítica' ? (
                                   <Badge
                                     variant="outline"
-                                    className={
-                                      store.validadesCriticasCount > 0
-                                        ? 'bg-red-50 text-red-700 border-red-200 font-bold'
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 font-medium'
-                                    }
+                                    className="bg-red-50 text-red-700 border-red-200 font-semibold"
                                   >
-                                    {store.validadesCriticasCount}
+                                    Crítica
                                   </Badge>
-                                </td>
-
-                                {/* 6. Rupturas ativas */}
-                                <td className="py-3 px-4 text-center whitespace-nowrap">
+                                ) : (
                                   <Badge
                                     variant="outline"
-                                    className={
-                                      store.rupturasAtivasCount > 0
-                                        ? 'bg-amber-50 text-amber-800 border-amber-200 font-bold'
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 font-medium'
-                                    }
+                                    className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold"
                                   >
-                                    {store.rupturasAtivasCount}
+                                    Normal
                                   </Badge>
-                                </td>
-
-                                {/* 7. Situação */}
-                                <td className="py-3 px-4 text-center whitespace-nowrap">
-                                  {store.situacao === 'Crítica' ? (
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-red-50 text-red-700 border-red-200 font-semibold"
-                                    >
-                                      Crítica
-                                    </Badge>
-                                  ) : (
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold"
-                                    >
-                                      Normal
-                                    </Badge>
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Paginação */}

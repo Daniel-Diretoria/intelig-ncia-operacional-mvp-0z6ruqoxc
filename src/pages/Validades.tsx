@@ -482,7 +482,18 @@ export const ValidadesPage: React.FC = () => {
       {/* Tabela de 8 Colunas */}
       {!error && (
         <>
-          {sortedData.length === 0 && !isLoading ? (
+          {isLoading ? (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <span className="font-medium text-slate-500 animate-pulse">
+                  Carregando dados...
+                </span>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <DataTable columns={columns} data={[]} isLoading={true} skeletonRows={6} />
+              </div>
+            </div>
+          ) : sortedData.length === 0 ? (
             <EmptyState
               title="Nenhuma validade encontrada para os filtros aplicados."
               description="Ajuste a busca ou os filtros para visualizar ocorrências."
@@ -527,7 +538,7 @@ export const ValidadesPage: React.FC = () => {
                 <DataTable
                   columns={columns}
                   data={paginatedData}
-                  isLoading={isLoading}
+                  isLoading={false}
                   sortKey={sortKey}
                   sortOrder={sortOrder}
                   onSort={handleSort}

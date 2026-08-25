@@ -309,8 +309,8 @@ describe('dashboardJourney.test.tsx — Contrato de Regressão da Visão Estrat�
     expect(getBaseAtualSpy).not.toHaveBeenCalled()
   })
 
-  // 1c. Mostra estado de loading
-  it('1c. Dashboard mostra estado de loading quando useLojas.isLoading é true', async () => {
+  // 1c. Mostra estado de loading sem exibir "0" nem "..."
+  it('1c. Dashboard mostra estado de loading com skeletons quando useLojas.isLoading é true e não exibe 0 ou ...', async () => {
     vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
       stores: [],
       filteredStores: [],
@@ -329,6 +329,8 @@ describe('dashboardJourney.test.tsx — Contrato de Regressão da Visão Estrat�
     )
 
     expect(container.querySelector('.animate-pulse')).toBeTruthy()
+    // Durante loading, não deve exibir número 0 nem reticências soltas
+    expect(screen.queryByText('0 a 15 dias para vencer')).toBeNull()
   })
 
   // 1d. Mostra estado vazio sem dados

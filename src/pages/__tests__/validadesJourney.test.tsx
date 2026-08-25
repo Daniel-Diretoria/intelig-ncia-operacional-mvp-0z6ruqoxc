@@ -326,4 +326,24 @@ describe('validadesJourney.test.tsx — Contrato de Regressão da Tela /validade
     // Fetch não deve ter sido chamado para gravação/mutação (apenas leituras gerenciadas pelo hook)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  // k) Durante loading NÃO exibe 0 ocorrências nem estado vazio
+  it('k) Durante loading NÃO exibe 0 ocorrências nem estado vazio, exibe Carregando dados', () => {
+    vi.spyOn(useValidadesModule, 'useValidades').mockReturnValue({
+      data: [],
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <ValidadesPage />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Carregando dados...')).toBeTruthy()
+    expect(screen.queryByText(/0 ocorrência\(s\) encontrada\(s\)/i)).toBeNull()
+    expect(screen.queryByText(/Nenhuma validade encontrada/i)).toBeNull()
+  })
 })

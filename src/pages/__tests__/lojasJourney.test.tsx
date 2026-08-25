@@ -249,4 +249,31 @@ describe('lojasJourney.test.tsx — Contrato de Regressão da Tela /lojas', () =
     expect(screen.getByText('165 — FORT ATACADISTA KOBRASOL')).toBeTruthy()
     expect(screen.getByText('165 — COMPER CENTRO')).toBeTruthy()
   })
+
+  // 7. Loading state: NÃO exibe "0 loja(s) encontrada(s)" nem estado vazio
+  it('7. Durante loading NÃO exibe 0 lojas nem estado vazio, exibe Carregando dados e skeletons', () => {
+    vi.spyOn(useLojasModule, 'useLojas').mockReturnValue({
+      stores: [],
+      filteredStores: [],
+      validadesAtivas: [],
+      rupturasAtivas: [],
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+      getStoreById: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <LojasPage />
+      </MemoryRouter>,
+    )
+
+    // Deve mostrar indicação de carregamento
+    expect(screen.getByText('Carregando dados...')).toBeTruthy()
+    // NÃO deve mostrar contadores de "0 loja(s)" nem texto vazio
+    expect(screen.queryByText(/0 loja\(s\) encontrada\(s\)/i)).toBeNull()
+    expect(screen.queryByText(/Nenhuma loja registrada/i)).toBeNull()
+    expect(screen.queryByText(/Nenhuma loja corresponde/i)).toBeNull()
+  })
 })

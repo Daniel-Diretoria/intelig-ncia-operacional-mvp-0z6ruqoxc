@@ -341,4 +341,28 @@ describe('rupturasJourney.test.tsx — Testes Obrigatórios de Interface e Fluxo
     // Chip de filtro do KPI deve aparecer
     expect(screen.getByText('Filtro de KPI: Ruptura Total')).toBeTruthy()
   })
+
+  // x) Durante loading NÃO exibe 0 ocorrências nem estado vazio
+  it('x) Durante loading NÃO exibe 0 ocorrências nem estado vazio, exibe Carregando dados', () => {
+    vi.spyOn(useRupturasModule, 'useRupturas').mockReturnValue({
+      data: [],
+      filteredRupturas: [],
+      historicoRupturas: [],
+      conflitos: [],
+      kpis: null,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <RupturasPage />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Carregando dados...')).toBeTruthy()
+    expect(screen.queryByText(/0 ocorrência\(s\) encontrada\(s\)/i)).toBeNull()
+    expect(screen.queryByText(/Nenhuma ruptura registrada/i)).toBeNull()
+  })
 })

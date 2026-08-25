@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getBaseAtualSnapshot, type BaseAtualSnapshot, type LojaAgregada } from '@/lib/selectors'
-import { buildStoreCompositeKey, parseCityUf, deriveNetworkName } from '@/lib/format/storeIdentity'
+import {
+  buildStoreCompositeKey,
+  parseCityUf,
+  deriveNetworkName,
+  formatCityUf,
+} from '@/lib/format/storeIdentity'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export interface StoreSummary {
