@@ -55,84 +55,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = useCallback(async (email: string, pass: string) => {
     try {
-      const origin =
-        typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
-      const endpoint = `${origin}/api/backend/v1/app-login`
+      await pb.collection('users').authWithPassword(email, pass)
+      setUser(pb.authStore.record)
+      setToken(pb.authStore.token)
+      return { success: true }
+    } catch (err: unknown) {
+      // PocketBase ClientResponseError ou erro genérico
+      const pbError = err as { status?: number; isAbort?: boolean; message?: string }
 
-      let response: Response
-      try {
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email,
-            password: pass,
-          }),
-        })
-      } catch {
+      if (pbError?.isAbort) {
         return {
           success: false,
-          error: 'Não foi possível conectar ao servidor. Verifique sua conexão.',
+          error: 'Requisição cancelada.',
         }
       }
 
-      // Tratamento específico de status HTTP
-      if (response.status === 401) {
+      // Status 400 = Failed to authenticate / invalid credentials
+      if (pbError?.status === 400) {
         return {
           success: false,
           error: 'E-mail ou senha inválidos.',
         }
       }
 
-      if (response.status === 503) {
+      // Erro 0 ou fetch network failure
+      if (pbError?.status === 0 || (!pbError?.status && !pbError?.message?.includes('status'))) {
+        return {
+          success: false,
+          error: 'Não foi possível conectar ao servidor. Verifique sua conexão.',
+        }
+      }
+
+      if (pbError?.status === 503) {
         return {
           success: false,
           error: 'Serviço de autenticação indisponível. Tente novamente mais tarde.',
         }
       }
 
-      // Tentativa de parse de JSON
-      let data: {
-        success?: boolean
-        token?: string
-        record?: AuthRecord
-        error?: string
-      } | null = null
-
-      try {
-        data = await response.json()
-      } catch {
-        // Resposta não-JSON (como redirect HTML ou texto de erro de proxy)
-        return {
-          success: false,
-          error: 'Serviço de autenticação indisponível.',
-        }
-      }
-
-      if (response.ok && data?.success && data?.token && data?.record) {
-        pb.authStore.save(data.token, data.record)
-        setUser(data.record)
-        setToken(data.token)
-        return { success: true }
-      }
-
-      if (data?.error) {
-        return {
-          success: false,
-          error: data.error,
-        }
-      }
-
       return {
         success: false,
-        error: 'Serviço de autenticação indisponível.',
-      }
-    } catch {
-      return {
-        success: false,
-        error: 'Não foi possível conectar ao servidor. Verifique sua conexão.',
+        error: pbError?.message || 'Erro ao realizar login. Tente novamente.',
       }
     }
   }, [])

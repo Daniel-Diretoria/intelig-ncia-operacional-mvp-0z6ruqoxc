@@ -4,16 +4,13 @@ import React from 'react'
 import { AuthProvider, useAuth } from '../authContext'
 import pb from '@/lib/pocketbase/client'
 
-describe('AuthContext - signIn via proxy', () => {
-  const originalFetch = globalThis.fetch
-
+describe('AuthContext - signIn via PocketBase SDK nativo', () => {
   beforeEach(() => {
     pb.authStore.clear()
     vi.restoreAllMocks()
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
     pb.authStore.clear()
   })
 
@@ -21,7 +18,7 @@ describe('AuthContext - signIn via proxy', () => {
     <AuthProvider>{children}</AuthProvider>
   )
 
-  it('1. Login com sucesso via proxy salva token e record no authStore', async () => {
+  it('1. Login com sucesso via SDK nativo atualiza authStore e estado do usuário', async () => {
     const mockUserRecord = {
       id: 'bumacp2xh84zjzu',
       email: 'rhuan.marx@diretoriapromocoes.com.br',
@@ -31,15 +28,13 @@ describe('AuthContext - signIn via proxy', () => {
       collectionName: 'users',
     }
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
+    vi.spyOn(pb.collection('users'), 'authWithPassword').mockImplementation(async () => {
+      pb.authStore.save('fake-jwt-token-123', mockUserRecord as any)
+      return {
         token: 'fake-jwt-token-123',
-        record: mockUserRecord,
-      }),
-    } as unknown as Response)
+        record: mockUserRecord as any,
+      }
+    })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
 
@@ -55,29 +50,18 @@ describe('AuthContext - signIn via proxy', () => {
     expect(result.current.user?.id).toBe('bumacp2xh84zjzu')
     expect(pb.authStore.token).toBe('fake-jwt-token-123')
     expect(pb.authStore.record?.id).toBe('bumacp2xh84zjzu')
-
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/backend/v1/app-login'),
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: 'rhuan.marx@diretoriapromocoes.com.br',
-          password: 'Skip@Pass',
-        }),
-      }),
+    expect(pb.collection('users').authWithPassword).toHaveBeenCalledWith(
+      'rhuan.marx@diretoriapromocoes.com.br',
+      'Skip@Pass',
     )
   })
 
-  it('2. Credenciais inválidas (401) retorna erro amigável', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({
-        success: false,
-        error: 'E-mail ou senha inválidos.',
-      }),
-    } as unknown as Response)
+  it('2. Credenciais inválidas (status 400 do PocketBase) retorna erro amigável', async () => {
+    vi.spyOn(pb.collection('users'), 'authWithPassword').mockRejectedValue({
+      status: 400,
+      message: 'Failed to authenticate.',
+      data: {},
+    })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
 
@@ -93,14 +77,10 @@ describe('AuthContext - signIn via proxy', () => {
   })
 
   it('3. Serviço indisponível (503) retorna mensagem apropriada', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
+    vi.spyOn(pb.collection('users'), 'authWithPassword').mockRejectedValue({
       status: 503,
-      json: async () => ({
-        success: false,
-        error: 'Serviço de autenticação indisponível.',
-      }),
-    } as unknown as Response)
+      message: 'Service Unavailable',
+    })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
 
@@ -113,8 +93,11 @@ describe('AuthContext - signIn via proxy', () => {
     expect(res.error).toBe('Serviço de autenticação indisponível. Tente novamente mais tarde.')
   })
 
-  it('4. Erro de rede (fetch reject) retorna erro de conexão', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  it('4. Erro de rede (status 0 / network failure) retorna erro de conexão', async () => {
+    vi.spyOn(pb.collection('users'), 'authWithPassword').mockRejectedValue({
+      status: 0,
+      message: 'Failed to connect to PocketBase server.',
+    })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
 
@@ -127,14 +110,11 @@ describe('AuthContext - signIn via proxy', () => {
     expect(res.error).toBe('Não foi possível conectar ao servidor. Verifique sua conexão.')
   })
 
-  it('5. Resposta HTML inesperada retorna erro de serviço indisponível', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 200,
-      json: async () => {
-        throw new Error('Unexpected token < in JSON')
-      },
-    } as unknown as Response)
+  it('5. Requisição cancelada / abortada retorna mensagem apropriada', async () => {
+    vi.spyOn(pb.collection('users'), 'authWithPassword').mockRejectedValue({
+      isAbort: true,
+      message: 'The request was autocancelled.',
+    })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
 
@@ -144,7 +124,7 @@ describe('AuthContext - signIn via proxy', () => {
     })
 
     expect(res.success).toBe(false)
-    expect(res.error).toBe('Serviço de autenticação indisponível.')
+    expect(res.error).toBe('Requisição cancelada.')
   })
 
   it('6. SignOut limpa o authStore e o estado do usuário', () => {
