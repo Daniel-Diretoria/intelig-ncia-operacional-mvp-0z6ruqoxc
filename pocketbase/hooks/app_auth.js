@@ -1,16 +1,16 @@
 // Hook de autenticação e health check para o app
-// Endpoints suportados:
-// - GET  /api/backend/v1/app-health  -> Retorna status do backend { ok: true, timestamp: ISO }
-// - POST /api/backend/v1/app-login   -> Proxy de autenticação server-to-server
+// Endpoints suportados (o ambiente Skip Cloud prefixa /api automaticamente às rotas registradas):
+// - GET  /backend/v1/app-health  -> acessível em /api/backend/v1/app-health -> Retorna status do backend { ok: true, timestamp: ISO }
+// - POST /backend/v1/app-login   -> acessível em /api/backend/v1/app-login -> Proxy de autenticação server-to-server
 
-routerAdd('GET', '/api/backend/v1/app-health', (e) => {
+routerAdd('GET', '/backend/v1/app-health', (e) => {
   return e.json(200, {
     ok: true,
     timestamp: new Date().toISOString(),
   })
 })
 
-routerAdd('POST', '/api/backend/v1/app-login', (e) => {
+routerAdd('POST', '/backend/v1/app-login', (e) => {
   // 1. Rate limit por IP (10 tentativas por minuto)
   try {
     const clientIp = e.requestInfo().remoteIP || 'unknown'
