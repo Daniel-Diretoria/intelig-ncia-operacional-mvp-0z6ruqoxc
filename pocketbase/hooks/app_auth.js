@@ -3,14 +3,14 @@
 // - GET  /api/backend/v1/app-health  -> Retorna status do backend { ok: true, timestamp: ISO }
 // - POST /api/backend/v1/app-login   -> Proxy de autenticação server-to-server
 
-routerAdd('GET', '/api/backend/v1/app-health', (e) => {
+routerAdd('GET', '/backend/v1/app-health', (e) => {
   return e.json(200, {
     ok: true,
     timestamp: new Date().toISOString(),
   })
 })
 
-routerAdd('POST', '/api/backend/v1/app-login', (e) => {
+routerAdd('POST', '/backend/v1/app-login', (e) => {
   // 1. Rate limit por IP (10 tentativas por minuto)
   try {
     const clientIp = e.requestInfo().remoteIP || 'unknown'
