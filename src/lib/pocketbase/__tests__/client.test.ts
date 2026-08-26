@@ -19,20 +19,27 @@ describe('PocketBase client bootstrap & validation', () => {
     })
   })
 
-  it('1. URL interna (.internal.goskip.dev) é rejeitada em ambiente de navegador com mensagem de erro clara', () => {
+  it('1. URL interna (.internal.goskip.dev) faz fallback silencioso para window.location.origin no navegador', () => {
+    Object.defineProperty(window, 'location', {
+      value: {
+        origin: 'https://inteligencia-operacional-mvp-7d99e--preview.goskip.app',
+        href: 'https://inteligencia-operacional-mvp-7d99e--preview.goskip.app/',
+      },
+      writable: true,
+      configurable: true,
+    })
+
     const internalUrl = 'https://inteligencia-operacional-mvp-7d99e.shrd00.internal.goskip.dev'
 
     expect(() => {
-      getPocketBaseUrl(internalUrl)
-    }).toThrow(
-      'Configuração inválida: VITE_POCKETBASE_URL aponta para URL interna (*.internal.goskip.dev) que não é acessível do navegador. Altere para a URL pública da instância PocketBase.',
-    )
+      const resolved = getPocketBaseUrl(internalUrl)
+      expect(resolved).toBe('https://inteligencia-operacional-mvp-7d99e--preview.goskip.app')
+    }).not.toThrow()
 
     expect(() => {
-      createPocketBaseClient(internalUrl)
-    }).toThrow(
-      'Configuração inválida: VITE_POCKETBASE_URL aponta para URL interna (*.internal.goskip.dev) que não é acessível do navegador. Altere para a URL pública da instância PocketBase.',
-    )
+      const client = createPocketBaseClient(internalUrl)
+      expect(client.baseUrl).toBe('https://inteligencia-operacional-mvp-7d99e--preview.goskip.app')
+    }).not.toThrow()
   })
 
   it('2. URL pública é aceita normalmente', () => {
@@ -72,6 +79,14 @@ describe('PocketBase client bootstrap & validation', () => {
     })
 
     vi.stubEnv('VITE_POCKETBASE_URL', '')
+    expect(getPocketBaseUrl()).toBe(
+      'https://inteligencia-operacional-mvp-7d99e--preview.goskip.app',
+    )
+
+    vi.stubEnv(
+      'VITE_POCKETBASE_URL',
+      'https://inteligencia-operacional-mvp-7d99e.shrd00.internal.goskip.dev',
+    )
     expect(getPocketBaseUrl()).toBe(
       'https://inteligencia-operacional-mvp-7d99e--preview.goskip.app',
     )

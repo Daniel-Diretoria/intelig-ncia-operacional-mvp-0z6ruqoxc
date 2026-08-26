@@ -1,27 +1,36 @@
 import PocketBase from 'pocketbase'
 
-export function getPocketBaseUrl(customUrl?: string): string {
-  const url = customUrl !== undefined ? customUrl : import.meta.env.VITE_POCKETBASE_URL
+/**
+ * Resolve a URL base para o cliente PocketBase.
+ *
+ * - Se a URL apontar para um host interno (`*.internal.goskip.dev`) no navegador,
+ *   faz fallback silencioso para `window.location.origin` (o proxy backend lida com
+ *   as requisições públicas e o SDK opera através da mesma origem).
+ * - Se a URL estiver vazia/indefinida, faz fallback para `window.location.origin` (ou '' em SSR).
+ * - Caso contrário, usa a URL fornecida / configurada.
+ */
+export function getPocketBaseUrl(configuredUrl?: string): string {
+  const envUrl =
+    configuredUrl !== undefined ? configuredUrl : import.meta.env.VITE_POCKETBASE_URL || ''
+  const trimmed = envUrl.trim()
 
-  if (url) {
-    if (url.includes('.internal.goskip.dev')) {
-      throw new Error(
-        'Configuração inválida: VITE_POCKETBASE_URL aponta para URL interna (*.internal.goskip.dev) que não é acessível do navegador. Altere para a URL pública da instância PocketBase.',
-      )
-    }
-    return url
+  const isBrowser = typeof window !== 'undefined' && typeof window.location !== 'undefined'
+  const browserOrigin = isBrowser && window.location.origin ? window.location.origin : ''
+
+  // Fallback silencioso quando vazia ou apontando para URL interna inacessível do navegador
+  if (!trimmed || (isBrowser && trimmed.includes('.internal.goskip.dev'))) {
+    return browserOrigin
   }
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin
-  }
-
-  return ''
+  return trimmed
 }
 
+/**
+ * Cria uma instância do cliente PocketBase com autoCancellation desabilitado por padrão.
+ */
 export function createPocketBaseClient(url?: string): PocketBase {
-  const targetUrl = getPocketBaseUrl(url)
-  const client = new PocketBase(targetUrl)
+  const resolvedUrl = getPocketBaseUrl(url)
+  const client = new PocketBase(resolvedUrl)
   client.autoCancellation(false)
   return client
 }
