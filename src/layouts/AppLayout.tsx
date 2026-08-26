@@ -8,6 +8,7 @@ import {
   Bell,
   ShieldAlert,
   FileBarChart,
+  Settings,
   LogOut,
   Menu,
   X,
@@ -58,6 +59,11 @@ const NAV_ITEMS = [
     to: '/relatorios',
     label: 'Relatórios',
     icon: FileBarChart,
+  },
+  {
+    to: '/configuracoes',
+    label: 'Configurações',
+    icon: Settings,
   },
   {
     to: '/assistente',

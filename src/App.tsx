@@ -16,6 +16,7 @@ import { RupturasPage } from '@/pages/Rupturas'
 import { AlertasPage } from '@/pages/Alertas'
 import { AuditoriaPage } from '@/pages/Auditoria'
 import { RelatoriosPage } from '@/pages/Relatorios'
+import { ConfiguracoesPage } from '@/pages/Configuracoes'
 import { AssistantPage } from '@/pages/AssistantPage'
 import { ImportacaoPage } from '@/pages/Importacao'
 import NotFound from '@/pages/NotFound'
@@ -46,6 +47,7 @@ const App = () => (
             <Route path="/alertas" element={<AlertasPage />} />
             <Route path="/auditoria" element={<AuditoriaPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
+            <Route path="/configuracoes" element={<ConfiguracoesPage />} />
             <Route path="/assistente" element={<AssistantPage />} />
             <Route path="/importacao" element={<ImportacaoPage />} />
           </Route>

@@ -94,6 +94,8 @@ routerAdd('POST', '/api/backend/v1/app-login', (e) => {
       record: {
         id: record.id || '',
         email: record.email || '',
+        name: record.name || '',
+        role: record.role || 'Administrador',
         verified: Boolean(record.verified),
       },
     })
