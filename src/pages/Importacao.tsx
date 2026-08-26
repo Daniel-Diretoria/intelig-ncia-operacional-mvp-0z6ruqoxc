@@ -375,9 +375,12 @@ export const ImportacaoPage: React.FC = () => {
         })
       } else {
         setConnectionStatus('error')
+        const isNotConfigured = res.errorCode === 'not_configured'
         toast({
-          title: 'Falha na conexão com TradePro',
-          description: res.mensagem,
+          title: isNotConfigured ? 'Integração não configurada' : 'Falha na conexão com TradePro',
+          description: isNotConfigured
+            ? 'Integração não configurada. Cadastre o token protegido no Skip Cloud.'
+            : res.mensagem,
           variant: 'destructive',
         })
       }

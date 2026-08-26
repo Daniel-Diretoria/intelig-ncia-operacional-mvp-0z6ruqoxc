@@ -57,9 +57,19 @@ export function useTradeProApi(): UseTradeProApiReturn {
 
   const testConnection = useCallback(
     async (dataInicial: string, dataFinal: string): Promise<TradeProTestConnectionResult> => {
-      return await testTradeProConnection(dataInicial, dataFinal)
+      // AbortController com timeout de 30 segundos para segurança
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+      try {
+        const result = await testTradeProConnection(dataInicial, dataFinal)
+        await refreshHistory()
+        return result
+      } finally {
+        clearTimeout(timeoutId)
+      }
     },
-    [],
+    [refreshHistory],
   )
 
   const sync = useCallback(

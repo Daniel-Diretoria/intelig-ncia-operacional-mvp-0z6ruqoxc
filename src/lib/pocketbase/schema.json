@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T20:37:19.807Z",
+  "generatedAt": "2026-08-26T21:24:50.815Z",
   "collections": [
     {
       "name": "users",
@@ -2027,6 +2027,140 @@
         "CREATE INDEX idx_cross_evidence_store_code ON operational_cross_evidence (store_code)",
         "CREATE INDEX idx_cross_evidence_confidence ON operational_cross_evidence (confidence)",
         "CREATE INDEX idx_cross_evidence_proposed_status ON operational_cross_evidence (proposed_status)"
+      ]
+    },
+    {
+      "name": "tradepro_connection_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && requested_by = @request.auth.id",
+        "view": "@request.auth.id != \"\" && requested_by = @request.auth.id",
+        "create": "@request.auth.id != \"\"",
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "action",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["test_connection"]
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "date_start",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_end",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "success", "error"]
+        },
+        {
+          "name": "connected",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "http_status",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "has_data",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "records_received",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_records_reported",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "latency_ms",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_code",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "not_configured",
+            "invalid_period",
+            "unauthorized",
+            "forbidden",
+            "rate_limited",
+            "timeout",
+            "tradepro_unavailable",
+            "internal_error"
+          ]
+        },
+        {
+          "name": "started_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "finished_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_tradepro_jobs_user ON tradepro_connection_jobs (requested_by, created DESC)",
+        "CREATE INDEX idx_tradepro_jobs_status ON tradepro_connection_jobs (status)"
       ]
     }
   ]
