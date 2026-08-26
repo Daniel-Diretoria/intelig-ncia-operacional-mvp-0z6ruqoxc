@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import logoImg from '@/assets/image-9f672.png'
 import { useAuth } from '@/services/authContext'
-import { TrendingUp, Lock, Mail, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Lock, Mail, Loader2, AlertCircle, RefreshCw, Eye, EyeOff } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 
@@ -11,7 +11,9 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate()
 
   const [email, setEmail] = useState('rhuan.marx@diretoriapromocoes.com.br')
-  const [password, setPassword] = useState('Skip@Pass')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [capsLockActive, setCapsLockActive] = useState(false)
 
   const [emailError, setEmailError] = useState('')
   const [passwordError, setPasswordError] = useState('')
@@ -54,14 +56,17 @@ export const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return
     if (!validate()) return
 
     setIsSubmitting(true)
     setServerError(null)
     setIsNetworkError(false)
 
+    const normalizedEmail = email.trim().toLowerCase()
+
     try {
-      const res = await signIn(email, password)
+      const res = await signIn(normalizedEmail, password)
       if (res.success) {
         navigate('/', { replace: true })
       } else {
@@ -74,6 +79,12 @@ export const LoginPage: React.FC = () => {
       setServerError('Não foi possível conectar. Tente novamente.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handlePasswordKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === 'function') {
+      setCapsLockActive(e.getModifierState('CapsLock'))
     }
   }
 
@@ -166,21 +177,33 @@ export const LoginPage: React.FC = () => {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   id="password-input"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
                     if (passwordError) setPasswordError('')
                   }}
+                  onKeyUp={handlePasswordKeyUp}
                   placeholder="••••••••"
-                  className={`pl-9 h-11 text-sm rounded-lg border ${
+                  className={`pl-9 pr-10 h-11 text-sm rounded-lg border ${
                     passwordError
                       ? 'border-red-500 focus-visible:ring-red-500/20 focus-visible:border-red-500'
                       : 'border-slate-300 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500'
                   }`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
+              {capsLockActive && (
+                <p className="mt-1.5 text-xs text-amber-600 font-medium">Caps Lock ativado</p>
+              )}
               {passwordError && (
                 <p className="mt-1.5 text-xs text-red-600 font-medium flex items-center gap-1">
                   <span>{passwordError}</span>

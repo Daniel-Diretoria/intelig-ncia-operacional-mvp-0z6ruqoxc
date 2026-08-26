@@ -1,26 +1,18 @@
 import PocketBase from 'pocketbase'
 
-export function getPocketBaseUrl(envUrl?: string): string {
-  const rawUrl =
-    (envUrl ?? (typeof import.meta !== 'undefined' ? import.meta.env?.VITE_POCKETBASE_URL : '')) ||
-    ''
-  const trimmedUrl = rawUrl.trim()
-  const isBrowser = typeof window !== 'undefined'
+export function getPocketBaseUrl(customUrl?: string): string {
+  const url = customUrl !== undefined ? customUrl : import.meta.env.VITE_POCKETBASE_URL
 
-  if (trimmedUrl.includes('.internal.goskip.dev')) {
-    if (isBrowser) {
+  if (url) {
+    if (url.includes('.internal.goskip.dev')) {
       throw new Error(
         'Configuração inválida: VITE_POCKETBASE_URL aponta para URL interna (*.internal.goskip.dev) que não é acessível do navegador. Altere para a URL pública da instância PocketBase.',
       )
     }
-    return trimmedUrl
+    return url
   }
 
-  if (trimmedUrl) {
-    return trimmedUrl
-  }
-
-  if (isBrowser && window.location?.origin) {
+  if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin
   }
 
@@ -28,8 +20,8 @@ export function getPocketBaseUrl(envUrl?: string): string {
 }
 
 export function createPocketBaseClient(url?: string): PocketBase {
-  const resolvedUrl = getPocketBaseUrl(url)
-  const client = new PocketBase(resolvedUrl)
+  const targetUrl = getPocketBaseUrl(url)
+  const client = new PocketBase(targetUrl)
   client.autoCancellation(false)
   return client
 }
