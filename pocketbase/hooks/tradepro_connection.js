@@ -16,9 +16,21 @@ onRecordAfterCreateSuccess((e) => {
   record.set('started_at', nowIso)
   record.set('status', 'processing')
 
-  // 1. Validação de formato e intervalo de datas (máximo 31 dias)
+  // 1. Validação estrita de formato e calendário das datas (máximo 31 dias)
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/
-  if (!dateRegex.test(dateStart) || !dateRegex.test(dateEnd) || dateStart > dateEnd) {
+  const isValidCalendarDate = (str) => {
+    if (!dateRegex.test(str)) return false
+    const parts = str.split('-')
+    const y = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10)
+    const d = parseInt(parts[2], 10)
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false
+    const dt = new Date(Date.UTC(y, m - 1, d))
+    if (isNaN(dt.getTime())) return false
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+  }
+
+  if (!isValidCalendarDate(dateStart) || !isValidCalendarDate(dateEnd) || dateStart > dateEnd) {
     record.set('status', 'error')
     record.set('connected', false)
     record.set('http_status', 400)
@@ -136,11 +148,12 @@ onRecordAfterCreateSuccess((e) => {
   const trimmedToken = rawToken.trim()
   const authHeader = trimmedToken.startsWith('Basic ') ? trimmedToken : 'Basic ' + trimmedToken
 
+  const toTradeProDate = (isoDate) => isoDate.replace(/-/g, '')
   const url =
     'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-rupturas/' +
-    dateStart +
+    toTradeProDate(dateStart) +
     '/' +
-    dateEnd +
+    toTradeProDate(dateEnd) +
     '?paginaAtual=1&quantidadePorPagina=1&agruparUltimaColetaDoProdutoDoMesmoCliente=1'
 
   // 5. Executar UMA chamada HTTP, sem retry, timeout 20s
@@ -270,7 +283,8 @@ onRecordAfterCreateSuccess((e) => {
     return clean
   }
 
-  const rawBodyText = typeof res.raw === 'string' ? res.raw : ''
+  const rawBodyText =
+    typeof res.raw === 'string' ? res.raw : typeof res.body === 'string' ? res.body : ''
 
   if (statusCode === 200) {
     let jsonBody = null
@@ -346,8 +360,45 @@ onRecordAfterCreateSuccess((e) => {
     record.set('error_code', 'internal_error')
     record.set('message', safeMsg)
   } else if (statusCode === 412) {
+    let parsed412Json = null
+    try {
+      if (typeof res.json === 'object' && res.json !== null) {
+        parsed412Json = res.json
+      } else if (rawBodyText) {
+        parsed412Json = JSON.parse(rawBodyText)
+      }
+    } catch (_) {}
+
+    let custom412Raw = rawBodyText
+    if (parsed412Json && Array.isArray(parsed412Json.erros) && parsed412Json.erros.length > 0) {
+      const items = parsed412Json.erros.slice(0, 5)
+      const mapped = items
+        .map((errItem) => {
+          const campo = errItem && typeof errItem.campo === 'string' ? errItem.campo : ''
+          const codigo = errItem && typeof errItem.codigo === 'string' ? errItem.codigo : ''
+          const mensagem = errItem && typeof errItem.mensagem === 'string' ? errItem.mensagem : ''
+          if (campo && codigo) {
+            return campo + ': ' + mensagem + ' (' + codigo + ')'
+          } else if (campo) {
+            return campo + ': ' + mensagem
+          } else if (codigo) {
+            return mensagem + ' (' + codigo + ')'
+          }
+          return mensagem || ''
+        })
+        .filter((s) => Boolean(s && s.trim()))
+
+      if (mapped.length > 0) {
+        let joined = mapped.join(' | ')
+        if (joined.length > 300) {
+          joined = joined.substring(0, 300)
+        }
+        custom412Raw = joined
+      }
+    }
+
     const safeMsg = sanitizeErrorMessage(
-      rawBodyText,
+      custom412Raw,
       'O TradePro recusou uma pré-condição da solicitação (HTTP 412).',
     )
     record.set('status', 'error')
