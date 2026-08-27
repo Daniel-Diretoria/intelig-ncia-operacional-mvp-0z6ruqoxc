@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T20:26:14.479Z",
+  "generatedAt": "2026-08-27T20:56:23.670Z",
   "collections": [
     {
       "name": "users",
@@ -2182,7 +2182,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["sync_rupturas"]
+          "selectValues": ["sync_rupturas", "sync_validades"]
         },
         {
           "name": "requested_by",

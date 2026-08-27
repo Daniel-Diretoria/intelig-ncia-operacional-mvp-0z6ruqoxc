@@ -12,7 +12,9 @@ import {
   fetchTradeProBackendStatus,
   testTradeProConnection,
   requestRupturasPreview,
+  requestValidadesPreview,
   startRupturasSync,
+  startValidadesSync,
   cancelSyncJob,
   findRetryableSyncJob,
   type TradeProTestConnectionResult,
@@ -39,6 +41,21 @@ export interface UseTradeProApiReturn {
   startRupturasSync: (jobId: string) => Promise<SyncJobRecord>
   cancelRupturasSync: (jobId: string) => Promise<void>
   resetRupturasSyncState: () => void
+  // Validades Sync V2 (Paginada via Jobs)
+  validadesPreviewJob: SyncJobRecord | null
+  validadesPreviewStatus: 'idle' | 'loading' | 'success' | 'empty' | 'error'
+  validadesSyncJob: SyncJobRecord | null
+  validadesSyncStatus: 'idle' | 'syncing' | 'success' | 'paused' | 'error' | 'cancelled'
+  retryableValidadesJob: SyncJobRecord | null
+  retryableValidadesJobChecked: boolean
+  checkForRetryableValidadesJob: (
+    dataInicial: string,
+    dataFinal: string,
+  ) => Promise<SyncJobRecord | null>
+  requestValidadesPreview: (dataInicial: string, dataFinal: string) => Promise<SyncJobRecord>
+  startValidadesSync: (jobId?: string) => Promise<SyncJobRecord>
+  cancelValidadesSync: (jobId?: string) => Promise<void>
+  resetValidadesSyncState: () => void
   // Métodos legados / compatíveis
   sync: (type?: 'validades' | 'rupturas' | 'all') => Promise<SyncResult>
   testConnection: (dataInicial: string, dataFinal: string) => Promise<TradeProTestConnectionResult>
@@ -228,6 +245,105 @@ export function useTradeProApi(): UseTradeProApiReturn {
     setRetryableJobChecked(false)
   }, [])
 
+  const resetValidadesSyncState = useCallback(() => {
+    setValidadesPreviewJob(null)
+    setValidadesPreviewStatus('idle')
+    setValidadesSyncJob(null)
+    setValidadesSyncStatus('idle')
+    setRetryableValidadesJob(null)
+    setRetryableValidadesJobChecked(false)
+  }, [])
+
+  const checkForRetryableValidadesJob = useCallback(
+    async (dataInicial: string, dataFinal: string): Promise<SyncJobRecord | null> => {
+      setRetryableValidadesJobChecked(true)
+      const job = await findRetryableSyncJob(dataInicial, dataFinal, 'sync_validades')
+      setRetryableValidadesJob(job)
+      return job
+    },
+    [],
+  )
+
+  const handleRequestValidadesPreview = useCallback(
+    async (dataInicial: string, dataFinal: string): Promise<SyncJobRecord> => {
+      setValidadesPreviewStatus('loading')
+      try {
+        const job = await requestValidadesPreview(dataInicial, dataFinal)
+        setValidadesPreviewJob(job)
+        if (job.status === 'error') {
+          setValidadesPreviewStatus('error')
+        } else if (job.total_informado === 0) {
+          setValidadesPreviewStatus('empty')
+        } else {
+          setValidadesPreviewStatus('success')
+        }
+        return job
+      } catch (err) {
+        setValidadesPreviewStatus('error')
+        throw err
+      }
+    },
+    [],
+  )
+
+  const handleStartValidadesSync = useCallback(
+    async (jobIdParam?: string): Promise<SyncJobRecord> => {
+      const activeJobId =
+        jobIdParam || validadesPreviewJob?.id || validadesSyncJob?.id || retryableValidadesJob?.id
+      if (!activeJobId) {
+        throw new Error('Nenhum job de validades disponível para iniciar a sincronização.')
+      }
+
+      setValidadesSyncStatus('syncing')
+      setIsSyncing(true)
+      setRetryableValidadesJob(null)
+
+      try {
+        const finalJob = await startValidadesSync(activeJobId, (updatedJob) => {
+          setValidadesSyncJob(updatedJob)
+        })
+
+        setValidadesSyncJob(finalJob)
+
+        if (finalJob.status === 'success') {
+          setValidadesSyncStatus('success')
+          DataSourceFactory.reset()
+          window.dispatchEvent(new Event('diretoria:refresh'))
+        } else if (finalJob.status === 'paused') {
+          setValidadesSyncStatus('paused')
+        } else if (finalJob.status === 'cancelled') {
+          setValidadesSyncStatus('cancelled')
+        } else {
+          setValidadesSyncStatus('error')
+        }
+
+        return finalJob
+      } catch (err) {
+        setValidadesSyncStatus('error')
+        throw err
+      } finally {
+        setIsSyncing(false)
+      }
+    },
+    [validadesSyncJob, retryableValidadesJob],
+  )
+
+  const handleCancelValidadesSync = useCallback(
+    async (jobIdParam?: string): Promise<void> => {
+      const targetJobId =
+        jobIdParam || validadesSyncJob?.id || validadesPreviewJob?.id || retryableValidadesJob?.id
+      if (!targetJobId) return
+      try {
+        await cancelSyncJob(targetJobId)
+        setValidadesSyncStatus('cancelled')
+      } catch (err) {
+        console.error('[useTradeProApi] Erro ao cancelar sincronização de validades:', err)
+        throw err
+      }
+    },
+    [validadesSyncJob, retryableValidadesJob],
+  )
+
   const sync = useCallback(
     async (type: 'validades' | 'rupturas' | 'all' = 'all'): Promise<SyncResult> => {
       setIsSyncing(true)
@@ -281,6 +397,17 @@ export function useTradeProApi(): UseTradeProApiReturn {
     startRupturasSync: handleStartRupturasSync,
     cancelRupturasSync: handleCancelRupturasSync,
     resetRupturasSyncState,
+    validadesPreviewJob,
+    validadesPreviewStatus,
+    validadesSyncJob,
+    validadesSyncStatus,
+    retryableValidadesJob,
+    retryableValidadesJobChecked,
+    checkForRetryableValidadesJob,
+    requestValidadesPreview: handleRequestValidadesPreview,
+    startValidadesSync: handleStartValidadesSync,
+    cancelValidadesSync: handleCancelValidadesSync,
+    resetValidadesSyncState,
     sync,
     testConnection,
     refreshHistory,

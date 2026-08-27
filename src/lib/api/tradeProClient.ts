@@ -296,6 +296,40 @@ export async function requestRupturasPreview(
 }
 
 /**
+ * Cria job de prévia de Validades e retorna o registro processado com o total de itens e páginas.
+ */
+export async function requestValidadesPreview(
+  dataInicial: string,
+  dataFinal: string,
+): Promise<SyncJobRecord> {
+  const userId = pb.authStore.record?.id || pb.authStore.model?.id
+  if (!userId) {
+    throw new Error('Usuário não autenticado. Faça login para consultar a prévia.')
+  }
+
+  const created = await pb.collection('tradepro_sync_jobs').create({
+    action: 'sync_validades',
+    requested_by: userId,
+    date_start: dataInicial,
+    date_end: dataFinal,
+    status: 'pending',
+    total_informado: 0,
+    paginas_total: 0,
+    paginas_processadas: 0,
+    registros_lidos: 0,
+    registros_validos: 0,
+    registros_rejeitados: 0,
+    registros_deduplicados: 0,
+    registros_consolidados: 0,
+    message: '',
+  })
+
+  // Hook onRecordAfterCreateSuccess processa a prévia
+  const processed = await pb.collection('tradepro_sync_jobs').getOne(created.id)
+  return mapSyncJobRecord(processed as unknown as Record<string, unknown>)
+}
+
+/**
  * Atualiza o job para status='syncing' e faz polling até conclusão, erro ou pausa.
  */
 export async function startRupturasSync(
@@ -314,6 +348,56 @@ export async function startRupturasSync(
     })
     .catch((err) => {
       console.error('[startRupturasSync] Erro no PATCH inicial:', err)
+    })
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    try {
+      const current = await pb.collection('tradepro_sync_jobs').getOne(jobId)
+      const mapped = mapSyncJobRecord(current as unknown as Record<string, unknown>)
+
+      if (onProgress) {
+        onProgress(mapped)
+      }
+
+      if (
+        mapped.status === 'success' ||
+        mapped.status === 'error' ||
+        mapped.status === 'paused' ||
+        mapped.status === 'cancelled'
+      ) {
+        await updatePromise
+        return mapped
+      }
+    } catch (_) {
+      // Ignora falhas esporádicas de consulta durante polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS))
+  }
+
+  await updatePromise
+  const timeoutRec = await pb.collection('tradepro_sync_jobs').getOne(jobId)
+  return mapSyncJobRecord(timeoutRec as unknown as Record<string, unknown>)
+}
+
+/**
+ * Atualiza o job de Validades para status='syncing' e faz polling até conclusão, erro ou pausa.
+ */
+export async function startValidadesSync(
+  jobId: string,
+  onProgress?: (job: SyncJobRecord) => void,
+): Promise<SyncJobRecord> {
+  const POLLING_INTERVAL_MS = 1000
+  const MAX_POLLS = 600 // até 10 minutos para grandes volumes
+
+  // Dispara o update para 'syncing' assincronamente enquanto o polling pode já estar ativo
+  const updatePromise = pb
+    .collection('tradepro_sync_jobs')
+    .update(jobId, {
+      status: 'syncing',
+      message: 'Sincronização de validades iniciada...',
+    })
+    .catch((err) => {
+      console.error('[startValidadesSync] Erro no PATCH inicial:', err)
     })
 
   for (let i = 0; i < MAX_POLLS; i++) {
@@ -367,9 +451,10 @@ export async function cancelSyncJob(jobId: string): Promise<void> {
 export async function findRetryableSyncJob(
   dataInicial: string,
   dataFinal: string,
+  action: 'sync_rupturas' | 'sync_validades' = 'sync_rupturas',
 ): Promise<SyncJobRecord | null> {
   try {
-    const filter = `action = "sync_rupturas" && date_start = "${dataInicial}" && date_end = "${dataFinal}" && (status = "error" || status = "paused") && paginas_processadas > 0`
+    const filter = `action = "${action}" && date_start = "${dataInicial}" && date_end = "${dataFinal}" && (status = "error" || status = "paused") && paginas_processadas > 0`
     const records = await pb.collection('tradepro_sync_jobs').getList(1, 10, {
       filter,
       sort: '-paginas_processadas,-created',
@@ -382,7 +467,7 @@ export async function findRetryableSyncJob(
     // Retorna o primeiro job (com maior paginas_processadas)
     return mapSyncJobRecord(records.items[0] as unknown as Record<string, unknown>)
   } catch (err) {
-    console.error('[findRetryableSyncJob] Erro ao buscar job retryable:', err)
+    console.error(`[findRetryableSyncJob] Erro ao buscar job retryable (${action}):`, err)
     return null
   }
 }
