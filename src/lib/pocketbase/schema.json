@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T13:39:31.794Z",
+  "generatedAt": "2026-08-27T17:33:45.812Z",
   "collections": [
     {
       "name": "users",
@@ -2164,6 +2164,161 @@
       "indexes": [
         "CREATE INDEX idx_tradepro_jobs_user ON tradepro_connection_jobs (requested_by, created DESC)",
         "CREATE INDEX idx_tradepro_jobs_status ON tradepro_connection_jobs (status)"
+      ]
+    },
+    {
+      "name": "tradepro_sync_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\" && requested_by = @request.auth.id",
+        "view": "@request.auth.id != \"\" && requested_by = @request.auth.id",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\" && requested_by = @request.auth.id",
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "action",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["sync_rupturas"]
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "date_start",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_end",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "pending",
+            "preview",
+            "syncing",
+            "success",
+            "error",
+            "paused",
+            "cancelled"
+          ]
+        },
+        {
+          "name": "total_informado",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paginas_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paginas_processadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "registros_lidos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "registros_validos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "registros_rejeitados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "registros_deduplicados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "registros_consolidados",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_code",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "not_configured",
+            "invalid_period",
+            "unauthorized",
+            "forbidden",
+            "precondition_failed",
+            "rate_limited",
+            "timeout",
+            "tradepro_unavailable",
+            "internal_error"
+          ]
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "started_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "finished_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_tradepro_sync_jobs_user ON tradepro_sync_jobs (requested_by, created DESC)",
+        "CREATE INDEX idx_tradepro_sync_jobs_status ON tradepro_sync_jobs (status)"
       ]
     }
   ]

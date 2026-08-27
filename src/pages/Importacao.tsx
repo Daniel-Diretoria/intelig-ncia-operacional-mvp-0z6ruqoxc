@@ -212,7 +212,17 @@ export const ImportacaoPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // API TradePro Hook
-  const { testConnection } = useTradeProApi()
+  const {
+    testConnection,
+    rupturasPreviewJob,
+    rupturasPreviewStatus,
+    rupturasSyncJob,
+    rupturasSyncStatus,
+    requestRupturasPreview,
+    startRupturasSync,
+    cancelRupturasSync,
+    resetRupturasSyncState,
+  } = useTradeProApi()
 
   // Estado do Teste de Conexão TradePro
   const [apiDataInicial, setApiDataInicial] = useState<string>('')
@@ -223,6 +233,11 @@ export const ImportacaoPage: React.FC = () => {
   const [connectionTestResult, setConnectionTestResult] =
     useState<TradeProTestConnectionResult | null>(null)
   const [lastTestTimestamp, setLastTestTimestamp] = useState<string | null>(null)
+
+  // Estado da Sincronização Paginada de Rupturas (TradePro Sync)
+  const [syncDataInicial, setSyncDataInicial] = useState<string>('')
+  const [syncDataFinal, setSyncDataFinal] = useState<string>('')
+  const [syncConfirmModalOpen, setSyncConfirmModalOpen] = useState<boolean>(false)
 
   // Sub-aba ativa na visualização
   const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
@@ -349,6 +364,144 @@ export const ImportacaoPage: React.FC = () => {
     !!apiDataInicial &&
     !!apiDataFinal &&
     dateIntervalValidation.isValid
+
+  // Validação das datas de Sincronização de Rupturas
+  const syncDateIntervalValidation = useMemo(() => {
+    if (!syncDataInicial || !syncDataFinal) {
+      return { isValid: false, error: null }
+    }
+    if (syncDataInicial > syncDataFinal) {
+      return { isValid: false, error: 'A data final deve ser maior ou igual à data inicial.' }
+    }
+    const d1 = new Date(syncDataInicial + 'T00:00:00Z')
+    const d2 = new Date(syncDataFinal + 'T00:00:00Z')
+    const diffDays = Math.ceil(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays > 31) {
+      return { isValid: false, error: 'O intervalo máximo permitido é de 31 dias.' }
+    }
+    return { isValid: true, error: null }
+  }, [syncDataInicial, syncDataFinal])
+
+  const isPreviewButtonEnabled =
+    rupturasPreviewStatus !== 'loading' &&
+    rupturasSyncStatus !== 'syncing' &&
+    !!syncDataInicial &&
+    !!syncDataFinal &&
+    syncDateIntervalValidation.isValid
+
+  const handleRequestPreview = async () => {
+    if (!isPreviewButtonEnabled) return
+    try {
+      const job = await requestRupturasPreview(syncDataInicial, syncDataFinal)
+      if (job.status === 'error') {
+        toast({
+          title: 'Erro na prévia de Rupturas',
+          description: job.message || 'Não foi possível consultar os dados da API TradePro.',
+          variant: 'destructive',
+        })
+      } else if (job.total_informado === 0) {
+        toast({
+          title: 'Nenhum registro encontrado',
+          description: 'Nenhum registro de ruptura no intervalo selecionado.',
+        })
+      } else {
+        toast({
+          title: 'Prévia carregada',
+          description: `${job.total_informado.toLocaleString('pt-BR')} registros encontrados em ${job.paginas_total} páginas.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Falha ao consultar prévia',
+        description: err instanceof Error ? err.message : 'Erro ao processar prévia.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleConfirmStartSync = async () => {
+    if (!rupturasPreviewJob) return
+    setSyncConfirmModalOpen(false)
+    try {
+      toast({
+        title: 'Sincronização iniciada',
+        description: `Iniciando sincronização de ${rupturasPreviewJob.total_informado} registros...`,
+      })
+      const finalJob = await startRupturasSync(rupturasPreviewJob.id)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização concluída com sucesso',
+          description: `${finalJob.registros_consolidados} rupturas consolidadas na Base Atual.`,
+        })
+      } else if (finalJob.status === 'paused') {
+        toast({
+          title: 'Sincronização pausada',
+          description:
+            finalJob.message || 'Limite temporário atingido. Você pode retomar a qualquer momento.',
+          variant: 'destructive',
+        })
+      } else if (finalJob.status === 'cancelled') {
+        toast({
+          title: 'Sincronização cancelada',
+          description: 'A sincronização foi interrompida pelo usuário.',
+        })
+      } else {
+        toast({
+          title: 'Erro na sincronização',
+          description: finalJob.message || 'Ocorreu um erro durante o processamento.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro no processo de sincronização',
+        description: err instanceof Error ? err.message : 'Falha na sincronização.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleResumeSync = async () => {
+    const activeJobId = rupturasSyncJob?.id || rupturasPreviewJob?.id
+    if (!activeJobId) return
+    try {
+      toast({
+        title: 'Retomando sincronização',
+        description: 'Continuando processamento das páginas pendentes...',
+      })
+      const finalJob = await startRupturasSync(activeJobId)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização concluída com sucesso',
+          description: `${finalJob.registros_consolidados} rupturas consolidadas na Base Atual.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro ao retomar sincronização',
+        description: err instanceof Error ? err.message : 'Falha ao retomar.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleCancelSync = async () => {
+    const activeJobId = rupturasSyncJob?.id || rupturasPreviewJob?.id
+    if (!activeJobId) return
+    try {
+      await cancelRupturasSync(activeJobId)
+      toast({
+        title: 'Sincronização cancelada',
+        description: 'Operação interrompida. A Base Atual anterior foi mantida intacta.',
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao cancelar',
+        description: err instanceof Error ? err.message : 'Falha ao cancelar.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   const handleTestConnection = async () => {
     if (!isTestButtonEnabled) return
@@ -1489,6 +1642,454 @@ export const ImportacaoPage: React.FC = () => {
                 Ir para Importação Excel
               </Button>
             </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* BLOCO 2 — Sincronização Paginada de Rupturas (TradePro Sync)              */}
+          {/* ========================================================================= */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 space-y-6 shadow-xs">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                  <Database className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h4 className="text-base font-bold text-slate-900">
+                      Sincronização de Rupturas
+                    </h4>
+                    {rupturasSyncStatus === 'syncing' ? (
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[11px] font-bold animate-pulse">
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        Sincronizando...
+                      </Badge>
+                    ) : rupturasSyncStatus === 'success' ? (
+                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[11px] font-bold">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        Base Atualizada
+                      </Badge>
+                    ) : rupturasSyncStatus === 'paused' ? (
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[11px] font-bold">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Pausada
+                      </Badge>
+                    ) : rupturasSyncStatus === 'cancelled' ? (
+                      <Badge className="bg-slate-100 text-slate-700 border-slate-300 text-[11px] font-semibold">
+                        Cancelada
+                      </Badge>
+                    ) : rupturasPreviewStatus === 'success' ? (
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[11px] font-semibold">
+                        Prévia Pronta
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="bg-slate-50 text-slate-600 border-slate-200 text-[11px] font-semibold"
+                      >
+                        Pronta para consulta
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Consulte a prévia e sincronize a Base Atual de Rupturas de forma paginada e
+                    segura direto da API TradePro.
+                  </p>
+                </div>
+              </div>
+
+              {(rupturasPreviewJob || rupturasSyncJob) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetRupturasSyncState}
+                  disabled={rupturasSyncStatus === 'syncing'}
+                  className="h-9 px-3 gap-1.5 text-xs text-slate-600 rounded-xl"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Nova Consulta
+                </Button>
+              )}
+            </div>
+
+            {/* Parâmetros da Consulta de Prévia */}
+            <div className="bg-slate-50/70 rounded-xl p-5 border border-slate-200/80 space-y-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-amber-600" />
+                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Período para Sincronização de Rupturas
+                </h5>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="sync-data-inicial"
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    Data inicial <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="sync-data-inicial"
+                    type="date"
+                    value={syncDataInicial}
+                    onChange={(e) => {
+                      setSyncDataInicial(e.target.value)
+                      if (rupturasPreviewStatus !== 'loading') {
+                        resetRupturasSyncState()
+                      }
+                    }}
+                    disabled={
+                      rupturasPreviewStatus === 'loading' || rupturasSyncStatus === 'syncing'
+                    }
+                    className="w-full h-10 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="sync-data-final" className="text-xs font-semibold text-slate-700">
+                    Data final <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="sync-data-final"
+                    type="date"
+                    value={syncDataFinal}
+                    onChange={(e) => {
+                      setSyncDataFinal(e.target.value)
+                      if (rupturasPreviewStatus !== 'loading') {
+                        resetRupturasSyncState()
+                      }
+                    }}
+                    disabled={
+                      rupturasPreviewStatus === 'loading' || rupturasSyncStatus === 'syncing'
+                    }
+                    className="w-full h-10 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="pt-1 sm:pt-0">
+                  <Button
+                    type="button"
+                    onClick={handleRequestPreview}
+                    disabled={!isPreviewButtonEnabled}
+                    className="w-full h-10 gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl shadow-2xs disabled:opacity-50"
+                  >
+                    {rupturasPreviewStatus === 'loading' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Consultando API TradePro...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="w-4 h-4" />
+                        <span>Consultar prévia</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {syncDateIntervalValidation.error && (
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{syncDateIntervalValidation.error}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Mensagem quando nenhum job foi consultado */}
+            {rupturasPreviewStatus === 'idle' && !rupturasPreviewJob && (
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center gap-3 text-xs text-slate-600">
+                <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                <span>
+                  Selecione um período e clique em <strong>Consultar prévia</strong> para verificar
+                  os dados disponíveis na API TradePro antes de promover a Base Atual.
+                </span>
+              </div>
+            )}
+
+            {/* Loading da Prévia */}
+            {rupturasPreviewStatus === 'loading' && (
+              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+                <div className="text-xs text-amber-950">
+                  <p className="font-semibold">Consultando API TradePro...</p>
+                  <p className="text-amber-800 text-[11px] mt-0.5">
+                    Validando quantidade total de registros e páginas para o período solicitado.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Prévia com 0 registros */}
+            {rupturasPreviewStatus === 'empty' && rupturasPreviewJob && (
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex items-center gap-3">
+                <Info className="w-5 h-5 text-blue-600 shrink-0" />
+                <div className="text-xs text-blue-950">
+                  <p className="font-semibold">Nenhum registro de ruptura encontrado</p>
+                  <p className="text-blue-800 text-[11px] mt-0.5">
+                    Nenhum registro retornado para o período de {rupturasPreviewJob.date_start} a{' '}
+                    {rupturasPreviewJob.date_end}.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Prévia com Erro */}
+            {rupturasPreviewStatus === 'error' && rupturasPreviewJob && (
+              <div className="p-4 rounded-xl border border-red-200 bg-red-50/50 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-red-950 space-y-1">
+                  <p className="font-semibold">Falha na consulta de prévia</p>
+                  <p className="text-red-900 leading-relaxed">
+                    {rupturasPreviewJob.message || 'Erro ao conectar com a API TradePro.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Card com Resultado da Prévia & Botão de Sincronizar */}
+            {rupturasPreviewStatus === 'success' &&
+              rupturasPreviewJob &&
+              rupturasPreviewJob.total_informado > 0 &&
+              rupturasSyncStatus !== 'syncing' &&
+              rupturasSyncStatus !== 'success' && (
+                <div className="p-5 rounded-xl border border-amber-200 bg-amber-50/40 space-y-4">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm text-amber-950">Prévia de Rupturas Pronta</p>
+                      <p className="text-xs text-amber-900">
+                        Período: <strong>{rupturasPreviewJob.date_start}</strong> até{' '}
+                        <strong>{rupturasPreviewJob.date_end}</strong>
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      onClick={() => setSyncConfirmModalOpen(true)}
+                      className="h-10 px-5 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                    >
+                      <Database className="w-4 h-4" />
+                      <span>Sincronizar Rupturas</span>
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+                    <div className="p-3 bg-white rounded-lg border border-amber-200 text-center shadow-2xs">
+                      <span className="text-[10px] font-semibold uppercase text-amber-700 block">
+                        Total de Ocorrências
+                      </span>
+                      <span className="text-lg font-bold text-amber-950 tabular-nums">
+                        {rupturasPreviewJob.total_informado.toLocaleString('pt-BR')}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-white rounded-lg border border-amber-200 text-center shadow-2xs">
+                      <span className="text-[10px] font-semibold uppercase text-amber-700 block">
+                        Páginas Previstas
+                      </span>
+                      <span className="text-lg font-bold text-amber-950 tabular-nums">
+                        {rupturasPreviewJob.paginas_total}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-white rounded-lg border border-amber-200 text-center shadow-2xs col-span-2 sm:col-span-1">
+                      <span className="text-[10px] font-semibold uppercase text-amber-700 block">
+                        Tamanho do Lote
+                      </span>
+                      <span className="text-lg font-bold text-amber-950 tabular-nums">
+                        30 / página
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {/* Durante a Sincronização: Progresso em Tempo Real */}
+            {rupturasSyncStatus === 'syncing' && (
+              <div className="p-5 rounded-xl border border-amber-300 bg-amber-50 space-y-4 shadow-2xs">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+                    <div>
+                      <p className="font-bold text-sm text-amber-950">
+                        Sincronizando página {rupturasSyncJob?.paginas_processadas || 0} de{' '}
+                        {rupturasSyncJob?.paginas_total || rupturasPreviewJob?.paginas_total || 1}
+                        ...
+                      </p>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        {rupturasSyncJob?.registros_lidos || 0} registros lidos •{' '}
+                        {rupturasSyncJob?.registros_validos || 0} válidos
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelSync}
+                    className="h-9 px-3 gap-1.5 text-xs font-semibold text-red-700 border-red-200 bg-red-50/50 hover:bg-red-100 rounded-xl"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Cancelar</span>
+                  </Button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-amber-900 font-semibold">
+                    <span>Progresso da Sincronização</span>
+                    <span>
+                      {Math.round(
+                        ((rupturasSyncJob?.paginas_processadas || 0) /
+                          Math.max(
+                            1,
+                            rupturasSyncJob?.paginas_total ||
+                              rupturasPreviewJob?.paginas_total ||
+                              1,
+                          )) *
+                          100,
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      ((rupturasSyncJob?.paginas_processadas || 0) /
+                        Math.max(
+                          1,
+                          rupturasSyncJob?.paginas_total || rupturasPreviewJob?.paginas_total || 1,
+                        )) *
+                      100
+                    }
+                    className="h-2.5 bg-amber-200"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Job Pausado */}
+            {rupturasSyncStatus === 'paused' && (
+              <div className="p-5 rounded-xl border border-amber-300 bg-amber-50/80 space-y-3">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-sm text-amber-950">Sincronização Pausada</p>
+                      <p className="text-xs text-amber-900 mt-0.5">
+                        {rupturasSyncJob?.message ||
+                          'O limite temporário de requisições foi atingido. Clique em Retomar para continuar.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleResumeSync}
+                      className="h-9 px-4 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Retomar Sincronização</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCancelSync}
+                      className="h-9 px-3 text-xs text-slate-600 rounded-xl"
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Conclusão com Sucesso */}
+            {rupturasSyncStatus === 'success' && rupturasSyncJob && (
+              <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-emerald-950">
+                      Sincronização Concluída com Sucesso
+                    </p>
+                    <p className="text-xs text-emerald-800">
+                      A Base Atual de Rupturas foi promovida e atualizada atomicamente.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Registros Consolidados
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {rupturasSyncJob.registros_consolidados.toLocaleString('pt-BR')}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Páginas Processadas
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {rupturasSyncJob.paginas_processadas} de {rupturasSyncJob.paginas_total}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Total Lido
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {rupturasSyncJob.registros_lidos.toLocaleString('pt-BR')}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Deduplicados / Rejeitados
+                    </span>
+                    <span className="text-base font-bold text-emerald-950 tabular-nums">
+                      {rupturasSyncJob.registros_deduplicados} /{' '}
+                      {rupturasSyncJob.registros_rejeitados}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-9 px-3.5 text-xs font-semibold text-emerald-800 border-emerald-300 bg-white hover:bg-emerald-50 rounded-xl"
+                  >
+                    <Link to="/rupturas">
+                      <span>Ver Base de Rupturas</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Falha na Sincronização */}
+            {rupturasSyncStatus === 'error' && rupturasSyncJob && (
+              <div className="p-5 rounded-xl border border-red-200 bg-red-50/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-red-950">
+                      Falha na Sincronização de Rupturas
+                    </p>
+                    <p className="text-xs text-red-900 leading-relaxed">
+                      {rupturasSyncJob.message || 'Erro durante o processamento das páginas.'}
+                    </p>
+                    <p className="text-[11px] text-red-800 mt-1">
+                      A Base Atual anterior foi preservada integralmente sem corrupção de dados.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </TabsContent>
 
@@ -2869,6 +3470,57 @@ export const ImportacaoPage: React.FC = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de Confirmação para Sincronização de Rupturas */}
+      <Modal
+        isOpen={syncConfirmModalOpen}
+        onClose={() => setSyncConfirmModalOpen(false)}
+        title="Confirmar Sincronização de Rupturas"
+        description="Atualização segura da Base Atual de Rupturas"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSyncConfirmModalOpen(false)}
+              className="h-9 px-3 text-xs rounded-xl"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmStartSync}
+              className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs"
+            >
+              Confirmar e Sincronizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs text-slate-600">
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sm text-amber-950">Substituição da Base Atual</p>
+              <p className="text-amber-900 leading-relaxed">
+                Esta ação processará{' '}
+                <strong>{rupturasPreviewJob?.total_informado.toLocaleString('pt-BR')}</strong>{' '}
+                registros de rupturas ({rupturasPreviewJob?.paginas_total} páginas) referentes ao
+                período de <strong>{rupturasPreviewJob?.date_start}</strong> a{' '}
+                <strong>{rupturasPreviewJob?.date_end}</strong> e atualizará a Base Atual de
+                Rupturas.
+              </p>
+            </div>
+          </div>
+
+          <p className="leading-relaxed">
+            Durante o processamento, os registros serão validados e deduplicados sequencialmente. Em
+            caso de interrupção ou erro, a Base Atual anterior será mantida intacta.
+          </p>
+        </div>
+      </Modal>
 
       {/* Modal de confirmação (para importação Excel) */}
       <Modal

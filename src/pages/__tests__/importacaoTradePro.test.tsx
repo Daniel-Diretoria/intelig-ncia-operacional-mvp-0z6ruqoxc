@@ -9,6 +9,10 @@ import type { TradeProTestConnectionResult } from '@/lib/api/tradeProClient'
 
 describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importação Excel', () => {
   const mockTestConnection = vi.fn()
+  const mockRequestRupturasPreview = vi.fn()
+  const mockStartRupturasSync = vi.fn()
+  const mockCancelRupturasSync = vi.fn()
+  const mockResetRupturasSyncState = vi.fn()
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -27,6 +31,14 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
       lastSyncResult: null,
       syncHistory: [],
       isLoadingHistory: false,
+      rupturasPreviewJob: null,
+      rupturasPreviewStatus: 'idle',
+      rupturasSyncJob: null,
+      rupturasSyncStatus: 'idle',
+      requestRupturasPreview: mockRequestRupturasPreview,
+      startRupturasSync: mockStartRupturasSync,
+      cancelRupturasSync: mockCancelRupturasSync,
+      resetRupturasSyncState: mockResetRupturasSyncState,
       sync: vi.fn(),
       testConnection: mockTestConnection,
       refreshHistory: vi.fn(),
@@ -245,7 +257,23 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
     expect(htmlContent).not.toMatch(/Authorization:/i)
   })
 
-  it('8. Regressão: Aba "Importar Arquivo Excel" e alternância de abas permanecem funcionais', async () => {
+  it('8. Renderiza seção de Sincronização de Rupturas com campos e botão de prévia', async () => {
+    render(
+      <MemoryRouter>
+        <ImportacaoPage />
+      </MemoryRouter>,
+    )
+
+    const tabApi = screen.getByRole('tab', { name: /Integração TradePro/i })
+    fireEvent.click(tabApi)
+
+    await waitFor(() => {
+      expect(screen.getByText('Sincronização de Rupturas')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Consultar prévia/i })).toBeTruthy()
+    })
+  })
+
+  it('9. Regressão: Aba "Importar Arquivo Excel" e alternância de abas permanecem funcionais', async () => {
     render(
       <MemoryRouter>
         <ImportacaoPage />

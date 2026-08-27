@@ -87,4 +87,56 @@ describe('useTradeProApi Hook', () => {
       expect(syncRes.newRows).toBe(40)
     })
   })
+
+  it('4. requestRupturasPreview e startRupturasSync controlam os estados de prévia e sync', async () => {
+    const mockPreviewJob: tradeProClientModule.SyncJobRecord = {
+      id: 'job_1',
+      action: 'sync_rupturas',
+      requested_by: 'user_1',
+      date_start: '2026-05-01',
+      date_end: '2026-05-15',
+      status: 'preview',
+      total_informado: 120,
+      paginas_total: 4,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_deduplicados: 0,
+      registros_consolidados: 0,
+      message: 'Prévia gerada com sucesso.',
+      created: '',
+      updated: '',
+    }
+
+    const mockSyncJob: tradeProClientModule.SyncJobRecord = {
+      ...mockPreviewJob,
+      status: 'success',
+      paginas_processadas: 4,
+      registros_lidos: 120,
+      registros_validos: 120,
+      registros_consolidados: 120,
+    }
+
+    vi.spyOn(tradeProClientModule, 'requestRupturasPreview').mockResolvedValueOnce(mockPreviewJob)
+    vi.spyOn(tradeProClientModule, 'startRupturasSync').mockResolvedValueOnce(mockSyncJob)
+
+    const { result } = renderHook(() => useTradeProApi())
+
+    await act(async () => {
+      const pJob = await result.current.requestRupturasPreview('2026-05-01', '2026-05-15')
+      expect(pJob.total_informado).toBe(120)
+    })
+
+    expect(result.current.rupturasPreviewStatus).toBe('success')
+    expect(result.current.rupturasPreviewJob?.total_informado).toBe(120)
+
+    await act(async () => {
+      const sJob = await result.current.startRupturasSync('job_1')
+      expect(sJob.status).toBe('success')
+    })
+
+    expect(result.current.rupturasSyncStatus).toBe('success')
+    expect(result.current.rupturasSyncJob?.registros_consolidados).toBe(120)
+  })
 })
