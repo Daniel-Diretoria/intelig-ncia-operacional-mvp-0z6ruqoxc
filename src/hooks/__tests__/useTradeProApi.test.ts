@@ -139,4 +139,49 @@ describe('useTradeProApi Hook', () => {
     expect(result.current.rupturasSyncStatus).toBe('success')
     expect(result.current.rupturasSyncJob?.registros_consolidados).toBe(120)
   })
+
+  it('5. checkForRetryableJob busca job interrompido e atualiza retryableJob e retryableJobChecked', async () => {
+    const mockRetryable: tradeProClientModule.SyncJobRecord = {
+      id: '6f9hdu5t35895jo',
+      action: 'sync_rupturas',
+      requested_by: 'user_1',
+      date_start: '2026-08-26',
+      date_end: '2026-08-26',
+      status: 'error',
+      total_informado: 383,
+      paginas_total: 13,
+      paginas_processadas: 8,
+      registros_lidos: 240,
+      registros_validos: 240,
+      registros_rejeitados: 0,
+      registros_deduplicados: 0,
+      registros_consolidados: 0,
+      message: 'Falha na promoção',
+      created: '',
+      updated: '',
+    }
+
+    vi.spyOn(tradeProClientModule, 'findRetryableSyncJob').mockResolvedValueOnce(mockRetryable)
+
+    const { result } = renderHook(() => useTradeProApi())
+
+    expect(result.current.retryableJob).toBeNull()
+    expect(result.current.retryableJobChecked).toBe(false)
+
+    await act(async () => {
+      const found = await result.current.checkForRetryableJob('2026-08-26', '2026-08-26')
+      expect(found?.id).toBe('6f9hdu5t35895jo')
+    })
+
+    expect(result.current.retryableJob?.id).toBe('6f9hdu5t35895jo')
+    expect(result.current.retryableJob?.paginas_processadas).toBe(8)
+    expect(result.current.retryableJobChecked).toBe(true)
+
+    act(() => {
+      result.current.resetRupturasSyncState()
+    })
+
+    expect(result.current.retryableJob).toBeNull()
+    expect(result.current.retryableJobChecked).toBe(false)
+  })
 })

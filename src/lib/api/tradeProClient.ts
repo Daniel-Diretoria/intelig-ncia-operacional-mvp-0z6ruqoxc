@@ -356,6 +356,37 @@ export async function cancelSyncJob(jobId: string): Promise<void> {
   })
 }
 
+/**
+ * Consulta tradepro_sync_jobs em busca de jobs interrompidos (status 'error' ou 'paused')
+ * com progresso em staging preservado (paginas_processadas > 0) para o mesmo período.
+ *
+ * Prioriza jobs com maior número de paginas_processadas (mais dados preservados).
+ * Ignora jobs de prévia (status='preview' / paginas_processadas=0), concluídos ('success'/'completed') ou cancelados ('cancelled').
+ * NUNCA cria nenhum registro novo no banco.
+ */
+export async function findRetryableSyncJob(
+  dataInicial: string,
+  dataFinal: string,
+): Promise<SyncJobRecord | null> {
+  try {
+    const filter = `action = "sync_rupturas" && date_start = "${dataInicial}" && date_end = "${dataFinal}" && (status = "error" || status = "paused") && paginas_processadas > 0`
+    const records = await pb.collection('tradepro_sync_jobs').getList(1, 10, {
+      filter,
+      sort: '-paginas_processadas,-created',
+    })
+
+    if (!records.items || records.items.length === 0) {
+      return null
+    }
+
+    // Retorna o primeiro job (com maior paginas_processadas)
+    return mapSyncJobRecord(records.items[0] as unknown as Record<string, unknown>)
+  } catch (err) {
+    console.error('[findRetryableSyncJob] Erro ao buscar job retryable:', err)
+    return null
+  }
+}
+
 export function getTradeProClient() {
   return null
 }

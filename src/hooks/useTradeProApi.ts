@@ -14,6 +14,7 @@ import {
   requestRupturasPreview,
   startRupturasSync,
   cancelSyncJob,
+  findRetryableSyncJob,
   type TradeProTestConnectionResult,
   type SyncJobRecord,
 } from '@/lib/api/tradeProClient'
@@ -31,6 +32,9 @@ export interface UseTradeProApiReturn {
   rupturasPreviewStatus: 'idle' | 'loading' | 'success' | 'empty' | 'error'
   rupturasSyncJob: SyncJobRecord | null
   rupturasSyncStatus: 'idle' | 'syncing' | 'success' | 'paused' | 'error' | 'cancelled'
+  retryableJob: SyncJobRecord | null
+  retryableJobChecked: boolean
+  checkForRetryableJob: (dataInicial: string, dataFinal: string) => Promise<SyncJobRecord | null>
   requestRupturasPreview: (dataInicial: string, dataFinal: string) => Promise<SyncJobRecord>
   startRupturasSync: (jobId: string) => Promise<SyncJobRecord>
   cancelRupturasSync: (jobId: string) => Promise<void>
@@ -61,6 +65,8 @@ export function useTradeProApi(): UseTradeProApiReturn {
   const [rupturasSyncStatus, setRupturasSyncStatus] = useState<
     'idle' | 'syncing' | 'success' | 'paused' | 'error' | 'cancelled'
   >('idle')
+  const [retryableJob, setRetryableJob] = useState<SyncJobRecord | null>(null)
+  const [retryableJobChecked, setRetryableJobChecked] = useState<boolean>(false)
 
   const refreshHistory = useCallback(async () => {
     setIsLoadingHistory(true)
@@ -93,6 +99,23 @@ export function useTradeProApi(): UseTradeProApiReturn {
       }
     },
     [refreshHistory],
+  )
+
+  const checkForRetryableJob = useCallback(
+    async (dataInicial: string, dataFinal: string): Promise<SyncJobRecord | null> => {
+      try {
+        const found = await findRetryableSyncJob(dataInicial, dataFinal)
+        setRetryableJob(found)
+        setRetryableJobChecked(true)
+        return found
+      } catch (err) {
+        console.error('[useTradeProApi] Erro ao verificar job retryable:', err)
+        setRetryableJob(null)
+        setRetryableJobChecked(true)
+        return null
+      }
+    },
+    [],
   )
 
   const handleRequestRupturasPreview = useCallback(
@@ -201,6 +224,8 @@ export function useTradeProApi(): UseTradeProApiReturn {
     setRupturasPreviewStatus('idle')
     setRupturasSyncJob(null)
     setRupturasSyncStatus('idle')
+    setRetryableJob(null)
+    setRetryableJobChecked(false)
   }, [])
 
   const sync = useCallback(
@@ -249,6 +274,9 @@ export function useTradeProApi(): UseTradeProApiReturn {
     rupturasPreviewStatus,
     rupturasSyncJob,
     rupturasSyncStatus,
+    retryableJob,
+    retryableJobChecked,
+    checkForRetryableJob,
     requestRupturasPreview: handleRequestRupturasPreview,
     startRupturasSync: handleStartRupturasSync,
     cancelRupturasSync: handleCancelRupturasSync,

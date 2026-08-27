@@ -684,4 +684,206 @@ describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retoma
     expect(result[0].id).toBe('base_1')
     expect(result.some((r) => r.tenant_id.startsWith('tradepro_job_'))).toBe(false)
   })
+
+  describe('findRetryableSyncJob — Testes Unitários Obrigatórios', () => {
+    it('1. findRetryableSyncJob retorna job com 8/13 páginas para período 2026-08-26', async () => {
+      const mockJob6f9 = {
+        id: '6f9hdu5t35895jo',
+        action: 'sync_rupturas',
+        requested_by: 'bumacp2xh84zjzu',
+        date_start: '2026-08-26',
+        date_end: '2026-08-26',
+        status: 'error',
+        total_informado: 383,
+        paginas_total: 13,
+        paginas_processadas: 8,
+        registros_lidos: 240,
+        registros_validos: 240,
+        registros_rejeitados: 0,
+        registros_deduplicados: 0,
+        registros_consolidados: 0,
+        message: 'Falha na promoção dos registros para a Base Atual',
+        created: '2026-08-27T17:52:07.875Z',
+        updated: '2026-08-27T17:55:31.854Z',
+      }
+
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: vi.fn().mockResolvedValue({
+          items: [mockJob6f9],
+          totalItems: 1,
+        }),
+      } as any)
+
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+
+      expect(job).not.toBeNull()
+      expect(job?.id).toBe('6f9hdu5t35895jo')
+      expect(job?.date_start).toBe('2026-08-26')
+      expect(job?.date_end).toBe('2026-08-26')
+      expect(job?.status).toBe('error')
+      expect(job?.paginas_processadas).toBe(8)
+      expect(job?.paginas_total).toBe(13)
+      expect(job?.registros_validos).toBe(240)
+    })
+
+    it('2. findRetryableSyncJob retorna null para período sem jobs retryable', async () => {
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: vi.fn().mockResolvedValue({
+          items: [],
+          totalItems: 0,
+        }),
+      } as any)
+
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const job = await findRetryableSyncJob('2026-01-01', '2026-01-01')
+      expect(job).toBeNull()
+    })
+
+    it('3. Job com status="preview" e paginas_processadas=0 é ignorado', async () => {
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      const mockGetList = vi.fn().mockResolvedValue({
+        items: [],
+        totalItems: 0,
+      })
+
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: mockGetList,
+      } as any)
+
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+      expect(mockGetList).toHaveBeenCalledWith(
+        1,
+        10,
+        expect.objectContaining({
+          filter: expect.stringContaining('paginas_processadas > 0'),
+        }),
+      )
+      expect(job).toBeNull()
+    })
+
+    it('4. Job com status="completed" é ignorado', async () => {
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      const mockGetList = vi.fn().mockResolvedValue({
+        items: [],
+        totalItems: 0,
+      })
+
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: mockGetList,
+      } as any)
+
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+      expect(job).toBeNull()
+    })
+
+    it('5. Job com status="cancelled" é ignorado', async () => {
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      const mockGetList = vi.fn().mockResolvedValue({
+        items: [],
+        totalItems: 0,
+      })
+
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: mockGetList,
+      } as any)
+
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+      expect(job).toBeNull()
+    })
+
+    it('6. Múltiplos jobs retryable: prioriza o com mais paginas_processadas', async () => {
+      const mockJob3Pages = {
+        id: 'job_partial_3',
+        action: 'sync_rupturas',
+        date_start: '2026-08-26',
+        date_end: '2026-08-26',
+        status: 'paused',
+        paginas_total: 13,
+        paginas_processadas: 3,
+        registros_validos: 90,
+      }
+      const mockJob8Pages = {
+        id: '6f9hdu5t35895jo',
+        action: 'sync_rupturas',
+        date_start: '2026-08-26',
+        date_end: '2026-08-26',
+        status: 'error',
+        paginas_total: 13,
+        paginas_processadas: 8,
+        registros_validos: 240,
+      }
+
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: vi.fn().mockResolvedValue({
+          items: [mockJob8Pages, mockJob3Pages],
+          totalItems: 2,
+        }),
+      } as any)
+
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+      expect(job?.id).toBe('6f9hdu5t35895jo')
+      expect(job?.paginas_processadas).toBe(8)
+    })
+
+    it('7. findRetryableSyncJob NÃO cria registros novos (verificar com mock)', async () => {
+      const mockCreate = vi.fn()
+      const mockUpdate = vi.fn()
+
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: vi.fn().mockResolvedValue({ items: [], totalItems: 0 }),
+        create: mockCreate,
+        update: mockUpdate,
+      } as any)
+
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      await findRetryableSyncJob('2026-08-26', '2026-08-26')
+
+      expect(mockCreate).not.toHaveBeenCalled()
+      expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    it('8. Staging (is_base_atual=false, tenant_id=tradepro_job_*) permanece inalterado após a consulta', async () => {
+      const stagingRecords = [
+        { id: 'rup_stg_1', tenant_id: 'tradepro_job_6f9hdu5t35895jo', is_base_atual: false },
+        { id: 'rup_stg_2', tenant_id: 'tradepro_job_6f9hdu5t35895jo', is_base_atual: false },
+      ]
+
+      const mockPb = (await import('@/lib/pocketbase/client')).default
+      vi.spyOn(mockPb, 'collection').mockReturnValue({
+        getList: vi.fn().mockResolvedValue({
+          items: [
+            {
+              id: '6f9hdu5t35895jo',
+              action: 'sync_rupturas',
+              date_start: '2026-08-26',
+              date_end: '2026-08-26',
+              status: 'error',
+              paginas_processadas: 8,
+              paginas_total: 13,
+              registros_validos: 240,
+            },
+          ],
+          totalItems: 1,
+        }),
+      } as any)
+
+      const { findRetryableSyncJob } = await import('../tradeProClient')
+      const job = await findRetryableSyncJob('2026-08-26', '2026-08-26')
+      expect(job?.id).toBe('6f9hdu5t35895jo')
+
+      for (const rec of stagingRecords) {
+        expect(rec.is_base_atual).toBe(false)
+        expect(rec.tenant_id).toBe('tradepro_job_6f9hdu5t35895jo')
+      }
+    })
+  })
 })

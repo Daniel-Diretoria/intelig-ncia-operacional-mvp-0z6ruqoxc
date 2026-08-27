@@ -218,6 +218,8 @@ export const ImportacaoPage: React.FC = () => {
     rupturasPreviewStatus,
     rupturasSyncJob,
     rupturasSyncStatus,
+    retryableJob,
+    checkForRetryableJob,
     requestRupturasPreview,
     startRupturasSync,
     cancelRupturasSync,
@@ -392,6 +394,17 @@ export const ImportacaoPage: React.FC = () => {
   const handleRequestPreview = async () => {
     if (!isPreviewButtonEnabled) return
     try {
+      // 1. ANTES de criar um novo job de prévia, verificar se há job retryable existente
+      const existingRetryable = await checkForRetryableJob(syncDataInicial, syncDataFinal)
+      if (existingRetryable) {
+        toast({
+          title: 'Sincronização interrompida encontrada',
+          description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
+        })
+        return
+      }
+
+      // 2. Se não houver job retryable, prosseguir com o fluxo normal criando prévia
       const job = await requestRupturasPreview(syncDataInicial, syncDataFinal)
       if (job.status === 'error') {
         toast({
@@ -414,6 +427,76 @@ export const ImportacaoPage: React.FC = () => {
       toast({
         title: 'Falha ao consultar prévia',
         description: err instanceof Error ? err.message : 'Erro ao processar prévia.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleIgnoreAndStartNewPreview = async () => {
+    resetRupturasSyncState()
+    try {
+      const job = await requestRupturasPreview(syncDataInicial, syncDataFinal)
+      if (job.status === 'error') {
+        toast({
+          title: 'Erro na prévia de Rupturas',
+          description: job.message || 'Não foi possível consultar os dados da API TradePro.',
+          variant: 'destructive',
+        })
+      } else if (job.total_informado === 0) {
+        toast({
+          title: 'Nenhum registro encontrado',
+          description: 'Nenhum registro de ruptura no intervalo selecionado.',
+        })
+      } else {
+        toast({
+          title: 'Prévia carregada',
+          description: `${job.total_informado.toLocaleString('pt-BR')} registros encontrados em ${job.paginas_total} páginas.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Falha ao consultar prévia',
+        description: err instanceof Error ? err.message : 'Erro ao processar prévia.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleResumeRetryableJob = async (jobId: string) => {
+    try {
+      toast({
+        title: 'Retomando sincronização',
+        description: 'Continuando processamento das páginas pendentes a partir do staging...',
+      })
+      const finalJob = await startRupturasSync(jobId)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização concluída com sucesso',
+          description: `${finalJob.registros_consolidados} rupturas consolidadas na Base Atual.`,
+        })
+      } else if (finalJob.status === 'paused') {
+        toast({
+          title: 'Sincronização pausada',
+          description:
+            finalJob.message || 'Limite temporário atingido. Você pode retomar a qualquer momento.',
+          variant: 'destructive',
+        })
+      } else if (finalJob.status === 'cancelled') {
+        toast({
+          title: 'Sincronização cancelada',
+          description: 'A sincronização foi interrompida pelo usuário.',
+        })
+      } else {
+        toast({
+          title: 'Erro na sincronização',
+          description: finalJob.message || 'Ocorreu um erro durante o processamento.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro ao retomar sincronização',
+        description: err instanceof Error ? err.message : 'Falha ao retomar.',
         variant: 'destructive',
       })
     }
@@ -1697,7 +1780,7 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               </div>
 
-              {(rupturasPreviewJob || rupturasSyncJob) && (
+              {(rupturasPreviewJob || rupturasSyncJob || retryableJob) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1705,7 +1788,7 @@ export const ImportacaoPage: React.FC = () => {
                   disabled={rupturasSyncStatus === 'syncing'}
                   className="h-9 px-3 gap-1.5 text-xs text-slate-600 rounded-xl"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
                   Nova Consulta
                 </Button>
               )}
@@ -1796,8 +1879,143 @@ export const ImportacaoPage: React.FC = () => {
               )}
             </div>
 
-            {/* Mensagem quando nenhum job foi consultado */}
-            {rupturasPreviewStatus === 'idle' && !rupturasPreviewJob && (
+            {/* CARD DESTACADO: Sincronização interrompida encontrada (Job Retryable) */}
+            {retryableJob && (
+              <div
+                data-testid="retryable-job-card"
+                className="p-5 sm:p-6 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50/90 via-amber-50/50 to-orange-50/60 shadow-xs space-y-5 animate-fade-in"
+              >
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-800 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                      <AlertTriangle className="w-6 h-6 text-amber-700" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <h5 className="text-base font-bold text-amber-950 tracking-tight">
+                          Sincronização interrompida encontrada
+                        </h5>
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-100 text-amber-900 border-amber-300 text-[11px] font-mono font-bold px-2"
+                        >
+                          ID: ...{retryableJob.id.slice(-8)}
+                        </Badge>
+                        <Badge
+                          className={cn(
+                            'text-[11px] font-bold',
+                            retryableJob.status === 'paused'
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-rose-600 text-white',
+                          )}
+                        >
+                          {retryableJob.status === 'paused'
+                            ? 'Interrompido / Pausado'
+                            : 'Interrompido com erro'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-amber-900 font-medium mt-1">
+                        Período:{' '}
+                        <strong className="font-semibold text-amber-950">
+                          {retryableJob.date_start}
+                        </strong>{' '}
+                        a{' '}
+                        <strong className="font-semibold text-amber-950">
+                          {retryableJob.date_end}
+                        </strong>
+                        {retryableJob.updated && (
+                          <span className="text-amber-800/80 ml-2">
+                            • Última tentativa: {fmtDate(retryableJob.updated)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <Button
+                      type="button"
+                      onClick={() => handleResumeRetryableJob(retryableJob.id)}
+                      disabled={rupturasSyncStatus === 'syncing'}
+                      className="h-10 px-5 gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Retomar da página {retryableJob.paginas_processadas + 1}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleIgnoreAndStartNewPreview}
+                      disabled={rupturasSyncStatus === 'syncing'}
+                      className="h-10 px-3.5 text-xs font-semibold text-slate-700 border-slate-300 bg-white hover:bg-slate-50 rounded-xl"
+                    >
+                      Ignorar e começar novo
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Métricas do Job Retryable */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-white rounded-xl border border-amber-200/90 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-amber-700 block">
+                      Progresso de Páginas
+                    </span>
+                    <span className="text-base font-bold text-amber-950 tabular-nums">
+                      {retryableJob.paginas_processadas} de {retryableJob.paginas_total} concluídas
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-amber-200/90 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                      Preservados em Staging
+                    </span>
+                    <span className="text-base font-bold text-emerald-900 tabular-nums">
+                      {retryableJob.registros_validos.toLocaleString('pt-BR')} registros
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-amber-200/90 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-indigo-700 block">
+                      Próxima Página
+                    </span>
+                    <span className="text-base font-bold text-indigo-900 tabular-nums">
+                      Página {retryableJob.paginas_processadas + 1}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-amber-200/90 text-center shadow-2xs">
+                    <span className="text-[10px] font-semibold uppercase text-slate-600 block">
+                      Total Previsto
+                    </span>
+                    <span className="text-base font-bold text-slate-900 tabular-nums">
+                      {retryableJob.total_informado.toLocaleString('pt-BR')} registros
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mensagem Sanitizada da Interrupção */}
+                {retryableJob.message && (
+                  <div className="p-3.5 rounded-xl bg-amber-100/60 border border-amber-200 text-xs text-amber-950 space-y-1">
+                    <p className="font-semibold text-amber-900">Mensagem da última execução:</p>
+                    <p className="text-amber-900/90 leading-relaxed font-mono text-[11px] break-all">
+                      {retryableJob.message}
+                    </p>
+                  </div>
+                )}
+
+                {/* Aviso Obrigatório de Base Atual Protegida */}
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-950 bg-amber-100/80 p-3 rounded-xl border border-amber-300">
+                  <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>
+                    ⚠️ Base Atual protegida — os registros temporários não afetam os indicadores.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Mensagem quando nenhum job foi consultado e nenhum retryable detectado */}
+            {rupturasPreviewStatus === 'idle' && !rupturasPreviewJob && !retryableJob && (
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center gap-3 text-xs text-slate-600">
                 <Info className="w-4 h-4 text-slate-400 shrink-0" />
                 <span>
@@ -1847,9 +2065,10 @@ export const ImportacaoPage: React.FC = () => {
               </div>
             )}
 
-            {/* Card com Resultado da Prévia & Botão de Sincronizar */}
+            {/* Card com Resultado da Prévia & Botão de Sincronizar (Apenas se NÃO houver job retryable) */}
             {rupturasPreviewStatus === 'success' &&
               rupturasPreviewJob &&
+              !retryableJob &&
               rupturasPreviewJob.total_informado > 0 &&
               rupturasSyncStatus !== 'syncing' &&
               rupturasSyncStatus !== 'success' && (

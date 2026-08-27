@@ -35,6 +35,9 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
       rupturasPreviewStatus: 'idle',
       rupturasSyncJob: null,
       rupturasSyncStatus: 'idle',
+      retryableJob: null,
+      retryableJobChecked: false,
+      checkForRetryableJob: vi.fn().mockResolvedValue(null),
       requestRupturasPreview: mockRequestRupturasPreview,
       startRupturasSync: mockStartRupturasSync,
       cancelRupturasSync: mockCancelRupturasSync,
@@ -322,6 +325,9 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
         updated: '2026-08-27T00:00:00Z',
       },
       rupturasSyncStatus: 'paused',
+      retryableJob: null,
+      retryableJobChecked: false,
+      checkForRetryableJob: vi.fn().mockResolvedValue(null),
       requestRupturasPreview: mockRequestRupturasPreview,
       startRupturasSync: mockStartRupturasSync,
       cancelRupturasSync: mockCancelRupturasSync,
@@ -346,5 +352,80 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
       expect(screen.getByText(/8 página\(s\) processada\(s\)/i)).toBeTruthy()
       expect(screen.getByText(/página 9/i)).toBeTruthy()
     })
+  })
+
+  it('11. Exibe Card de Retomada quando job retryable (6f9hdu5t35895jo) for detectado', async () => {
+    const mockRetryableJob = {
+      id: '6f9hdu5t35895jo',
+      action: 'sync_rupturas' as const,
+      requested_by: 'bumacp2xh84zjzu',
+      date_start: '2026-08-26',
+      date_end: '2026-08-26',
+      status: 'error' as const,
+      total_informado: 383,
+      paginas_total: 13,
+      paginas_processadas: 8,
+      registros_lidos: 240,
+      registros_validos: 240,
+      registros_rejeitados: 0,
+      registros_deduplicados: 0,
+      registros_consolidados: 0,
+      message: 'Falha na promoção dos registros para a Base Atual',
+      created: '2026-08-27T17:52:07.875Z',
+      updated: '2026-08-27T17:55:31.854Z',
+    }
+
+    const mockCheck = vi.fn().mockResolvedValue(mockRetryableJob)
+
+    vi.spyOn(useTradeProApiModule, 'useTradeProApi').mockReturnValue({
+      isConfigured: true,
+      isSyncing: false,
+      syncProgress: { step: '', percent: 0 },
+      lastSyncResult: null,
+      syncHistory: [],
+      isLoadingHistory: false,
+      rupturasPreviewJob: null,
+      rupturasPreviewStatus: 'idle',
+      rupturasSyncJob: null,
+      rupturasSyncStatus: 'idle',
+      retryableJob: mockRetryableJob,
+      retryableJobChecked: true,
+      checkForRetryableJob: mockCheck,
+      requestRupturasPreview: mockRequestRupturasPreview,
+      startRupturasSync: mockStartRupturasSync,
+      cancelRupturasSync: mockCancelRupturasSync,
+      resetRupturasSyncState: mockResetRupturasSyncState,
+      sync: vi.fn(),
+      testConnection: mockTestConnection,
+      refreshHistory: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <ImportacaoPage />
+      </MemoryRouter>,
+    )
+
+    const tabApi = screen.getByRole('tab', { name: /Integração TradePro/i })
+    fireEvent.click(tabApi)
+
+    await waitFor(() => {
+      expect(screen.getByText('Sincronização interrompida encontrada')).toBeTruthy()
+      expect(screen.getByText(/ID: ...t35895jo/i)).toBeTruthy()
+      expect(screen.getByText(/8 de 13 concluídas/i)).toBeTruthy()
+      expect(screen.getByText(/240 registros/i)).toBeTruthy()
+      expect(screen.getByText(/Página 9/i)).toBeTruthy()
+      expect(
+        screen.getByText(
+          /⚠️ Base Atual protegida — os registros temporários não afetam os indicadores./i,
+        ),
+      ).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Retomar da página 9/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Ignorar e começar novo/i })).toBeTruthy()
+    })
+
+    const resumeBtn = screen.getByRole('button', { name: /Retomar da página 9/i })
+    fireEvent.click(resumeBtn)
+    expect(mockStartRupturasSync).toHaveBeenCalledWith('6f9hdu5t35895jo')
   })
 })
