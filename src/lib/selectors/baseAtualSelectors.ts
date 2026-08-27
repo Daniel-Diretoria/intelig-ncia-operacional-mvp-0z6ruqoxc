@@ -826,6 +826,15 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
     cachedEntry = null
   }
 
+  // Defesa: se o cache tem 0 rupturas mas tem validades ativas, força refresh para restaurar inconsistência
+  if (
+    cachedEntry &&
+    cachedEntry.snapshot.rupturasAtivas.length === 0 &&
+    cachedEntry.snapshot.validadesAtivas.length > 0
+  ) {
+    cachedEntry = null
+  }
+
   // 2. Se cache existe e está fresco (< 5min)
   if (cachedEntry && !forceRefresh) {
     const age = now - cachedEntry.cachedAt

@@ -201,6 +201,54 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
     expect(snap1).toBe(snap2)
   })
 
+  it('8. Defesa de cache: se o cache tem 0 rupturas e validades > 0, invalida cache e busca fresh', async () => {
+    let callCount = 0
+    const mockGetList = vi.fn().mockImplementation((col: string) => {
+      callCount++
+      if (callCount <= 2) {
+        // Primeira rodada: validades retorna 1 item, rupturas retorna 0 itens (simulando cache corrompido/inconsistente)
+        if (callCount === 1) {
+          return Promise.resolve({
+            items: [
+              { id: 'v1', produto: 'P1', quantidade: 5, validade: '2026-06-01', nome_loja: 'L1' },
+            ],
+            page: 1,
+            perPage: 500,
+            totalPages: 1,
+            totalItems: 1,
+          })
+        }
+        return Promise.resolve({
+          items: [],
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: 0,
+        })
+      }
+      // Segunda rodada: rupturas restauradas
+      return Promise.resolve({
+        items: [{ id: 'r1', produto: 'R1', situacao_atual: 'Ativo', nome_loja: 'L1' }],
+        page: 1,
+        perPage: 500,
+        totalPages: 1,
+        totalItems: 1,
+      })
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({ getList: mockGetList } as any)
+
+    const snap1 = await getBaseAtualSnapshot()
+    expect(snap1.validadesAtivas.length).toBe(1)
+    expect(snap1.rupturasAtivas.length).toBe(0)
+    expect(mockGetList).toHaveBeenCalledTimes(2)
+
+    // Segunda chamada sem forceRefresh: detecta 0 rupturas com validades > 0 e força refresh automático
+    const snap2 = await getBaseAtualSnapshot()
+    expect(mockGetList).toHaveBeenCalledTimes(4) // disparou nova busca fresh
+    expect(snap2.rupturasAtivas.length).toBe(1)
+  })
+
   it('4. Deduplicação StrictMode: duas chamadas simultâneas compartilham a mesma promessa', async () => {
     const mockGetList = vi.fn().mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
