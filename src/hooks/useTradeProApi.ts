@@ -120,6 +120,32 @@ export function useTradeProApi(): UseTradeProApiReturn {
   const handleStartRupturasSync = useCallback(
     async (jobId: string): Promise<SyncJobRecord> => {
       setRupturasSyncStatus('syncing')
+      // Inicializa o job em syncing para feedback imediato no UI antes da primeira resposta do polling
+      setRupturasSyncJob((prev) =>
+        prev && prev.id === jobId
+          ? { ...prev, status: 'syncing' }
+          : ({
+              id: jobId,
+              action: 'sync_rupturas',
+              status: 'syncing',
+              paginas_processadas: 0,
+              paginas_total: rupturasPreviewJob?.paginas_total || 1,
+              registros_lidos: 0,
+              registros_validos: 0,
+              registros_rejeitados: 0,
+              registros_consolidados: 0,
+              registros_deduplicados: 0,
+              total_informado: rupturasPreviewJob?.total_informado || 0,
+              date_start: rupturasPreviewJob?.date_start || '',
+              date_end: rupturasPreviewJob?.date_end || '',
+              message:
+                'Preparando a primeira página — nenhuma alteração foi realizada na Base Atual.',
+              error_code: '',
+              created: new Date().toISOString(),
+              updated: new Date().toISOString(),
+            } as SyncJobRecord),
+      )
+
       try {
         const finalJob = await startRupturasSync(jobId, (progressJob) => {
           setRupturasSyncJob(progressJob)
@@ -127,6 +153,8 @@ export function useTradeProApi(): UseTradeProApiReturn {
             setRupturasSyncStatus('paused')
           } else if (progressJob.status === 'cancelled') {
             setRupturasSyncStatus('cancelled')
+          } else if (progressJob.status === 'syncing') {
+            setRupturasSyncStatus('syncing')
           }
         })
 

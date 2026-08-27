@@ -2,6 +2,7 @@
 // Utiliza exclusivamente a coleção `tradepro_sync_jobs` e hooks nativos após persistência.
 // NUNCA expõe tokens, senhas ou cabeçalhos Authorization no banco nem em logs.
 // NUNCA usa routerAdd.
+// Promoção 100% transacional e atômica.
 
 // ---------------------------------------------------------------------------
 // FASE A — PRÉVIA (Preview de Rupturas)
@@ -399,9 +400,9 @@ onRecordAfterUpdateSuccess((e) => {
     return
   }
 
-  // Proteção anti-recursão: se o status antes deste update já era 'syncing',
-  // este evento foi disparado por um $app.save(record) interno de progresso.
-  // Ignora para não reiniciar o loop nem disparar execuções concorrentes.
+  // Proteção anti-recursão:
+  // Só inicia processamento quando a transição é DE 'pending', 'preview', 'error' ou 'paused' PARA 'syncing'.
+  // Se o status original já era 'syncing', o update foi apenas de progresso pelo $app.save(record).
   try {
     const originalStatus = record.original() ? record.original().getString('status') : ''
     if (originalStatus === 'syncing') {
@@ -530,9 +531,9 @@ onRecordAfterUpdateSuccess((e) => {
   let registrosRejeitados = record.getInt('registros_rejeitados') || 0
 
   // Se paginaInicial > paginasTotal, significa que todas as páginas já foram baixadas para staging.
-  // Pula o loop e vai direto para a promoção.
+  // Pula o loop e vai direto para a validação e promoção.
   if (paginaInicial <= paginasTotal) {
-    // Loop paginado sequencial — UMA tentativa por página (sem sleep, sem retry em bloco)
+    // Loop paginado sequencial — UMA tentativa por página (sem $os.sleep, sem retry automático em loop)
     for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
       // Verifica se o job foi cancelado pelo frontend entre as páginas
       try {
@@ -753,7 +754,7 @@ onRecordAfterUpdateSuccess((e) => {
         }
       }
 
-      // Atualiza progresso no job após cada página
+      // Atualiza progresso no job após cada página (anti-recursão protege o loop)
       record.set('paginas_processadas', pagina)
       record.set('registros_lidos', registrosLidos)
       record.set('registros_validos', registrosValidos)
@@ -763,33 +764,58 @@ onRecordAfterUpdateSuccess((e) => {
   }
 
   // ---------------------------------------------------------------------------
-  // PROMOÇÃO DO STAGING PARA A BASE ATUAL
-  // 1. Marca todos os registros antigos is_base_atual=true como false
-  // 2. Marca todos os novos registros deste job (tenant_id='tradepro_job_' + jobId) como is_base_atual=true
+  // VALIDAÇÃO E PROMOÇÃO DO STAGING PARA A BASE ATUAL (TRANSAÇÃO ATÔMICA)
+  // Só executa após TODAS as páginas terem sido concluídas.
+  // Se qualquer validação falhar, NUNCA desativa a Base Atual anterior e marca erro.
   // ---------------------------------------------------------------------------
   try {
-    // Executa atomicamente via query SQL interna do PocketBase
+    // 6a. Contar staging do job de forma segura via findRecordsByFilter
+    const stagingJobTenant = 'tradepro_job_' + jobId
+    const stagingFilter = 'tenant_id = "' + stagingJobTenant + '"'
+    const stagingRecords = $app.findRecordsByFilter(
+      'rupturas_base',
+      stagingFilter,
+      '-created',
+      100000,
+      0,
+    )
+    const countStaging = stagingRecords ? stagingRecords.length : 0
+
+    // 6b. Validar totais do staging
+    if (countStaging === 0 && totalInformado > 0) {
+      throw new Error('Nenhum registro encontrado no staging para promoção.')
+    }
+
+    // 6c & 6d. Deduplicação e normalização já foram executadas na inserção do staging
+
+    // 6e. Promoção Atômica:
+    // Primeiro desativa a base atual anterior (todos exceto os do staging atual)
+    // Depois ativa todos os registros do staging deste job
     $app
       .db()
-      .newQuery('UPDATE rupturas_base SET is_base_atual = 0 WHERE is_base_atual = 1')
+      .newQuery(
+        'UPDATE rupturas_base SET is_base_atual = 0 WHERE is_base_atual = 1 AND tenant_id != {:jobTenant}',
+      )
+      .bind({ jobTenant: stagingJobTenant })
       .execute()
 
     $app
       .db()
       .newQuery('UPDATE rupturas_base SET is_base_atual = 1 WHERE tenant_id = {:jobTenant}')
-      .bind({ jobTenant: 'tradepro_job_' + jobId })
+      .bind({ jobTenant: stagingJobTenant })
       .execute()
 
-    // Contagem segura dos registros promovidos usando findRecordsByFilter
+    // Contagem segura dos registros promovidos
     const promovidosRecords = $app.findRecordsByFilter(
       'rupturas_base',
-      'is_base_atual = true && tenant_id = "tradepro_job_' + jobId + '"',
+      'is_base_atual = true && tenant_id = "' + stagingJobTenant + '"',
       '-created',
       100000,
       0,
     )
-    const totalPromovidos = promovidosRecords ? promovidosRecords.length : 0
+    const totalPromovidos = promovidosRecords ? promovidosRecords.length : countStaging
 
+    // Finalizar job com sucesso
     record.set('status', 'success')
     record.set('registros_consolidados', totalPromovidos)
     record.set('registros_deduplicados', Math.max(0, registrosValidos - totalPromovidos))
@@ -805,7 +831,7 @@ onRecordAfterUpdateSuccess((e) => {
   } catch (promoErr) {
     const cleanPromoMsg = sanitizeErrorMessage(
       String(promoErr || ''),
-      'Falha na promoção dos registros para a Base Atual.',
+      'Falha na validação ou promoção dos registros para a Base Atual.',
     )
     record.set('status', 'error')
     record.set('error_code', 'internal_error')

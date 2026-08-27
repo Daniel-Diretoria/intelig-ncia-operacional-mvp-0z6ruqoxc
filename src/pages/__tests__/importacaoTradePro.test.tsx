@@ -290,4 +290,61 @@ describe('ImportacaoPage — Teste de Conexão TradePro e Regressão de Importa�
       expect(screen.getByText(/Selecionar arquivo/i)).toBeTruthy()
     })
   })
+
+  it('10. Exibe mensagem da página 0 e botão de Retomar em caso de erro/pausa com páginas > 0', async () => {
+    vi.spyOn(useTradeProApiModule, 'useTradeProApi').mockReturnValue({
+      isConfigured: true,
+      isSyncing: false,
+      syncProgress: { step: '', percent: 0 },
+      lastSyncResult: null,
+      syncHistory: [],
+      isLoadingHistory: false,
+      rupturasPreviewJob: null,
+      rupturasPreviewStatus: 'idle',
+      rupturasSyncJob: {
+        id: 'job_paused_123',
+        action: 'sync_rupturas',
+        status: 'paused',
+        total_informado: 383,
+        paginas_total: 13,
+        paginas_processadas: 8,
+        registros_lidos: 240,
+        registros_validos: 240,
+        registros_rejeitados: 0,
+        registros_consolidados: 0,
+        registros_deduplicados: 0,
+        date_start: '2026-08-01',
+        date_end: '2026-08-26',
+        message: 'Limite de requisições atingido. Job pausado.',
+        error_code: 'rate_limited',
+        requested_by: 'user_1',
+        created: '2026-08-27T00:00:00Z',
+        updated: '2026-08-27T00:00:00Z',
+      },
+      rupturasSyncStatus: 'paused',
+      requestRupturasPreview: mockRequestRupturasPreview,
+      startRupturasSync: mockStartRupturasSync,
+      cancelRupturasSync: mockCancelRupturasSync,
+      resetRupturasSyncState: mockResetRupturasSyncState,
+      sync: vi.fn(),
+      testConnection: mockTestConnection,
+      refreshHistory: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter>
+        <ImportacaoPage />
+      </MemoryRouter>,
+    )
+
+    const tabApi = screen.getByRole('tab', { name: /Integração TradePro/i })
+    fireEvent.click(tabApi)
+
+    await waitFor(() => {
+      expect(screen.getByText('Sincronização Pausada')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Retomar Sincronização/i })).toBeTruthy()
+      expect(screen.getByText(/8 página\(s\) processada\(s\)/i)).toBeTruthy()
+      expect(screen.getByText(/página 9/i)).toBeTruthy()
+    })
+  })
 })

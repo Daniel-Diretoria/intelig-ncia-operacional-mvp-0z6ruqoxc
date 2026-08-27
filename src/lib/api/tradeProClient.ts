@@ -302,15 +302,19 @@ export async function startRupturasSync(
   jobId: string,
   onProgress?: (job: SyncJobRecord) => void,
 ): Promise<SyncJobRecord> {
-  // 1. Atualizar job para 'syncing' para disparar onRecordAfterUpdateSuccess
-  await pb.collection('tradepro_sync_jobs').update(jobId, {
-    status: 'syncing',
-    message: 'Sincronização iniciada...',
-  })
-
-  // 2. Polling ativo até estado terminal (success | error | paused | cancelled)
   const POLLING_INTERVAL_MS = 1000
   const MAX_POLLS = 600 // até 10 minutos para grandes volumes
+
+  // Dispara o update para 'syncing' assincronamente enquanto o polling pode já estar ativo
+  const updatePromise = pb
+    .collection('tradepro_sync_jobs')
+    .update(jobId, {
+      status: 'syncing',
+      message: 'Sincronização iniciada...',
+    })
+    .catch((err) => {
+      console.error('[startRupturasSync] Erro no PATCH inicial:', err)
+    })
 
   for (let i = 0; i < MAX_POLLS; i++) {
     try {
@@ -327,6 +331,7 @@ export async function startRupturasSync(
         mapped.status === 'paused' ||
         mapped.status === 'cancelled'
       ) {
+        await updatePromise
         return mapped
       }
     } catch (_) {
@@ -335,6 +340,7 @@ export async function startRupturasSync(
     await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS))
   }
 
+  await updatePromise
   const timeoutRec = await pb.collection('tradepro_sync_jobs').getOne(jobId)
   return mapSyncJobRecord(timeoutRec as unknown as Record<string, unknown>)
 }

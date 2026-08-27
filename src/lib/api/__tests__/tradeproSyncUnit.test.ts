@@ -291,6 +291,53 @@ describe('TradePro Sync — Funções Utilitárias do Backend e Pipeline', () =>
 })
 
 describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retomada', () => {
+  it('Promoção atômica: desativa a base anterior e ativa o novo staging em sequência atômica', () => {
+    const record: MockRecord = {
+      id: 'job_atomic_test',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'preview',
+      total_informado: 30,
+      paginas_total: 1,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const executedQueries: string[] = []
+    const mockDbQuery = (q: string) => executedQueries.push(q)
+
+    simulateHookExecution(record, {
+      mockHttpResponses: [
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P1',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+      ],
+      mockDbQueryExecute: mockDbQuery,
+    })
+
+    expect(executedQueries.length).toBe(2)
+    expect(executedQueries[0]).toContain('UPDATE rupturas_base SET is_base_atual = 0')
+    expect(executedQueries[1]).toContain(
+      'UPDATE rupturas_base SET is_base_atual = 1 WHERE tenant_id',
+    )
+  })
+
   it('Promoção com findRecordsByFilter: calcula contagem de registros promovidos corretamente', () => {
     const record: MockRecord = {
       id: 'job_promo_test',
