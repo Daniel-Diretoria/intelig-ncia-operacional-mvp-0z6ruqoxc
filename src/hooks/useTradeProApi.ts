@@ -325,7 +325,7 @@ export function useTradeProApi(): UseTradeProApiReturn {
         setIsSyncing(false)
       }
     },
-    [validadesSyncJob, retryableValidadesJob],
+    [validadesSyncJob],
   )
 
   const handleCancelValidadesSync = useCallback(
@@ -341,7 +341,7 @@ export function useTradeProApi(): UseTradeProApiReturn {
         throw err
       }
     },
-    [validadesSyncJob, retryableValidadesJob],
+    [validadesSyncJob],
   )
 
   const sync = useCallback(

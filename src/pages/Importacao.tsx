@@ -28,6 +28,7 @@ import {
   CheckCircle,
   Clock,
   GitCompare,
+  CalendarCheck,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -224,6 +225,16 @@ export const ImportacaoPage: React.FC = () => {
     startRupturasSync,
     cancelRupturasSync,
     resetRupturasSyncState,
+    validadesPreviewJob,
+    validadesPreviewStatus,
+    validadesSyncJob,
+    validadesSyncStatus,
+    retryableValidadesJob,
+    checkForRetryableValidadesJob,
+    requestValidadesPreview,
+    startValidadesSync,
+    cancelValidadesSync,
+    resetValidadesSyncState,
   } = useTradeProApi()
 
   // Estado do Teste de Conexão TradePro
@@ -240,6 +251,11 @@ export const ImportacaoPage: React.FC = () => {
   const [syncDataInicial, setSyncDataInicial] = useState<string>('')
   const [syncDataFinal, setSyncDataFinal] = useState<string>('')
   const [syncConfirmModalOpen, setSyncConfirmModalOpen] = useState<boolean>(false)
+
+  // Estado da Sincronização Paginada de Validades (TradePro Sync)
+  const [valSyncDataInicial, setValSyncDataInicial] = useState<string>('')
+  const [valSyncDataFinal, setValSyncDataFinal] = useState<string>('')
+  const [valSyncConfirmModalOpen, setValSyncConfirmModalOpen] = useState<boolean>(false)
 
   // Sub-aba ativa na visualização
   const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
@@ -573,6 +589,226 @@ export const ImportacaoPage: React.FC = () => {
     if (!activeJobId) return
     try {
       await cancelRupturasSync(activeJobId)
+      toast({
+        title: 'Sincronização cancelada',
+        description: 'Operação interrompida. A Base Atual anterior foi mantida intacta.',
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao cancelar',
+        description: err instanceof Error ? err.message : 'Falha ao cancelar.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Validação das datas de Sincronização de Validades
+  const valSyncDateIntervalValidation = useMemo(() => {
+    if (!valSyncDataInicial || !valSyncDataFinal) {
+      return { isValid: false, error: null }
+    }
+    if (valSyncDataInicial > valSyncDataFinal) {
+      return { isValid: false, error: 'A data final deve ser maior ou igual à data inicial.' }
+    }
+    const d1 = new Date(valSyncDataInicial + 'T00:00:00Z')
+    const d2 = new Date(valSyncDataFinal + 'T00:00:00Z')
+    const diffDays = Math.ceil(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays > 31) {
+      return { isValid: false, error: 'O intervalo máximo permitido é de 31 dias.' }
+    }
+    return { isValid: true, error: null }
+  }, [valSyncDataInicial, valSyncDataFinal])
+
+  const isValPreviewButtonEnabled =
+    validadesPreviewStatus !== 'loading' &&
+    validadesSyncStatus !== 'syncing' &&
+    !!valSyncDataInicial &&
+    !!valSyncDataFinal &&
+    valSyncDateIntervalValidation.isValid
+
+  const handleValRequestPreview = async () => {
+    if (!isValPreviewButtonEnabled) return
+    try {
+      const existingRetryable = await checkForRetryableValidadesJob(
+        valSyncDataInicial,
+        valSyncDataFinal,
+      )
+      if (existingRetryable) {
+        toast({
+          title: 'Sincronização interrompida encontrada',
+          description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
+        })
+        return
+      }
+
+      const job = await requestValidadesPreview(valSyncDataInicial, valSyncDataFinal)
+      if (job.status === 'error') {
+        toast({
+          title: 'Erro na prévia de Validades',
+          description: job.message || 'Não foi possível consultar os dados da API TradePro.',
+          variant: 'destructive',
+        })
+      } else if (job.total_informado === 0) {
+        toast({
+          title: 'Nenhum registro encontrado',
+          description: 'Nenhum registro de validade no intervalo selecionado.',
+        })
+      } else {
+        toast({
+          title: 'Prévia de Validades carregada',
+          description: `${job.total_informado.toLocaleString('pt-BR')} registros encontrados em ${job.paginas_total} páginas.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Falha ao consultar prévia',
+        description: err instanceof Error ? err.message : 'Erro ao processar prévia.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleValIgnoreAndStartNew = async () => {
+    resetValidadesSyncState()
+    try {
+      const job = await requestValidadesPreview(valSyncDataInicial, valSyncDataFinal)
+      if (job.status === 'error') {
+        toast({
+          title: 'Erro na prévia de Validades',
+          description: job.message || 'Não foi possível consultar os dados da API TradePro.',
+          variant: 'destructive',
+        })
+      } else if (job.total_informado === 0) {
+        toast({
+          title: 'Nenhum registro encontrado',
+          description: 'Nenhum registro de validade no intervalo selecionado.',
+        })
+      } else {
+        toast({
+          title: 'Prévia de Validades carregada',
+          description: `${job.total_informado.toLocaleString('pt-BR')} registros encontrados em ${job.paginas_total} páginas.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Falha ao consultar prévia',
+        description: err instanceof Error ? err.message : 'Erro ao processar prévia.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleValResumeRetryableJob = async (jobId: string) => {
+    try {
+      toast({
+        title: 'Retomando sincronização de Validades',
+        description: 'Continuando processamento das páginas pendentes a partir do staging...',
+      })
+      const finalJob = await startValidadesSync(jobId)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização de Validades concluída com sucesso',
+          description: `${finalJob.registros_consolidados} ocorrências consolidadas na Base Atual.`,
+        })
+      } else if (finalJob.status === 'paused') {
+        toast({
+          title: 'Sincronização pausada',
+          description:
+            finalJob.message || 'Limite temporário atingido. Você pode retomar a qualquer momento.',
+          variant: 'destructive',
+        })
+      } else if (finalJob.status === 'cancelled') {
+        toast({
+          title: 'Sincronização cancelada',
+          description: 'A sincronização foi interrompida pelo usuário.',
+        })
+      } else {
+        toast({
+          title: 'Erro na sincronização',
+          description: finalJob.message || 'Ocorreu um erro durante o processamento.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro ao retomar sincronização',
+        description: err instanceof Error ? err.message : 'Falha ao retomar.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleValConfirmStartSync = async () => {
+    if (!validadesPreviewJob) return
+    setValSyncConfirmModalOpen(false)
+    try {
+      toast({
+        title: 'Sincronização de Validades iniciada',
+        description: `Iniciando sincronização de ${validadesPreviewJob.total_informado} registros...`,
+      })
+      const finalJob = await startValidadesSync(validadesPreviewJob.id)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização concluída com sucesso',
+          description: `${finalJob.registros_consolidados} ocorrências consolidadas na Base Atual.`,
+        })
+      } else if (finalJob.status === 'paused') {
+        toast({
+          title: 'Sincronização pausada',
+          description:
+            finalJob.message || 'Limite temporário atingido. Você pode retomar a qualquer momento.',
+          variant: 'destructive',
+        })
+      } else if (finalJob.status === 'cancelled') {
+        toast({
+          title: 'Sincronização cancelada',
+          description: 'A sincronização foi interrompida pelo usuário.',
+        })
+      } else {
+        toast({
+          title: 'Erro na sincronização',
+          description: finalJob.message || 'Ocorreu um erro durante o processamento.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro no processo de sincronização',
+        description: err instanceof Error ? err.message : 'Falha na sincronização.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleValResumeSync = async () => {
+    const activeJobId = validadesSyncJob?.id || validadesPreviewJob?.id
+    if (!activeJobId) return
+    try {
+      toast({
+        title: 'Retomando sincronização de Validades',
+        description: 'Continuando processamento das páginas pendentes...',
+      })
+      const finalJob = await startValidadesSync(activeJobId)
+      if (finalJob.status === 'success') {
+        toast({
+          title: 'Sincronização concluída com sucesso',
+          description: `${finalJob.registros_consolidados} ocorrências consolidadas na Base Atual.`,
+        })
+      }
+    } catch (err) {
+      toast({
+        title: 'Erro ao retomar sincronização',
+        description: err instanceof Error ? err.message : 'Falha ao retomar.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleValCancelSync = async () => {
+    const activeJobId = validadesSyncJob?.id || validadesPreviewJob?.id
+    if (!activeJobId) return
+    try {
+      await cancelValidadesSync(activeJobId)
       toast({
         title: 'Sincronização cancelada',
         description: 'Operação interrompida. A Base Atual anterior foi mantida intacta.',
