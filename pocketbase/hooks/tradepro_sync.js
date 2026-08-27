@@ -513,13 +513,13 @@ onRecordAfterCreateSuccess((e) => {
     const authHeader = trimmedToken.startsWith('Basic ') ? trimmedToken : 'Basic ' + trimmedToken
     const toTradeProDate = (isoDate) => isoDate.replace(/-/g, '')
 
-    // Endpoint oficial de Validades: /v1/relatorio-validade/{dataInicial}/{dataFinal}/realizado?paginaAtual=1&quantidadePorPagina=1
+    // Endpoint oficial de Validades: /v1/relatorio-validade/{dataInicial}/{dataFinal}?paginaAtual=1&quantidadePorPagina=1
     const url =
       'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-validade/' +
       toTradeProDate(dateStart) +
       '/' +
       toTradeProDate(dateEnd) +
-      '/realizado?paginaAtual=1&quantidadePorPagina=1'
+      '?paginaAtual=1&quantidadePorPagina=1'
 
     const sanitizeErrorMessage = (rawText, defaultMsg) => {
       if (!rawText) return defaultMsg
@@ -560,9 +560,8 @@ onRecordAfterCreateSuccess((e) => {
         headers: {
           Authorization: authHeader,
           Accept: 'application/json',
-          'User-Agent': 'Inteligencia-Operacional-Validades/1.0',
         },
-        timeout: 25,
+        timeout: 20,
       })
     } catch (err) {
       httpError = err
@@ -578,7 +577,7 @@ onRecordAfterCreateSuccess((e) => {
       record.set(
         'message',
         isTimeout
-          ? 'Tempo limite de 25s excedido ao consultar o TradePro.'
+          ? 'Serviço não respondeu dentro do limite de 20 segundos.'
           : 'Erro de comunicação ao conectar à API TradePro.',
       )
       record.set('total_informado', 0)
@@ -1334,7 +1333,7 @@ onRecordAfterUpdateSuccess((e) => {
         toTradeProDate(dateStart) +
         '/' +
         toTradeProDate(dateEnd) +
-        '/realizado?paginaAtual=' +
+        '?paginaAtual=' +
         pagina +
         '&quantidadePorPagina=' +
         pageSize
@@ -1349,9 +1348,8 @@ onRecordAfterUpdateSuccess((e) => {
           headers: {
             Authorization: authHeader,
             Accept: 'application/json',
-            'User-Agent': 'Inteligencia-Operacional-Validades/1.0',
           },
-          timeout: 25,
+          timeout: 20,
         })
       } catch (err) {
         pageErr = err
@@ -1363,7 +1361,7 @@ onRecordAfterUpdateSuccess((e) => {
         isInterrupted = true
         pauseErrorCode = isTimeout ? 'timeout' : 'tradepro_unavailable'
         pauseMessage = isTimeout
-          ? 'Tempo limite de 25s excedido na página ' + pagina + '.'
+          ? 'Tempo limite esgotado na página ' + pagina + '.'
           : 'Erro de comunicação na página ' + pagina + '.'
         break
       }
