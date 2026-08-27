@@ -85,6 +85,18 @@ export function useTradeProApi(): UseTradeProApiReturn {
   const [retryableJob, setRetryableJob] = useState<SyncJobRecord | null>(null)
   const [retryableJobChecked, setRetryableJobChecked] = useState<boolean>(false)
 
+  // Estados de Sincronização de Validades Paginada
+  const [validadesPreviewJob, setValidadesPreviewJob] = useState<SyncJobRecord | null>(null)
+  const [validadesPreviewStatus, setValidadesPreviewStatus] = useState<
+    'idle' | 'loading' | 'success' | 'empty' | 'error'
+  >('idle')
+  const [validadesSyncJob, setValidadesSyncJob] = useState<SyncJobRecord | null>(null)
+  const [validadesSyncStatus, setValidadesSyncStatus] = useState<
+    'idle' | 'syncing' | 'success' | 'paused' | 'error' | 'cancelled'
+  >('idle')
+  const [retryableValidadesJob, setRetryableValidadesJob] = useState<SyncJobRecord | null>(null)
+  const [retryableValidadesJobChecked, setRetryableValidadesJobChecked] = useState<boolean>(false)
+
   const refreshHistory = useCallback(async () => {
     setIsLoadingHistory(true)
     try {
