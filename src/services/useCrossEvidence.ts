@@ -30,7 +30,8 @@ export function useCrossEvidence(filters?: CrossEvidenceFilter): UseCrossEvidenc
       // 1. Obter total oficial de rupturas ativas do banco (baseline 184)
       try {
         const rupCount = await pb.collection('rupturas_base').getList(1, 1, {
-          filter: "is_base_atual = true && situacao_atual = 'Ativo'",
+          filter:
+            "is_base_atual = true && situacao_atual = 'Ativo' && tenant_id !~ 'tradepro_job_'",
         })
         if (rupCount.totalItems > 0) {
           setOfficialRupturesCount(rupCount.totalItems)

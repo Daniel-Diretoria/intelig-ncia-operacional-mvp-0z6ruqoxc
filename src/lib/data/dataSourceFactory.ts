@@ -51,7 +51,7 @@ export class TradeProApiAdapter implements IOperationalDataSource {
   private async fetchRupturasBase(): Promise<Ruptura[]> {
     try {
       const records = await pb.collection('rupturas_base').getFullList({
-        filter: 'is_base_atual = true',
+        filter: 'is_base_atual = true && tenant_id !~ "tradepro_job_"',
         sort: '-data_visita',
       })
       return records.map((r) => toRuptura(r as unknown as Record<string, unknown>))

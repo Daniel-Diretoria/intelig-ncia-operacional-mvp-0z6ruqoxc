@@ -122,8 +122,13 @@ async function fetchSinglePage(
   timeoutMs = 15000,
 ): Promise<{ items: Array<Record<string, unknown>>; totalPages: number; totalItems: number }> {
   const executeCall = async () => {
+    const filter =
+      collectionName === 'rupturas_base'
+        ? 'is_base_atual = true && tenant_id !~ "tradepro_job_"'
+        : 'is_base_atual = true'
+
     const pagePromise = pb.collection(collectionName).getList(page, perPage, {
-      filter: 'is_base_atual = true',
+      filter,
       sort: '-created',
       fields,
     })

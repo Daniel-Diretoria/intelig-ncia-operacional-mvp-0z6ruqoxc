@@ -431,7 +431,7 @@ export async function exportarRelatorioRupturasPdf(
   try {
     const raw = await pb.collection('rupturas_base').getFullList({
       sort: '-data_visita',
-      filter: 'is_base_atual = true',
+      filter: 'is_base_atual = true && tenant_id !~ "tradepro_job_"',
     })
     const { toRuptura, applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
     const mapped = raw.map((r) => toRuptura(r as unknown as Record<string, unknown>))

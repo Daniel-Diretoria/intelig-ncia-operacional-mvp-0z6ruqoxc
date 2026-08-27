@@ -310,7 +310,8 @@ export async function runShadowReconciliation(
 
   try {
     // 1. Buscar rupturas ativas oficiais com paginação controlada
-    let ruptureFilter = "is_base_atual = true && situacao_atual = 'Ativo'"
+    let ruptureFilter =
+      "is_base_atual = true && situacao_atual = 'Ativo' && tenant_id !~ 'tradepro_job_'"
     if (options?.storeCode) {
       ruptureFilter += ` && (codigo_loja = '${options.storeCode}' || nome_loja ~ '${options.storeCode}')`
     }

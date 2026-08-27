@@ -304,4 +304,83 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
     expect(snapshot.validadesAtivas.length).toBe(1)
     expect(snapshot.loadedFromBackend).toBe(true)
   })
+
+  it('exclui registros de staging (tenant_id tradepro_job_) do snapshot', async () => {
+    const mockRupturas = [
+      {
+        id: 'r1',
+        is_base_atual: true,
+        tenant_id: 'import_123',
+        codigo_loja: '001',
+        produto: 'Prod A',
+        situacao_atual: 'Ativo',
+      },
+      {
+        id: 'r2',
+        is_base_atual: false,
+        tenant_id: 'tradepro_job_abc',
+        codigo_loja: '002',
+        produto: 'Prod B',
+        situacao_atual: 'Ativo',
+      },
+      {
+        id: 'r3',
+        is_base_atual: true,
+        tenant_id: 'tradepro_job_xyz',
+        codigo_loja: '003',
+        produto: 'Prod C',
+        situacao_atual: 'Ativo',
+      },
+    ]
+
+    const mockGetList = vi
+      .fn()
+      .mockImplementation((page: number, perPage: number, options: any) => {
+        // Simula o PocketBase aplicando o filtro passado na query
+        const filterStr = options?.filter || ''
+        expect(filterStr).toContain('tenant_id !~ "tradepro_job_"')
+
+        const filtered = mockRupturas.filter((r) => {
+          if (filterStr.includes('is_base_atual = true') && !r.is_base_atual) return false
+          if (
+            filterStr.includes('tenant_id !~ "tradepro_job_"') &&
+            r.tenant_id.includes('tradepro_job_')
+          )
+            return false
+          return true
+        })
+
+        return Promise.resolve({
+          items: filtered,
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: filtered.length,
+        })
+      })
+
+    vi.spyOn(pb, 'collection').mockImplementation(((col: string) => {
+      if (col === 'rupturas_base') {
+        return { getList: mockGetList }
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({
+          items: [],
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: 0,
+        }),
+      }
+    }) as any)
+
+    const snapshot = await getBaseAtualSnapshot(true)
+
+    // Apenas r1 deve ser retornado (is_base_atual=true E tenant_id não começa com tradepro_job_)
+    // r2 tem is_base_atual=false, r3 tem tenant_id que começa com tradepro_job_
+    expect(snapshot.rupturasAtivas.length).toBe(1)
+    expect(snapshot.rupturasAtivas[0].id).toBe('r1')
+    expect(snapshot.rupturasAtivas[0].produto).toBe('Prod A')
+    expect(snapshot.kpisReconciliados.rupturasAtivasTotal).toBe(1)
+  })
 })
