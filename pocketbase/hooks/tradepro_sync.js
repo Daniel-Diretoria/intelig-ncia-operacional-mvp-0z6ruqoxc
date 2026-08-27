@@ -399,6 +399,16 @@ onRecordAfterUpdateSuccess((e) => {
     return
   }
 
+  // Proteção anti-recursão: se o status antes deste update já era 'syncing',
+  // este evento foi disparado por um $app.save(record) interno de progresso.
+  // Ignora para não reiniciar o loop nem disparar execuções concorrentes.
+  try {
+    const originalStatus = record.original() ? record.original().getString('status') : ''
+    if (originalStatus === 'syncing') {
+      return
+    }
+  } catch (_) {}
+
   const rawToken = $os.getenv('TRADEPRO_BASIC_TOKEN') || ''
   if (!rawToken.trim()) {
     record.set('status', 'error')
@@ -424,7 +434,7 @@ onRecordAfterUpdateSuccess((e) => {
   if (paginaInicial < 1) paginaInicial = 1
   else paginaInicial = paginaInicial + 1 // retoma da próxima se já processou páginas
 
-  // Se já processou todas as páginas ou total é zero
+  // Se o total é zero
   if (totalInformado === 0) {
     record.set('status', 'success')
     record.set('registros_consolidados', 0)
@@ -519,48 +529,32 @@ onRecordAfterUpdateSuccess((e) => {
   let registrosValidos = record.getInt('registros_validos') || 0
   let registrosRejeitados = record.getInt('registros_rejeitados') || 0
 
-  // Loop paginado sequencial
-  for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
-    // Verifica se o job foi cancelado pelo frontend entre as páginas
-    try {
-      const checkRecord = $app.findRecordById('tradepro_sync_jobs', jobId)
-      if (checkRecord.getString('status') === 'cancelled') {
-        return // interrompe processamento
-      }
-    } catch (_) {}
+  // Se paginaInicial > paginasTotal, significa que todas as páginas já foram baixadas para staging.
+  // Pula o loop e vai direto para a promoção.
+  if (paginaInicial <= paginasTotal) {
+    // Loop paginado sequencial — UMA tentativa por página (sem sleep, sem retry em bloco)
+    for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
+      // Verifica se o job foi cancelado pelo frontend entre as páginas
+      try {
+        const checkRecord = $app.findRecordById('tradepro_sync_jobs', jobId)
+        if (checkRecord.getString('status') === 'cancelled') {
+          return // interrompe processamento
+        }
+      } catch (_) {}
 
-    const pageUrl =
-      'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-rupturas/' +
-      toTradeProDate(dateStart) +
-      '/' +
-      toTradeProDate(dateEnd) +
-      '?paginaAtual=' +
-      pagina +
-      '&quantidadePorPagina=30&agruparUltimaColetaDoProdutoDoMesmoCliente=1'
+      const pageUrl =
+        'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-rupturas/' +
+        toTradeProDate(dateStart) +
+        '/' +
+        toTradeProDate(dateEnd) +
+        '?paginaAtual=' +
+        pagina +
+        '&quantidadePorPagina=30&agruparUltimaColetaDoProdutoDoMesmoCliente=1'
 
-    let res = null
-    let sendError = null
+      let res = null
+      let sendError = null
 
-    // Primeira tentativa
-    try {
-      res = $http.send({
-        url: pageUrl,
-        method: 'GET',
-        headers: {
-          Authorization: authHeader,
-          Accept: 'application/json',
-        },
-        timeout: 20,
-      })
-    } catch (err) {
-      sendError = err
-    }
-
-    // Tratamento de 429 ou 5xx/timeout com retry único e backoff 2s
-    let statusCode = res ? res.statusCode || 0 : 0
-    if (sendError || statusCode === 429 || statusCode >= 500) {
-      $os.sleep(2000)
-      sendError = null
+      // Única tentativa por página
       try {
         res = $http.send({
           url: pageUrl,
@@ -571,199 +565,201 @@ onRecordAfterUpdateSuccess((e) => {
           },
           timeout: 20,
         })
-        statusCode = res ? res.statusCode || 0 : 0
-      } catch (err2) {
-        sendError = err2
-        statusCode = 0
-      }
-    }
-
-    const rawBodyText =
-      res && typeof res.raw === 'string'
-        ? res.raw
-        : res && typeof res.body === 'string'
-          ? res.body
-          : ''
-
-    // Falhas críticas que pausam ou abortam o job
-    if (sendError || statusCode === 0) {
-      record.set('status', 'error')
-      record.set('error_code', 'timeout')
-      record.set(
-        'message',
-        'Tempo limite esgotado ou falha de conexão na página ' +
-          pagina +
-          ' de ' +
-          paginasTotal +
-          '.',
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    if (statusCode === 401) {
-      record.set('status', 'error')
-      record.set('error_code', 'unauthorized')
-      record.set(
-        'message',
-        sanitizeErrorMessage(rawBodyText, 'Autenticação recusada pelo TradePro.'),
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    if (statusCode === 403) {
-      record.set('status', 'error')
-      record.set('error_code', 'forbidden')
-      record.set(
-        'message',
-        sanitizeErrorMessage(
-          rawBodyText,
-          'Acesso não autorizado aos dados da página ' + pagina + '.',
-        ),
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    if (statusCode === 412) {
-      record.set('status', 'error')
-      record.set('error_code', 'precondition_failed')
-      record.set(
-        'message',
-        sanitizeErrorMessage(
-          rawBodyText,
-          'Pré-condição recusada na página ' + pagina + ' (HTTP 412).',
-        ),
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    if (statusCode === 429) {
-      record.set('status', 'paused')
-      record.set('error_code', 'rate_limited')
-      record.set(
-        'message',
-        'Limite de requisições atingido na página ' +
-          pagina +
-          '. Job pausado. Clique em Retomar quando desejar.',
-      )
-      $app.save(record)
-      return
-    }
-
-    if (statusCode >= 500) {
-      record.set('status', 'error')
-      record.set('error_code', 'tradepro_unavailable')
-      record.set(
-        'message',
-        sanitizeErrorMessage(
-          rawBodyText,
-          'Servidor TradePro indisponível ao consultar página ' + pagina + '.',
-        ),
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    if (statusCode !== 200 && statusCode !== 204) {
-      record.set('status', 'error')
-      record.set('error_code', 'internal_error')
-      record.set(
-        'message',
-        sanitizeErrorMessage(
-          rawBodyText,
-          'Falha inesperada ao processar página ' + pagina + ' (HTTP ' + statusCode + ').',
-        ),
-      )
-      record.set('finished_at', new Date().toISOString())
-      $app.save(record)
-      return
-    }
-
-    // Processamento dos itens da página
-    let jsonBody = null
-    try {
-      jsonBody = res.json
-    } catch (_) {}
-
-    const itens =
-      jsonBody && Array.isArray(jsonBody.rupturas)
-        ? jsonBody.rupturas
-        : jsonBody && Array.isArray(jsonBody.data)
-          ? jsonBody.data
-          : []
-
-    registrosLidos += itens.length
-
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i]
-      if (!item) continue
-
-      const rawProduto = item.descricaoAtividade || item.produto || ''
-      const rawRazaoSocial = item.razaoSocialCliente || item.nome_loja || ''
-      const rawDataVisita = (item.dataVisita || '').split(' ')[0].split('T')[0]
-      const rawMotivo = item.descricaoMotivo || item.motivo || ''
-
-      if (!rawProduto || !rawRazaoSocial || !rawDataVisita || !rawMotivo) {
-        registrosRejeitados++
-        continue
+      } catch (err) {
+        sendError = err
       }
 
-      registrosValidos++
-      const codigoLoja = extractStoreCode(rawRazaoSocial)
-      const motivoNormalizado = normalizeRupturaMotivo(rawMotivo)
-      const clienteFantasia = item.fantasiaCliente || item.cliente || ''
-      const dedupKey = codigoLoja + '|' + rawProduto + '|' + clienteFantasia
-      const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
+      const statusCode = res ? res.statusCode || 0 : 0
+      const rawBodyText =
+        res && typeof res.raw === 'string'
+          ? res.raw
+          : res && typeof res.body === 'string'
+            ? res.body
+            : ''
 
-      const rupRecord = new Record(rupturasBaseCol)
-      rupRecord.set('produto', rawProduto)
-      rupRecord.set('motivo', motivoNormalizado)
-      rupRecord.set('codigo_loja', codigoLoja)
-      rupRecord.set('nome_loja', rawRazaoSocial)
-      rupRecord.set('cnpj_loja', item.cpfCnpjCliente || item.cnpj_loja || '')
-      rupRecord.set('cidade', item.cidadeCliente || item.cidade || '')
-      rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')
-      rupRecord.set('codigo_cliente', item.codigoCliente || item.codigo_cliente || '')
-      rupRecord.set('cliente', clienteFantasia)
-      rupRecord.set('colaborador', item.nomePromotor || item.colaborador || '')
-      rupRecord.set('categoria', item.descricaoCategoria || item.categoria || '')
-      rupRecord.set('observacao', item.observacaoRuptura || item.observacao || '')
-      rupRecord.set('data_visita', rawDataVisita)
-      rupRecord.set('data_entrada', rawDataVisita)
-      rupRecord.set('ultima_aparicao', rawDataVisita)
-      rupRecord.set('situacao_atual', 'Ativo')
-      rupRecord.set('operational_key', operationalKey)
-      rupRecord.set('dedup_key', dedupKey)
-      rupRecord.set('source_row', i + 1 + (pagina - 1) * 30)
-      rupRecord.set('is_base_atual', false) // staging durante a sincronização
-      if (requestedBy) {
-        rupRecord.set('created_by', requestedBy)
+      // Timeout ou erro de conexão de rede — pausa para permitir retomada segura
+      if (sendError || statusCode === 0) {
+        record.set('status', 'paused')
+        record.set('error_code', 'timeout')
+        record.set(
+          'message',
+          'Tempo limite esgotado ou falha de conexão na página ' +
+            pagina +
+            ' de ' +
+            paginasTotal +
+            '. Job pausado. Clique em Retomar para continuar.',
+        )
+        $app.save(record)
+        return
       }
-      // Armazena tenant_id com marcador do job para promoção atômica segura
-      rupRecord.set('tenant_id', 'tradepro_job_' + jobId)
 
+      if (statusCode === 401) {
+        record.set('status', 'error')
+        record.set('error_code', 'unauthorized')
+        record.set(
+          'message',
+          sanitizeErrorMessage(rawBodyText, 'Autenticação recusada pelo TradePro.'),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 403) {
+        record.set('status', 'error')
+        record.set('error_code', 'forbidden')
+        record.set(
+          'message',
+          sanitizeErrorMessage(
+            rawBodyText,
+            'Acesso não autorizado aos dados da página ' + pagina + '.',
+          ),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 412) {
+        record.set('status', 'error')
+        record.set('error_code', 'precondition_failed')
+        record.set(
+          'message',
+          sanitizeErrorMessage(
+            rawBodyText,
+            'Pré-condição recusada na página ' + pagina + ' (HTTP 412).',
+          ),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 429) {
+        record.set('status', 'paused')
+        record.set('error_code', 'rate_limited')
+        record.set(
+          'message',
+          'Limite de requisições atingido na página ' +
+            pagina +
+            ' de ' +
+            paginasTotal +
+            '. Job pausado. Clique em Retomar para continuar.',
+        )
+        $app.save(record)
+        return
+      }
+
+      if (statusCode >= 500) {
+        record.set('status', 'paused')
+        record.set('error_code', 'tradepro_unavailable')
+        record.set(
+          'message',
+          'Servidor TradePro indisponível na página ' +
+            pagina +
+            ' de ' +
+            paginasTotal +
+            ' (HTTP ' +
+            statusCode +
+            '). Job pausado. Clique em Retomar para continuar.',
+        )
+        $app.save(record)
+        return
+      }
+
+      if (statusCode !== 200 && statusCode !== 204) {
+        record.set('status', 'error')
+        record.set('error_code', 'internal_error')
+        record.set(
+          'message',
+          sanitizeErrorMessage(
+            rawBodyText,
+            'Falha inesperada ao processar página ' + pagina + ' (HTTP ' + statusCode + ').',
+          ),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      // Processamento dos itens da página
+      let jsonBody = null
       try {
-        $app.save(rupRecord)
-      } catch (saveErr) {
-        // se falhar gravação individual, incrementa rejeitados e prossegue
-        registrosRejeitados++
-      }
-    }
+        jsonBody = res.json
+      } catch (_) {}
 
-    // Atualiza progresso no job após cada página
-    record.set('paginas_processadas', pagina)
-    record.set('registros_lidos', registrosLidos)
-    record.set('registros_validos', registrosValidos)
-    record.set('registros_rejeitados', registrosRejeitados)
-    $app.save(record)
+      const itens =
+        jsonBody && Array.isArray(jsonBody.rupturas)
+          ? jsonBody.rupturas
+          : jsonBody && Array.isArray(jsonBody.data)
+            ? jsonBody.data
+            : []
+
+      registrosLidos += itens.length
+
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i]
+        if (!item) continue
+
+        const rawProduto = item.descricaoAtividade || item.produto || ''
+        const rawRazaoSocial = item.razaoSocialCliente || item.nome_loja || ''
+        const rawDataVisita = (item.dataVisita || '').split(' ')[0].split('T')[0]
+        const rawMotivo = item.descricaoMotivo || item.motivo || ''
+
+        if (!rawProduto || !rawRazaoSocial || !rawDataVisita || !rawMotivo) {
+          registrosRejeitados++
+          continue
+        }
+
+        registrosValidos++
+        const codigoLoja = extractStoreCode(rawRazaoSocial)
+        const motivoNormalizado = normalizeRupturaMotivo(rawMotivo)
+        const clienteFantasia = item.fantasiaCliente || item.cliente || ''
+        const dedupKey = codigoLoja + '|' + rawProduto + '|' + clienteFantasia
+        const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
+
+        const rupRecord = new Record(rupturasBaseCol)
+        rupRecord.set('produto', rawProduto)
+        rupRecord.set('motivo', motivoNormalizado)
+        rupRecord.set('codigo_loja', codigoLoja)
+        rupRecord.set('nome_loja', rawRazaoSocial)
+        rupRecord.set('cnpj_loja', item.cpfCnpjCliente || item.cnpj_loja || '')
+        rupRecord.set('cidade', item.cidadeCliente || item.cidade || '')
+        rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')
+        rupRecord.set('codigo_cliente', item.codigoCliente || item.codigo_cliente || '')
+        rupRecord.set('cliente', clienteFantasia)
+        rupRecord.set('colaborador', item.nomePromotor || item.colaborador || '')
+        rupRecord.set('categoria', item.descricaoCategoria || item.categoria || '')
+        rupRecord.set('observacao', item.observacaoRuptura || item.observacao || '')
+        rupRecord.set('data_visita', rawDataVisita)
+        rupRecord.set('data_entrada', rawDataVisita)
+        rupRecord.set('ultima_aparicao', rawDataVisita)
+        rupRecord.set('situacao_atual', 'Ativo')
+        rupRecord.set('operational_key', operationalKey)
+        rupRecord.set('dedup_key', dedupKey)
+        rupRecord.set('source_row', i + 1 + (pagina - 1) * 30)
+        rupRecord.set('is_base_atual', false) // staging durante a sincronização
+        if (requestedBy) {
+          rupRecord.set('created_by', requestedBy)
+        }
+        // Armazena tenant_id com marcador do job para promoção atômica segura
+        rupRecord.set('tenant_id', 'tradepro_job_' + jobId)
+
+        try {
+          $app.save(rupRecord)
+        } catch (saveErr) {
+          // se falhar gravação individual, incrementa rejeitados e prossegue
+          registrosRejeitados++
+        }
+      }
+
+      // Atualiza progresso no job após cada página
+      record.set('paginas_processadas', pagina)
+      record.set('registros_lidos', registrosLidos)
+      record.set('registros_validos', registrosValidos)
+      record.set('registros_rejeitados', registrosRejeitados)
+      $app.save(record)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -784,11 +780,15 @@ onRecordAfterUpdateSuccess((e) => {
       .bind({ jobTenant: 'tradepro_job_' + jobId })
       .execute()
 
-    // Deduplicação dos registros promovidos para contagem exata
-    const totalPromovidos = $app.countRecords(
+    // Contagem segura dos registros promovidos usando findRecordsByFilter
+    const promovidosRecords = $app.findRecordsByFilter(
       'rupturas_base',
       'is_base_atual = true && tenant_id = "tradepro_job_' + jobId + '"',
+      '-created',
+      100000,
+      0,
     )
+    const totalPromovidos = promovidosRecords ? promovidosRecords.length : 0
 
     record.set('status', 'success')
     record.set('registros_consolidados', totalPromovidos)
@@ -803,12 +803,13 @@ onRecordAfterUpdateSuccess((e) => {
     record.set('finished_at', new Date().toISOString())
     $app.save(record)
   } catch (promoErr) {
+    const cleanPromoMsg = sanitizeErrorMessage(
+      String(promoErr || ''),
+      'Falha na promoção dos registros para a Base Atual.',
+    )
     record.set('status', 'error')
     record.set('error_code', 'internal_error')
-    record.set(
-      'message',
-      'Falha na promoção dos registros para a Base Atual: ' + String(promoErr || ''),
-    )
+    record.set('message', 'Falha na promoção dos registros para a Base Atual: ' + cleanPromoMsg)
     record.set('finished_at', new Date().toISOString())
     $app.save(record)
   }

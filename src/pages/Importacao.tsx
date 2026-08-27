@@ -1905,71 +1905,95 @@ export const ImportacaoPage: React.FC = () => {
               )}
 
             {/* Durante a Sincronização: Progresso em Tempo Real */}
-            {rupturasSyncStatus === 'syncing' && (
-              <div className="p-5 rounded-xl border border-amber-300 bg-amber-50 space-y-4 shadow-2xs">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
-                    <div>
-                      <p className="font-bold text-sm text-amber-950">
-                        Sincronizando página {rupturasSyncJob?.paginas_processadas || 0} de{' '}
-                        {rupturasSyncJob?.paginas_total || rupturasPreviewJob?.paginas_total || 1}
-                        ...
-                      </p>
-                      <p className="text-xs text-amber-800 mt-0.5">
-                        {rupturasSyncJob?.registros_lidos || 0} registros lidos •{' '}
-                        {rupturasSyncJob?.registros_validos || 0} válidos
-                      </p>
+            {rupturasSyncStatus === 'syncing' &&
+              (() => {
+                const paginasProcessadas = rupturasSyncJob?.paginas_processadas || 0
+                const paginasTotal =
+                  rupturasSyncJob?.paginas_total || rupturasPreviewJob?.paginas_total || 1
+                const rawPct = (paginasProcessadas / Math.max(1, paginasTotal)) * 100
+                // Limitar a no máximo 99% enquanto syncing
+                const displayPct = Math.min(99, Math.round(rawPct))
+                const isPromoting = paginasProcessadas >= paginasTotal && paginasTotal > 0
+
+                return (
+                  <div className="p-5 rounded-xl border border-amber-300 bg-amber-50 space-y-4 shadow-2xs">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+                        <div>
+                          <p className="font-bold text-sm text-amber-950">
+                            {isPromoting
+                              ? 'Promovendo registros para a Base Atual...'
+                              : paginasProcessadas === 0
+                                ? 'Preparando a primeira página — nenhuma alteração foi realizada na Base Atual.'
+                                : `Sincronizando página ${paginasProcessadas} de ${paginasTotal}...`}
+                          </p>
+                          <p className="text-xs text-amber-800 mt-0.5">
+                            {rupturasSyncJob?.registros_lidos || 0} lidos •{' '}
+                            {rupturasSyncJob?.registros_validos || 0} válidos •{' '}
+                            {rupturasSyncJob?.registros_rejeitados || 0} rejeitados
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancelSync}
+                        className="h-9 px-3 gap-1.5 text-xs font-semibold text-red-700 border-red-200 bg-red-50/50 hover:bg-red-100 rounded-xl"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Cancelar</span>
+                      </Button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs text-amber-900 font-semibold">
+                        <span>
+                          {isPromoting
+                            ? 'Finalizando promoção atômica...'
+                            : 'Progresso da Sincronização'}
+                        </span>
+                        <span>{displayPct}%</span>
+                      </div>
+                      <Progress value={displayPct} className="h-2.5 bg-amber-200" />
+                    </div>
+
+                    {/* Métricas extras */}
+                    <div className="grid grid-cols-3 gap-2.5 pt-1">
+                      <div className="p-2.5 bg-white/80 rounded-lg border border-amber-200 text-center">
+                        <span className="text-[10px] font-semibold uppercase text-amber-700 block">
+                          Registros Lidos
+                        </span>
+                        <span className="text-sm font-bold text-amber-950 tabular-nums">
+                          {(rupturasSyncJob?.registros_lidos || 0).toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-white/80 rounded-lg border border-amber-200 text-center">
+                        <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
+                          Registros Válidos
+                        </span>
+                        <span className="text-sm font-bold text-emerald-950 tabular-nums">
+                          {(rupturasSyncJob?.registros_validos || 0).toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-white/80 rounded-lg border border-amber-200 text-center">
+                        <span className="text-[10px] font-semibold uppercase text-rose-700 block">
+                          Registros Rejeitados
+                        </span>
+                        <span className="text-sm font-bold text-rose-950 tabular-nums">
+                          {(rupturasSyncJob?.registros_rejeitados || 0).toLocaleString('pt-BR')}
+                        </span>
+                      </div>
                     </div>
                   </div>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCancelSync}
-                    className="h-9 px-3 gap-1.5 text-xs font-semibold text-red-700 border-red-200 bg-red-50/50 hover:bg-red-100 rounded-xl"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    <span>Cancelar</span>
-                  </Button>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs text-amber-900 font-semibold">
-                    <span>Progresso da Sincronização</span>
-                    <span>
-                      {Math.round(
-                        ((rupturasSyncJob?.paginas_processadas || 0) /
-                          Math.max(
-                            1,
-                            rupturasSyncJob?.paginas_total ||
-                              rupturasPreviewJob?.paginas_total ||
-                              1,
-                          )) *
-                          100,
-                      )}
-                      %
-                    </span>
-                  </div>
-                  <Progress
-                    value={
-                      ((rupturasSyncJob?.paginas_processadas || 0) /
-                        Math.max(
-                          1,
-                          rupturasSyncJob?.paginas_total || rupturasPreviewJob?.paginas_total || 1,
-                        )) *
-                      100
-                    }
-                    className="h-2.5 bg-amber-200"
-                  />
-                </div>
-              </div>
-            )}
+                )
+              })()}
 
             {/* Job Pausado */}
             {rupturasSyncStatus === 'paused' && (
-              <div className="p-5 rounded-xl border border-amber-300 bg-amber-50/80 space-y-3">
+              <div className="p-5 rounded-xl border border-amber-300 bg-amber-50/80 space-y-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-start gap-3">
                     <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -1979,6 +2003,14 @@ export const ImportacaoPage: React.FC = () => {
                         {rupturasSyncJob?.message ||
                           'O limite temporário de requisições foi atingido. Clique em Retomar para continuar.'}
                       </p>
+                      {rupturasSyncJob && rupturasSyncJob.paginas_processadas > 0 && (
+                        <p className="text-xs text-amber-800 font-medium mt-1">
+                          {rupturasSyncJob.paginas_processadas} página(s) processada(s),{' '}
+                          {rupturasSyncJob.registros_validos} registros em staging preservados.
+                          Clique em Retomar para continuar da página{' '}
+                          {rupturasSyncJob.paginas_processadas + 1}.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -2073,20 +2105,52 @@ export const ImportacaoPage: React.FC = () => {
 
             {/* Falha na Sincronização */}
             {rupturasSyncStatus === 'error' && rupturasSyncJob && (
-              <div className="p-5 rounded-xl border border-red-200 bg-red-50/50 space-y-3">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-bold text-sm text-red-950">
-                      Falha na Sincronização de Rupturas
-                    </p>
-                    <p className="text-xs text-red-900 leading-relaxed">
-                      {rupturasSyncJob.message || 'Erro durante o processamento das páginas.'}
-                    </p>
-                    <p className="text-[11px] text-red-800 mt-1">
-                      A Base Atual anterior foi preservada integralmente sem corrupção de dados.
-                    </p>
+              <div className="p-5 rounded-xl border border-red-200 bg-red-50/50 space-y-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm text-red-950">
+                        Falha na Sincronização de Rupturas
+                      </p>
+                      <p className="text-xs text-red-900 leading-relaxed">
+                        {rupturasSyncJob.message || 'Erro durante o processamento das páginas.'}
+                      </p>
+                      {rupturasSyncJob.paginas_processadas > 0 ? (
+                        <p className="text-xs font-semibold text-red-800 mt-1">
+                          {rupturasSyncJob.paginas_processadas} páginas processadas,{' '}
+                          {rupturasSyncJob.registros_validos} registros em staging preservados.
+                          Clique em Retomar para continuar da página{' '}
+                          {rupturasSyncJob.paginas_processadas + 1}.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-red-800 mt-1">
+                          A Base Atual anterior foi preservada integralmente sem corrupção de dados.
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {rupturasSyncJob.paginas_processadas > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={handleResumeSync}
+                        className="h-9 px-4 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Retomar sincronização</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleCancelSync}
+                        className="h-9 px-3 text-xs text-slate-600 rounded-xl"
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

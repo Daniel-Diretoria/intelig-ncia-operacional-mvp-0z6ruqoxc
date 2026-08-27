@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 // Funções puras portadas para o backend TradePro Sync
 function toTradeProDate(isoDate: string): string {
@@ -110,6 +110,130 @@ function sanitizeErrorMessage(rawText: string, defaultMsg: string): string {
   return clean
 }
 
+/**
+ * Simulação do Hook Backend onRecordAfterUpdateSuccess para validação de lógica de negócio
+ */
+interface MockRecord {
+  id: string
+  action: string
+  status: string
+  originalStatus?: string
+  total_informado: number
+  paginas_total: number
+  paginas_processadas: number
+  registros_lidos: number
+  registros_validos: number
+  registros_rejeitados: number
+  registros_consolidados: number
+  registros_deduplicados: number
+  error_code: string
+  message: string
+  finished_at?: string
+}
+
+function simulateHookExecution(
+  record: MockRecord,
+  options: {
+    mockHttpResponses?: Array<{
+      statusCode: number
+      raw?: string
+      json?: any
+      throwError?: boolean
+    }>
+    mockFindRecordsByFilter?: (collection: string, filter: string) => any[]
+    mockDbQueryExecute?: (query: string) => void
+  } = {},
+) {
+  // 1. Anti-recursão check
+  if (record.action !== 'sync_rupturas' || record.status !== 'syncing') {
+    return { shouldProcess: false, reason: 'not_syncing_action' }
+  }
+
+  if (record.originalStatus === 'syncing') {
+    return { shouldProcess: false, reason: 'anti_recursion_blocked' }
+  }
+
+  const paginasTotal = record.paginas_total || Math.ceil(record.total_informado / 30) || 1
+  let paginaInicial = record.paginas_processadas || 0
+  if (paginaInicial < 1) paginaInicial = 1
+  else paginaInicial = paginaInicial + 1
+
+  let httpCallCount = 0
+  const processedPages: number[] = []
+
+  if (paginaInicial <= paginasTotal) {
+    for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
+      processedPages.push(pagina)
+      httpCallCount++
+
+      const mockRes = options.mockHttpResponses?.[httpCallCount - 1] || {
+        statusCode: 200,
+        json: {
+          rupturas: [
+            {
+              descricaoAtividade: 'P1',
+              razaoSocialCliente: '01 Loja',
+              dataVisita: '2026-05-10',
+              descricaoMotivo: 'Ruptura',
+            },
+          ],
+        },
+      }
+
+      if (mockRes.throwError || mockRes.statusCode === 0) {
+        record.status = 'paused'
+        record.error_code = 'timeout'
+        record.message = `Tempo limite esgotado ou falha de conexão na página ${pagina} de ${paginasTotal}. Job pausado. Clique em Retomar para continuar.`
+        return { shouldProcess: true, record, processedPages, httpCallCount }
+      }
+
+      if (mockRes.statusCode === 429) {
+        record.status = 'paused'
+        record.error_code = 'rate_limited'
+        record.message = `Limite de requisições atingido na página ${pagina} de ${paginasTotal}. Job pausado. Clique em Retomar para continuar.`
+        return { shouldProcess: true, record, processedPages, httpCallCount }
+      }
+
+      if (mockRes.statusCode >= 500) {
+        record.status = 'paused'
+        record.error_code = 'tradepro_unavailable'
+        record.message = `Servidor TradePro indisponível na página ${pagina} de ${paginasTotal} (HTTP ${mockRes.statusCode}). Job pausado. Clique em Retomar para continuar.`
+        return { shouldProcess: true, record, processedPages, httpCallCount }
+      }
+
+      // Simula gravação dos itens da página
+      const itens = mockRes.json?.rupturas || []
+      record.registros_lidos += itens.length
+      record.registros_validos += itens.length
+      record.paginas_processadas = pagina
+    }
+  }
+
+  // Promoção usando findRecordsByFilter
+  if (options.mockDbQueryExecute) {
+    options.mockDbQueryExecute('UPDATE rupturas_base SET is_base_atual = 0 WHERE is_base_atual = 1')
+    options.mockDbQueryExecute(
+      `UPDATE rupturas_base SET is_base_atual = 1 WHERE tenant_id = "tradepro_job_${record.id}"`,
+    )
+  }
+
+  const filter = `is_base_atual = true && tenant_id = "tradepro_job_${record.id}"`
+  const promovidos = options.mockFindRecordsByFilter
+    ? options.mockFindRecordsByFilter('rupturas_base', filter)
+    : new Array(record.registros_validos).fill({})
+
+  const totalPromovidos = promovidos ? promovidos.length : 0
+
+  record.status = 'success'
+  record.registros_consolidados = totalPromovidos
+  record.registros_deduplicados = Math.max(0, record.registros_validos - totalPromovidos)
+  record.message = `Sincronização de Rupturas concluída com sucesso. ${totalPromovidos} registros consolidados na Base Atual.`
+  record.error_code = ''
+  record.finished_at = new Date().toISOString()
+
+  return { shouldProcess: true, record, processedPages, httpCallCount }
+}
+
 describe('TradePro Sync — Funções Utilitárias do Backend e Pipeline', () => {
   it('toTradeProDate: converte YYYY-MM-DD para yyyyMMdd', () => {
     expect(toTradeProDate('2026-08-26')).toBe('20260826')
@@ -163,5 +287,311 @@ describe('TradePro Sync — Funções Utilitárias do Backend e Pipeline', () =>
     expect(cleaned).not.toContain('c29tZXRva2VuMTIz')
     expect(cleaned).not.toContain('https://')
     expect(cleaned).toContain('[URL]')
+  })
+})
+
+describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retomada', () => {
+  it('Promoção com findRecordsByFilter: calcula contagem de registros promovidos corretamente', () => {
+    const record: MockRecord = {
+      id: 'job_promo_test',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'preview',
+      total_informado: 60,
+      paginas_total: 2,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const mockFindFilter = vi.fn().mockReturnValue([
+      { id: 'rup1', is_base_atual: true },
+      { id: 'rup2', is_base_atual: true },
+    ])
+
+    const executedQueries: string[] = []
+    const mockDbQuery = (q: string) => executedQueries.push(q)
+
+    const result = simulateHookExecution(record, {
+      mockHttpResponses: [
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P1',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P2',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+      ],
+      mockFindRecordsByFilter: mockFindFilter,
+      mockDbQueryExecute: mockDbQuery,
+    })
+
+    expect(result.shouldProcess).toBe(true)
+    expect(mockFindFilter).toHaveBeenCalledWith(
+      'rupturas_base',
+      'is_base_atual = true && tenant_id = "tradepro_job_job_promo_test"',
+    )
+    expect(record.status).toBe('success')
+    expect(record.registros_consolidados).toBe(2)
+    expect(executedQueries.length).toBe(2)
+  })
+
+  it('Retomada da página 9 após falha na página 8: pula as 8 primeiras páginas', () => {
+    const record: MockRecord = {
+      id: '6f9hdu5t35895jo',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'paused',
+      total_informado: 383,
+      paginas_total: 13,
+      paginas_processadas: 8, // Já processou 8 páginas (240 registros)
+      registros_lidos: 240,
+      registros_validos: 240,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const result = simulateHookExecution(record, {
+      mockHttpResponses: [
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P9',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P10',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P11',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P12',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P13',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    expect(result.processedPages).toEqual([9, 10, 11, 12, 13])
+    expect(result.httpCallCount).toBe(5)
+    expect(record.status).toBe('success')
+    expect(record.paginas_processadas).toBe(13)
+  })
+
+  it('HTTP 429: pausa o job sem sleep e permite retomada futura', () => {
+    const record: MockRecord = {
+      id: 'job_429_test',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'preview',
+      total_informado: 90,
+      paginas_total: 3,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const result = simulateHookExecution(record, {
+      mockHttpResponses: [
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P1',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        { statusCode: 429, raw: 'Too Many Requests' },
+      ],
+    })
+
+    expect(result.httpCallCount).toBe(2)
+    expect(record.status).toBe('paused')
+    expect(record.error_code).toBe('rate_limited')
+    expect(record.paginas_processadas).toBe(1) // primeira página foi gravada
+    expect(record.message).toContain('Limite de requisições atingido na página 2')
+  })
+
+  it('Timeout / 5xx: pausa o job em vez de abortar para preservar o staging', () => {
+    const record: MockRecord = {
+      id: 'job_timeout_test',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'preview',
+      total_informado: 120,
+      paginas_total: 4,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const result = simulateHookExecution(record, {
+      mockHttpResponses: [
+        {
+          statusCode: 200,
+          json: {
+            rupturas: [
+              {
+                descricaoAtividade: 'P1',
+                razaoSocialCliente: '01 Loja',
+                dataVisita: '2026-05-10',
+                descricaoMotivo: 'Ruptura',
+              },
+            ],
+          },
+        },
+        { statusCode: 503, raw: 'Service Unavailable' },
+      ],
+    })
+
+    expect(result.httpCallCount).toBe(2)
+    expect(record.status).toBe('paused')
+    expect(record.error_code).toBe('tradepro_unavailable')
+    expect(record.paginas_processadas).toBe(1)
+    expect(record.message).toContain('Servidor TradePro indisponível na página 2')
+  })
+
+  it('Prevenção de anti-recursão: saves de progresso (status original syncing) são ignorados', () => {
+    const record: MockRecord = {
+      id: 'job_recursion_test',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'syncing', // Disparado por um $app.save() interno de progresso
+      total_informado: 100,
+      paginas_total: 4,
+      paginas_processadas: 2,
+      registros_lidos: 60,
+      registros_validos: 60,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const result = simulateHookExecution(record)
+    expect(result.shouldProcess).toBe(false)
+    expect(result.reason).toBe('anti_recursion_blocked')
+  })
+
+  it('Se todas as páginas já foram baixadas (paginaInicial > paginasTotal), vai direto para promoção', () => {
+    const record: MockRecord = {
+      id: 'job_already_downloaded',
+      action: 'sync_rupturas',
+      status: 'syncing',
+      originalStatus: 'error',
+      total_informado: 90,
+      paginas_total: 3,
+      paginas_processadas: 3, // Todas as 3 páginas já foram processadas
+      registros_lidos: 90,
+      registros_validos: 90,
+      registros_rejeitados: 0,
+      registros_consolidados: 0,
+      registros_deduplicados: 0,
+      error_code: '',
+      message: '',
+    }
+
+    const mockFindFilter = vi.fn().mockReturnValue(new Array(90).fill({ id: 'rup' }))
+
+    const result = simulateHookExecution(record, {
+      mockFindRecordsByFilter: mockFindFilter,
+    })
+
+    expect(result.processedPages).toEqual([])
+    expect(result.httpCallCount).toBe(0) // Nenhuma chamada HTTP necessária
+    expect(record.status).toBe('success')
+    expect(record.registros_consolidados).toBe(90)
   })
 })

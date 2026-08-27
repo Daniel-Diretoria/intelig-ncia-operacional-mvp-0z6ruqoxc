@@ -313,22 +313,26 @@ export async function startRupturasSync(
   const MAX_POLLS = 600 // até 10 minutos para grandes volumes
 
   for (let i = 0; i < MAX_POLLS; i++) {
+    try {
+      const current = await pb.collection('tradepro_sync_jobs').getOne(jobId)
+      const mapped = mapSyncJobRecord(current as unknown as Record<string, unknown>)
+
+      if (onProgress) {
+        onProgress(mapped)
+      }
+
+      if (
+        mapped.status === 'success' ||
+        mapped.status === 'error' ||
+        mapped.status === 'paused' ||
+        mapped.status === 'cancelled'
+      ) {
+        return mapped
+      }
+    } catch (_) {
+      // Ignora falhas esporádicas de consulta durante polling
+    }
     await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS))
-    const current = await pb.collection('tradepro_sync_jobs').getOne(jobId)
-    const mapped = mapSyncJobRecord(current as unknown as Record<string, unknown>)
-
-    if (onProgress) {
-      onProgress(mapped)
-    }
-
-    if (
-      mapped.status === 'success' ||
-      mapped.status === 'error' ||
-      mapped.status === 'paused' ||
-      mapped.status === 'cancelled'
-    ) {
-      return mapped
-    }
   }
 
   const timeoutRec = await pb.collection('tradepro_sync_jobs').getOne(jobId)
