@@ -376,8 +376,13 @@ export const ImportacaoPage: React.FC = () => {
       } else {
         setConnectionStatus('error')
         const isNotConfigured = res.errorCode === 'not_configured'
+        const isPreconditionFailed = res.errorCode === 'precondition_failed'
         toast({
-          title: isNotConfigured ? 'Integração não configurada' : 'Falha na conexão com TradePro',
+          title: isNotConfigured
+            ? 'Integração não configurada'
+            : isPreconditionFailed
+              ? 'Pré-condição recusada (HTTP 412)'
+              : 'Falha na conexão com TradePro',
           description: isNotConfigured
             ? 'Integração não configurada. Cadastre o token protegido no Skip Cloud.'
             : res.mensagem,
@@ -1398,21 +1403,65 @@ export const ImportacaoPage: React.FC = () => {
             )}
 
             {connectionStatus === 'error' && connectionTestResult && (
-              <div className="p-5 rounded-xl border border-red-200 bg-red-50/50 space-y-3">
+              <div
+                className={cn(
+                  'p-5 rounded-xl border space-y-3',
+                  connectionTestResult.errorCode === 'precondition_failed'
+                    ? 'border-amber-300 bg-amber-50/70'
+                    : 'border-red-200 bg-red-50/50',
+                )}
+              >
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  {connectionTestResult.errorCode === 'precondition_failed' ? (
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  )}
                   <div className="space-y-1">
-                    <p className="font-bold text-sm text-red-950">
-                      Falha ao conectar com o TradePro
-                    </p>
-                    <p className="text-xs text-red-900 leading-relaxed">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p
+                        className={cn(
+                          'font-bold text-sm',
+                          connectionTestResult.errorCode === 'precondition_failed'
+                            ? 'text-amber-950'
+                            : 'text-red-950',
+                        )}
+                      >
+                        {connectionTestResult.errorCode === 'precondition_failed'
+                          ? 'Pré-condição recusada (HTTP 412)'
+                          : 'Falha ao conectar com o TradePro'}
+                      </p>
+                      {connectionTestResult.errorCode === 'precondition_failed' && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] font-bold"
+                        >
+                          HTTP 412
+                        </Badge>
+                      )}
+                    </div>
+                    <p
+                      className={cn(
+                        'text-xs leading-relaxed',
+                        connectionTestResult.errorCode === 'precondition_failed'
+                          ? 'text-amber-900'
+                          : 'text-red-900',
+                      )}
+                    >
                       {connectionTestResult.mensagem}
                     </p>
                   </div>
                 </div>
 
                 {connectionTestResult.statusHttp > 0 && (
-                  <div className="flex items-center gap-3 text-xs text-red-800 pt-1">
+                  <div
+                    className={cn(
+                      'flex items-center gap-3 text-xs pt-1',
+                      connectionTestResult.errorCode === 'precondition_failed'
+                        ? 'text-amber-800'
+                        : 'text-red-800',
+                    )}
+                  >
                     <span className="font-semibold">
                       Código retornado: HTTP {connectionTestResult.statusHttp}
                     </span>

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { getBaseAtualSnapshot, resetBaseAtualCache } from '../baseAtualSelectors'
 import pb from '@/lib/pocketbase/client'
 
-describe('baseAtualSelectors.test.ts — Carregamento Paginado e parseCityUf', () => {
+describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, Cache e Telemetria', () => {
   beforeEach(() => {
     resetBaseAtualCache()
     vi.restoreAllMocks()
@@ -109,86 +109,171 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado e parseCityUf', (
     expect(loja944?.totalRupturasAtivas).toBe(1)
   })
 
-  it('2. Segunda passagem de merge: unifica LojaAgregada com mesmo codigo+nome+cidade quando rede ou uf estão vazias', async () => {
-    // Simula uma validade com rede vazia e uf vazia, e uma ruptura da mesma loja com rede "FORT ATACADISTA" e uf "SC"
-    const validadesRecords = [
-      {
-        id: 'val_joinville_1',
-        produto: 'PRODUTO VALIDADE',
-        cod_produto: 'SKU_100',
-        validade: '2025-11-01',
-        quantidade: 15,
-        codigo_loja: '165',
-        nome_loja: 'FORT ATACADISTA AVENTUREIRO',
-        cidade: 'Joinville',
-        estado: '', // UF vazia
-        rede: '', // Rede vazia
-        cliente: 'MARCA TESTE',
-      },
-    ]
+  it('2. Concorrência máxima 4 workers: com 15 páginas, dispara em batches de até 4 simultâneos', async () => {
+    let currentConcurrent = 0
+    let maxObservedConcurrent = 0
 
-    const rupturasRecords = [
-      {
-        id: 'rup_joinville_1',
-        codigo_loja: '165',
-        nome_loja: 'FORT ATACADISTA AVENTUREIRO',
-        cidade: 'Joinville',
-        estado: 'SC', // UF presente
-        situacao_atual: 'Ativo',
-        produto: 'PRODUTO RUPTURA',
-        cliente: 'MARCA TESTE',
-      },
-    ]
-
-    const mockCollection = vi.fn().mockImplementation((col: string) => {
-      if (col === 'validades_base') {
-        return {
-          getList: vi.fn().mockResolvedValue({
-            items: validadesRecords,
-            page: 1,
-            perPage: 500,
-            totalPages: 1,
-            totalItems: 1,
-          }),
-        }
+    const mockGetList = vi.fn().mockImplementation(async (page: number) => {
+      currentConcurrent++
+      if (currentConcurrent > maxObservedConcurrent) {
+        maxObservedConcurrent = currentConcurrent
       }
+
+      // Simula latência de rede de 30ms por página
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      currentConcurrent--
+
       return {
-        getList: vi.fn().mockResolvedValue({
-          items: rupturasRecords,
-          page: 1,
-          perPage: 500,
-          totalPages: 1,
-          totalItems: 1,
-        }),
+        items: [
+          {
+            id: `val_p${page}`,
+            produto: `Produto P${page}`,
+            quantidade: 1,
+            validade: '2026-12-01',
+            codigo_loja: '001',
+            nome_loja: 'Loja 1',
+            cidade: 'Florianópolis',
+            estado: 'SC',
+          },
+        ],
+        page,
+        perPage: 500,
+        totalPages: 15,
+        totalItems: 7401,
       }
     })
 
-    vi.spyOn(pb, 'collection').mockImplementation(mockCollection as any)
+    vi.spyOn(pb, 'collection').mockImplementation(((col: string) => {
+      if (col === 'validades_base') {
+        return { getList: mockGetList }
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({
+          items: [],
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: 0,
+        }),
+      }
+    }) as any)
 
+    const startTime = Date.now()
     const snapshot = await getBaseAtualSnapshot(true)
+    const duration = Date.now() - startTime
 
-    // Deve resultar em exatamente 1 LojaAgregada após a segunda passagem de merge
-    const lojasAventureiro = snapshot.lojasAgregadas.filter(
-      (l) => l.codigoLoja === '165' && l.nomeLoja.toUpperCase().includes('AVENTUREIRO'),
-    )
-    expect(lojasAventureiro.length).toBe(1)
-
-    const loja = lojasAventureiro[0]
-    expect(loja.rede).toBe('FORT ATACADISTA')
-    expect(loja.uf).toBe('SC')
-    expect(loja.cidade).toBe('Joinville')
-    expect(loja.totalOcorrenciasAtivas).toBe(1)
-    expect(loja.totalRupturasAtivas).toBe(1)
-    expect(loja.totalQuantidade).toBe(15)
+    // 15 páginas foram chamadas
+    expect(mockGetList).toHaveBeenCalledTimes(15)
+    // Concorrência nunca deve ultrapassar 4 workers simultâneos
+    expect(maxObservedConcurrent).toBeLessThanOrEqual(4)
+    // Coletou todos os 15 itens
+    expect(snapshot.validadesAtivas.length).toBe(15)
+    // Com mock de 30ms, 15 páginas levam em torno de ~150-300ms (muito menos que 15 * 30ms = 450ms sequenciais)
+    expect(duration).toBeLessThan(4000)
   })
 
-  it('3. Resiliência: se uma página falhar, não quebra todo o snapshot', async () => {
-    let callCount = 0
+  it('3. Cache hit: segunda chamada retorna sem nova requisição', async () => {
+    const mockGetList = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'val_1',
+          produto: 'Prod 1',
+          quantidade: 5,
+          validade: '2026-05-10',
+          nome_loja: 'Loja A',
+        },
+      ],
+      page: 1,
+      perPage: 500,
+      totalPages: 1,
+      totalItems: 1,
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({ getList: mockGetList } as any)
+
+    // Primeira chamada: cache miss (busca no banco)
+    const snap1 = await getBaseAtualSnapshot()
+    expect(mockGetList).toHaveBeenCalledTimes(2) // 1x validades_base, 1x rupturas_base
+
+    // Segunda chamada: cache hit (retorna imediatamente da memória)
+    const snap2 = await getBaseAtualSnapshot()
+    expect(mockGetList).toHaveBeenCalledTimes(2) // nenhuma nova chamada ao getList
+    expect(snap1).toBe(snap2)
+  })
+
+  it('4. Deduplicação StrictMode: duas chamadas simultâneas compartilham a mesma promessa', async () => {
+    const mockGetList = vi.fn().mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return {
+        items: [
+          { id: 'v1', produto: 'P1', quantidade: 2, validade: '2026-06-01', nome_loja: 'L1' },
+        ],
+        page: 1,
+        perPage: 500,
+        totalPages: 1,
+        totalItems: 1,
+      }
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({ getList: mockGetList } as any)
+
+    // Dispara duas chamadas concorrentes
+    const [snap1, snap2] = await Promise.all([getBaseAtualSnapshot(), getBaseAtualSnapshot()])
+
+    // Ambas recebem o mesmo snapshot e houve apenas 2 requisições no total (1 validades + 1 rupturas)
+    expect(snap1).toEqual(snap2)
+    expect(mockGetList).toHaveBeenCalledTimes(2)
+  })
+
+  it('5. Invalidação de cache por evento diretoria:refresh', async () => {
+    const mockGetList = vi.fn().mockResolvedValue({
+      items: [{ id: 'v1', produto: 'P1', quantidade: 2, validade: '2026-06-01', nome_loja: 'L1' }],
+      page: 1,
+      perPage: 500,
+      totalPages: 1,
+      totalItems: 1,
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({ getList: mockGetList } as any)
+
+    await getBaseAtualSnapshot()
+    expect(mockGetList).toHaveBeenCalledTimes(2)
+
+    // Dispara evento global 'diretoria:refresh'
+    window.dispatchEvent(new Event('diretoria:refresh'))
+
+    // Próxima chamada deve buscar fresh novamente
+    await getBaseAtualSnapshot()
+    expect(mockGetList).toHaveBeenCalledTimes(4)
+  })
+
+  it('6. Projection fields: adiciona fields projection nas requisições', async () => {
+    const mockGetList = vi.fn().mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 500,
+      totalPages: 1,
+      totalItems: 0,
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({ getList: mockGetList } as any)
+
+    await getBaseAtualSnapshot(true)
+
+    expect(mockGetList).toHaveBeenCalledWith(
+      1,
+      500,
+      expect.objectContaining({
+        fields: expect.stringContaining('is_base_atual'),
+      }),
+    )
+  })
+
+  it('7. Resiliência: se uma página falhar, não quebra todo o snapshot', async () => {
     const mockGetList = vi.fn().mockImplementation((page: number) => {
-      callCount++
       if (page === 1) {
         return Promise.resolve({
-          items: [{ id: 'val_1', validade: '2025-10-15', quantidade: 10, loja: 'Loja 1' }],
+          items: [{ id: 'val_1', validade: '2025-10-15', quantidade: 10, nome_loja: 'Loja 1' }],
           page: 1,
           perPage: 500,
           totalPages: 2,

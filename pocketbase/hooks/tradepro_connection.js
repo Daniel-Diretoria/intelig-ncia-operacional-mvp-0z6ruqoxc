@@ -190,6 +190,88 @@ onRecordAfterCreateSuccess((e) => {
   const statusCode = res.statusCode || 0
   record.set('http_status', statusCode)
 
+  // Helper de sanitização inline para respostas de erro (status != 200 && status != 204)
+  const sanitizeErrorMessage = (rawText, defaultMsg) => {
+    let extracted = ''
+    let correlationId = ''
+
+    // Tenta parsear como JSON
+    try {
+      let json = null
+      if (typeof res.json === 'object' && res.json !== null) {
+        json = res.json
+      } else if (rawText) {
+        json = JSON.parse(rawText)
+      }
+
+      if (json && typeof json === 'object') {
+        const candidate =
+          json.message ||
+          json.mensagem ||
+          json.error ||
+          json.detail ||
+          json.title ||
+          json.details ||
+          ''
+        if (typeof candidate === 'string' && candidate.trim()) {
+          extracted = candidate.trim()
+        }
+        if (json.correlationId) {
+          correlationId = String(json.correlationId)
+        } else if (json.traceId) {
+          correlationId = String(json.traceId)
+        }
+      }
+    } catch (_) {}
+
+    if (!extracted && rawText && typeof rawText === 'string') {
+      const trimmed = rawText.trim()
+      // Se for texto puro razoável (< 300 caracteres)
+      if (
+        trimmed.length > 0 &&
+        trimmed.length <= 300 &&
+        !trimmed.startsWith('<html') &&
+        !trimmed.startsWith('<!DOCTYPE')
+      ) {
+        extracted = trimmed
+      }
+    }
+
+    if (!extracted) {
+      extracted = defaultMsg
+    }
+
+    // Sanitização de credenciais, tokens, URLs com query params, cookies e sequências base64 longas
+    let clean = extracted
+      .replace(/Authorization:\s*[^\s,;]+/gi, '')
+      .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, '')
+      .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, '')
+      .replace(/token[=:\s]+[A-Za-z0-9\-._~+/]+/gi, '')
+      .replace(/password[=:\s]+[^\s,;]+/gi, '')
+      .replace(/senha[=:\s]+[^\s,;]+/gi, '')
+      .replace(/https?:\/\/[^\s?#]+(\?[^\s#]*)?/gi, '[URL]')
+      .replace(/cookie[=:\s]+[^\s,;]+/gi, '')
+      .replace(/[A-Za-z0-9+/=]{40,}/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!clean) {
+      clean = defaultMsg
+    }
+
+    if (correlationId) {
+      clean = clean + ' (Trace: ' + correlationId.replace(/[^A-Za-z0-9\-_]/g, '') + ')'
+    }
+
+    if (clean.length > 300) {
+      clean = clean.substring(0, 300)
+    }
+
+    return clean
+  }
+
+  const rawBodyText = typeof res.raw === 'string' ? res.raw : ''
+
   if (statusCode === 200) {
     let jsonBody = null
     try {
@@ -234,53 +316,80 @@ onRecordAfterCreateSuccess((e) => {
     record.set('message', 'Conexão válida, sem ocorrências no período.')
     record.set('error_code', '')
   } else if (statusCode === 401) {
+    const safeMsg = sanitizeErrorMessage(rawBodyText, 'Token inválido ou autenticação recusada.')
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'unauthorized')
-    record.set('message', 'Token inválido ou autenticação recusada.')
+    record.set('message', safeMsg)
   } else if (statusCode === 403) {
+    const safeMsg = sanitizeErrorMessage(
+      rawBodyText,
+      'Usuário sem permissão para acessar o recurso.',
+    )
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'forbidden')
-    record.set('message', 'Usuário sem permissão para acessar o recurso.')
+    record.set('message', safeMsg)
   } else if (statusCode === 404) {
+    const safeMsg = sanitizeErrorMessage(rawBodyText, 'Recurso não encontrado na API TradePro.')
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'internal_error')
-    record.set('message', 'Recurso não encontrado na API TradePro.')
+    record.set('message', safeMsg)
+  } else if (statusCode === 412) {
+    const safeMsg = sanitizeErrorMessage(
+      rawBodyText,
+      'O TradePro recusou uma pré-condição da solicitação (HTTP 412).',
+    )
+    record.set('status', 'error')
+    record.set('connected', false)
+    record.set('has_data', false)
+    record.set('records_received', 0)
+    record.set('total_records_reported', 0)
+    record.set('error_code', 'precondition_failed')
+    record.set('message', safeMsg)
   } else if (statusCode === 429) {
+    const safeMsg = sanitizeErrorMessage(
+      rawBodyText,
+      'Limite temporário de requisições. Aguarde antes de tentar novamente.',
+    )
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'rate_limited')
-    record.set('message', 'Limite temporário de requisições. Aguarde antes de tentar novamente.')
+    record.set('message', safeMsg)
   } else if (statusCode >= 500) {
+    const safeMsg = sanitizeErrorMessage(rawBodyText, 'Serviço TradePro indisponível no momento.')
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'tradepro_unavailable')
-    record.set('message', 'Serviço TradePro indisponível no momento.')
+    record.set('message', safeMsg)
   } else {
+    const safeMsg = sanitizeErrorMessage(
+      rawBodyText,
+      'Falha na resposta do servidor TradePro (HTTP ' + statusCode + ').',
+    )
     record.set('status', 'error')
     record.set('connected', false)
     record.set('has_data', false)
     record.set('records_received', 0)
     record.set('total_records_reported', 0)
     record.set('error_code', 'internal_error')
-    record.set('message', 'Falha na resposta do servidor TradePro (HTTP ' + statusCode + ').')
+    record.set('message', safeMsg)
   }
 
   $app.save(record)

@@ -229,4 +229,26 @@ describe('tradeProClient — testTradeProConnection via PocketBase Jobs', () => 
     expect(res.success).toBe(false)
     expect(res.message).toContain('Excel')
   })
+
+  it('11. testTradeProConnection lida com HTTP 412 (precondition_failed)', async () => {
+    mockCreate.mockResolvedValueOnce({ id: 'job_412' })
+    mockGetOne.mockResolvedValueOnce({
+      id: 'job_412',
+      connected: false,
+      http_status: 412,
+      has_data: false,
+      records_received: 0,
+      total_records_reported: 0,
+      latency_ms: 450,
+      message: 'Pré-condição X não atendida',
+      error_code: 'precondition_failed',
+    })
+
+    const result = await testTradeProConnection('2026-05-01', '2026-05-15')
+
+    expect(result.conectado).toBe(false)
+    expect(result.statusHttp).toBe(412)
+    expect(result.errorCode).toBe('precondition_failed')
+    expect(result.mensagem).toBe('Pré-condição X não atendida')
+  })
 })
