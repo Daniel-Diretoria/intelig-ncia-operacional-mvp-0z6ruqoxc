@@ -1,13 +1,126 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useLojas } from '../useLojas'
-import * as baseSelectors from '@/lib/selectors/baseAtualSelectors'
+import * as useValidadesModule from '@/services/useValidades'
+import * as useRupturasModule from '@/services/useRupturas'
 import type { BaseAtualSnapshot } from '@/lib/selectors'
 
 describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
   })
+
+  const mockValidades = [
+    {
+      id: 'v1',
+      product: 'PROD 1',
+      sku: 'SKU1',
+      lote: 'L1',
+      category: 'Mercearia',
+      validade: '2025-06-01',
+      diasRestantes: 10, // Crítico
+      status: 'Crítico',
+      unidade: 'UN',
+      estoque: 10,
+      cliente: 'CHULETÃO',
+      industria: 'Chuletão',
+      rede: 'FORT ATACADISTA',
+      codigoLoja: '165',
+      loja: 'FORT ATACADISTA KOBRASOL',
+      cidade: 'São José',
+      uf: 'SC',
+      quantidade: 10,
+      dataEntrada: '2025-05-01',
+    },
+    {
+      id: 'v2',
+      product: 'PROD 2',
+      sku: 'SKU2',
+      lote: 'L2',
+      category: 'Mercearia',
+      validade: '2025-06-20',
+      diasRestantes: 25, // Moderado / Normal
+      status: 'Moderado',
+      unidade: 'UN',
+      estoque: 10,
+      cliente: 'OUTRA MARCA',
+      industria: 'Outra',
+      rede: 'COMPER',
+      codigoLoja: '165',
+      loja: 'COMPER CENTRO',
+      cidade: 'Campo Grande',
+      uf: 'MS',
+      quantidade: 10,
+      dataEntrada: '2025-05-01',
+    },
+    {
+      id: 'v3',
+      product: 'PROD 3',
+      sku: 'SKU3',
+      lote: 'L3',
+      category: 'Mercearia',
+      validade: '2025-08-01',
+      diasRestantes: 90, // Normal
+      status: 'Normal',
+      unidade: 'UN',
+      estoque: 10,
+      cliente: 'TERCEIRA MARCA',
+      industria: 'Terceira',
+      rede: 'ASSAI',
+      codigoLoja: '085',
+      loja: 'ASSAI NORTE',
+      cidade: 'Curitiba',
+      uf: 'PR',
+      quantidade: 10,
+      dataEntrada: '2025-05-01',
+    },
+  ]
+
+  const mockRupturas = [
+    {
+      id: 'r1',
+      data_visita: '2025-05-10',
+      codigo_loja: '165',
+      nome_loja: 'COMPER CENTRO',
+      cnpj_loja: '00.000.000/0002-00',
+      cidade: 'Campo Grande',
+      estado: 'MS',
+      codigo_cliente: 'C2',
+      cliente: 'OUTRA MARCA',
+      colaborador: 'Promotor 2',
+      categoria: 'Mercearia',
+      observacao: '',
+      data_entrada: '2025-05-10',
+      ultima_aparicao: '2025-05-10',
+      operational_key: 'op2',
+      dedup_key: 'dedup2',
+      source_import_id: 'imp1',
+      source_row: 2,
+      produto: 'PROD 2',
+      motivo: 'Ruptura Total',
+      dias_em_ruptura: 4,
+      situacao_atual: 'Ativo',
+    },
+  ]
+
+  const setupMocks = (validades = mockValidades, rupturas = mockRupturas) => {
+    vi.spyOn(useValidadesModule, 'useValidades').mockReturnValue({
+      data: validades as any,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    vi.spyOn(useRupturasModule, 'useRupturas').mockReturnValue({
+      data: rupturas as any,
+      filteredRupturas: rupturas as any,
+      historicoRupturas: [],
+      conflitos: [],
+      kpis: null,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+  }
 
   const mockSnapshot: BaseAtualSnapshot = {
     alertasOperacionais: [],
@@ -244,7 +357,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   }
 
   it('filteredStores com filtro Rede: KPIs e tabela usam mesmo subconjunto', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas({ networkName: 'FORT ATACADISTA' }))
 
@@ -258,7 +371,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('useLojas expõe validadesAtivas e rupturasAtivas após carga', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas())
 
@@ -273,7 +386,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('filteredStores com filtro Situação="Críticas": só lojas com validades 0-15 OU ruptura', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas({ situacao: 'Críticas' }))
 
@@ -290,7 +403,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('getStoreById com storeId composto retorna loja exata; código parcial NÃO retorna loja errada', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas())
 
@@ -309,7 +422,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('duas lojas com mesmo código 165 e nomes diferentes: getStoreById distingue', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas())
 
@@ -332,89 +445,45 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('deduplicação de StoreSummary: duas entradas com mesmo storeCode+storeName+city unificam na entrada com UF e rede preenchidos', async () => {
-    const duplicateSnapshot: BaseAtualSnapshot = {
-      alertasOperacionais: [],
-      loadedFromBackend: true,
-      timestamp: new Date().toISOString(),
-      kpisReconciliados: {
-        validadesAtivasTotal: 2,
-        validadesCriticas: 1,
-        validadesAtencao: 0,
-        validadesModerado: 1,
-        validadesNormal: 0,
-        quantidadeTotalEmRisco: 20,
-        produtosDistintosEmRisco: 2,
-        lojasAfetadas: 1,
-        clientesAfetados: 1,
-        rupturasAtivasTotal: 1,
-        alertasAbertosTotal: 1,
-        auditoriaVencidosTotal: 0,
+    const dupValidades = [
+      {
+        id: 'v_dup_1',
+        product: 'PROD DUP 1',
+        sku: 'SKU_D1',
+        lote: 'L1',
+        category: 'Mercearia',
+        validade: '2025-06-01',
+        diasRestantes: 5, // Crítico
+        status: 'Crítico',
+        unidade: 'UN',
+        estoque: 10,
+        cliente: 'MARCA TESTE',
+        industria: 'Indústria',
+        rede: '',
+        codigoLoja: '165',
+        loja: 'FORT ATACADISTA AVENTUREIRO',
+        cidade: 'Joinville',
+        uf: '',
+        quantidade: 10,
       },
-      validadesAtivas: [],
-      validadesAuditoria: [],
-      rupturasAtivas: [],
-      lojasAgregadas: [
-        {
-          lojaKey: '165|FORT ATACADISTA AVENTUREIRO||JOINVILLE',
-          identidade: '165 • FORT ATACADISTA AVENTUREIRO',
-          codigoLoja: '165',
-          nomeLoja: 'FORT ATACADISTA AVENTUREIRO',
-          rede: '',
-          cidade: 'Joinville',
-          uf: '',
-          cidadeUf: 'Joinville',
-          totalClientes: 1,
-          totalOcorrenciasAtivas: 1,
-          totalRupturasAtivas: 0,
-          totalProdutosEmRisco: 1,
-          totalQuantidade: 10,
-          statusMaisCritico: 'Crítico',
-          itemsAtivos: [
-            {
-              id: 'v_dup_1',
-              product: 'PROD DUP 1',
-              sku: 'SKU_D1',
-              lote: 'L1',
-              category: 'Mercearia',
-              validade: '2025-06-01',
-              diasRestantes: 5, // Crítico
-              status: 'Crítico',
-              unidade: 'UN',
-              estoque: 10,
-              cliente: 'MARCA TESTE',
-              industria: 'Indústria',
-              rede: '',
-              codigoLoja: '165',
-              loja: 'FORT ATACADISTA AVENTUREIRO',
-              cidade: 'Joinville',
-              uf: '',
-              quantidade: 10,
-            },
-          ],
-          itemsAuditoria: [],
-        },
-        {
-          lojaKey: '165|FORT ATACADISTA AVENTUREIRO|FORT ATACADISTA|JOINVILLE (SC)',
-          identidade: '165 • FORT ATACADISTA AVENTUREIRO',
-          codigoLoja: '165',
-          nomeLoja: 'FORT ATACADISTA AVENTUREIRO',
-          rede: 'FORT ATACADISTA',
-          cidade: 'Joinville',
-          uf: 'SC',
-          cidadeUf: 'Joinville (SC)',
-          totalClientes: 1,
-          totalOcorrenciasAtivas: 0,
-          totalRupturasAtivas: 1,
-          totalProdutosEmRisco: 0,
-          totalQuantidade: 0,
-          statusMaisCritico: 'Normal',
-          itemsAtivos: [],
-          itemsAuditoria: [],
-        },
-      ],
-    }
+    ]
 
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(duplicateSnapshot)
+    const dupRupturas = [
+      {
+        id: 'r_dup_1',
+        codigo_loja: '165',
+        nome_loja: 'FORT ATACADISTA AVENTUREIRO',
+        cidade: 'Joinville',
+        estado: 'SC',
+        cliente: 'MARCA TESTE',
+        produto: 'PROD DUP 2',
+        motivo: 'Ruptura Total',
+        dias_em_ruptura: 2,
+        situacao_atual: 'Ativo',
+      },
+    ]
+
+    setupMocks(dupValidades as any, dupRupturas as any)
 
     const { result } = renderHook(() => useLojas())
 
@@ -436,7 +505,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
   })
 
   it('useLojas preenche supervisorKey, supervisorName e supervisoresList corretamente', async () => {
-    vi.spyOn(baseSelectors, 'getBaseAtualSnapshot').mockResolvedValue(mockSnapshot)
+    setupMocks()
 
     const { result } = renderHook(() => useLojas())
 

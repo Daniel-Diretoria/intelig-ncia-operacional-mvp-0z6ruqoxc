@@ -163,14 +163,24 @@ const ResumoCardItem: React.FC<ResumoCard> = ({ label, value, icon: Icon, tone }
 export const AuditoriaPage: React.FC = () => {
   const { toast } = useToast()
   const { user } = useAuth()
-  const { ocorrencias, resumo, isLoading, error, refetch, sinalizarCorrecao, confirmarLegitimo } =
-    useAuditoria()
+  const {
+    ocorrencias,
+    conflitos,
+    resumo,
+    isLoading,
+    error,
+    refetch,
+    sinalizarCorrecao,
+    confirmarLegitimo,
+  } = useAuditoria()
 
+  const [categoriaAtiva, setCategoriaAtiva] = useState<'vencidos' | 'conflitos'>('vencidos')
   const [search, setSearch] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<
     'todos' | 'pendente' | 'confirmado' | 'aguardando'
   >('todos')
   const [currentPage, setCurrentPage] = useState(1)
+  const [currentPageConflitos, setCurrentPageConflitos] = useState(1)
   const [sinalizando, setSinalizando] = useState<AuditoriaOcorrencia | null>(null)
   const [motivo, setMotivo] = useState('')
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
@@ -241,8 +251,27 @@ export const AuditoriaPage: React.FC = () => {
     return list
   }, [ocorrencias, search, filtroStatus])
 
+  const filtradosConflitos = useMemo(() => {
+    let list = conflitos
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter(
+        (c) =>
+          c.produto.toLowerCase().includes(q) ||
+          c.loja.toLowerCase().includes(q) ||
+          c.marca.toLowerCase().includes(q) ||
+          c.motivo.toLowerCase().includes(q) ||
+          c.chave.toLowerCase().includes(q),
+      )
+    }
+    return list
+  }, [conflitos, search])
+
   const totalItems = filtradas.length
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE))
+
+  const totalConflitosItems = filtradosConflitos.length
+  const totalConflitosPages = Math.max(1, Math.ceil(totalConflitosItems / PAGE_SIZE))
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -250,13 +279,28 @@ export const AuditoriaPage: React.FC = () => {
     }
   }, [currentPage, totalPages])
 
+  useEffect(() => {
+    if (currentPageConflitos > totalConflitosPages) {
+      setCurrentPageConflitos(totalConflitosPages)
+    }
+  }, [currentPageConflitos, totalConflitosPages])
+
   const paginadas = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE
     return filtradas.slice(start, start + PAGE_SIZE)
   }, [filtradas, currentPage])
 
+  const paginadasConflitos = useMemo(() => {
+    const start = (currentPageConflitos - 1) * PAGE_SIZE
+    return filtradosConflitos.slice(start, start + PAGE_SIZE)
+  }, [filtradosConflitos, currentPageConflitos])
+
   const startRange = totalItems === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const endRange = Math.min(currentPage * PAGE_SIZE, totalItems)
+
+  const startRangeConflitos =
+    totalConflitosItems === 0 ? 0 : (currentPageConflitos - 1) * PAGE_SIZE + 1
+  const endRangeConflitos = Math.min(currentPageConflitos * PAGE_SIZE, totalConflitosItems)
 
   const handleConfirmar = async (o: AuditoriaOcorrencia) => {
     setActionLoadingId(o.id)
@@ -311,7 +355,12 @@ export const AuditoriaPage: React.FC = () => {
     { label: 'Total Vencidos', value: resumo.totalVencidos, icon: ShieldAlert, tone: 'red' },
     { label: 'Pendentes', value: resumo.pendentes, icon: Clock, tone: 'amber' },
     { label: 'Confirmados', value: resumo.confirmados, icon: CheckCircle2, tone: 'blue' },
-    { label: 'Sinalizados', value: resumo.sinalizados, icon: AlertTriangle, tone: 'emerald' },
+    {
+      label: 'Conflitos Confronto',
+      value: resumo.totalConflitos,
+      icon: AlertTriangle,
+      tone: 'emerald',
+    },
   ]
 
   return (
@@ -325,54 +374,129 @@ export const AuditoriaPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                Auditoria de Vencidos
+                Auditoria & Governança
               </h1>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
                 Isolamento Crítico
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Verifique ocorrências Vencidas — sinalize erros de registro do promotor ou confirme
-              vencimentos legítimos.
+              Verifique ocorrências Vencidas na coleta e Conflitos de Confronto Bidirecional entre
+              Validades e Rupturas.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-center">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isExporting || ocorrencias.length === 0}
-                className="h-10 px-3.5 gap-2 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl shadow-2xs"
-              >
-                <Download className="w-3.5 h-3.5 text-red-600" />
-                <span>{isExporting ? 'Exportando...' : 'Exportar Pendências'}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={() => handleExportAuditoria('xlsx')}
-                className="gap-2 text-xs cursor-pointer"
-              >
-                <Download className="w-4 h-4 text-emerald-600" />
-                <span>Excel (.xlsx)</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleExportAuditoria('csv')}
-                className="gap-2 text-xs cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
-                <span>CSV (.csv UTF-8)</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {categoriaAtiva === 'vencidos' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isExporting || ocorrencias.length === 0}
+                  className="h-10 px-3.5 gap-2 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl shadow-2xs"
+                >
+                  <Download className="w-3.5 h-3.5 text-red-600" />
+                  <span>{isExporting ? 'Exportando...' : 'Exportar Pendências'}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => handleExportAuditoria('xlsx')}
+                  className="gap-2 text-xs cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>Excel (.xlsx)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleExportAuditoria('csv')}
+                  className="gap-2 text-xs cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                  <span>CSV (.csv UTF-8)</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-bold shadow-2xs">
             <ShieldAlert className="w-4 h-4" />
-            <span>{resumo.totalVencidos} ocorrência(s) vencida(s)</span>
+            <span>
+              {categoriaAtiva === 'vencidos'
+                ? `${resumo.totalVencidos} vencido(s)`
+                : `${resumo.totalConflitos} conflito(s)`}
+            </span>
           </div>
         </div>
+      </div>
+
+      {/* Alternância de Categoria (Vencidos vs Conflitos) */}
+      <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/80 w-fit">
+        <button
+          type="button"
+          onClick={() => {
+            setCategoriaAtiva('vencidos')
+            setSearch('')
+            setCurrentPage(1)
+          }}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer',
+            categoriaAtiva === 'vencidos'
+              ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+              : 'text-slate-600 hover:text-slate-900',
+          )}
+        >
+          <ShieldAlert
+            className={cn(
+              'w-4 h-4',
+              categoriaAtiva === 'vencidos' ? 'text-red-600' : 'text-slate-400',
+            )}
+          />
+          <span>Vencidos na Coleta</span>
+          <span
+            className={cn(
+              'px-2 py-0.5 rounded-full text-[11px] font-bold tabular-nums',
+              categoriaAtiva === 'vencidos'
+                ? 'bg-red-50 text-red-700 border border-red-200'
+                : 'bg-slate-200 text-slate-600',
+            )}
+          >
+            {resumo.totalVencidos}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setCategoriaAtiva('conflitos')
+            setSearch('')
+            setCurrentPageConflitos(1)
+          }}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer',
+            categoriaAtiva === 'conflitos'
+              ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+              : 'text-slate-600 hover:text-slate-900',
+          )}
+        >
+          <AlertTriangle
+            className={cn(
+              'w-4 h-4',
+              categoriaAtiva === 'conflitos' ? 'text-amber-600' : 'text-slate-400',
+            )}
+          />
+          <span>Conflitos de Confronto</span>
+          <span
+            className={cn(
+              'px-2 py-0.5 rounded-full text-[11px] font-bold tabular-nums',
+              categoriaAtiva === 'conflitos'
+                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                : 'bg-slate-200 text-slate-600',
+            )}
+          >
+            {resumo.totalConflitos}
+          </span>
+        </button>
       </div>
 
       {/* Resumo */}
@@ -405,38 +529,48 @@ export const AuditoriaPage: React.FC = () => {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
-              setCurrentPage(1)
+              if (categoriaAtiva === 'vencidos') {
+                setCurrentPage(1)
+              } else {
+                setCurrentPageConflitos(1)
+              }
             }}
-            placeholder="Buscar por produto, loja, promotor ou supervisor..."
+            placeholder={
+              categoriaAtiva === 'vencidos'
+                ? 'Buscar por produto, loja, promotor ou supervisor...'
+                : 'Buscar por produto, loja, marca ou motivo do conflito...'
+            }
             className="w-full h-10 pl-9 pr-3 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
           />
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {(
-            [
-              ['todos', 'Todos'],
-              ['aguardando', 'Aguardando'],
-              ['pendente', 'Pendentes'],
-              ['confirmado', 'Confirmados'],
-            ] as const
-          ).map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => {
-                setFiltroStatus(val)
-                setCurrentPage(1)
-              }}
-              className={cn(
-                'px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer',
-                filtroStatus === val
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {categoriaAtiva === 'vencidos' && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(
+              [
+                ['todos', 'Todos'],
+                ['aguardando', 'Aguardando'],
+                ['pendente', 'Pendentes'],
+                ['confirmado', 'Confirmados'],
+              ] as const
+            ).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => {
+                  setFiltroStatus(val)
+                  setCurrentPage(1)
+                }}
+                className={cn(
+                  'px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer',
+                  filtroStatus === val
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Erro */}
@@ -449,8 +583,8 @@ export const AuditoriaPage: React.FC = () => {
         />
       )}
 
-      {/* Tabela */}
-      {!error && (
+      {/* Tabela Categoria: Vencidos */}
+      {!error && categoriaAtiva === 'vencidos' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
           {isLoading ? (
             <div className="p-8 space-y-3">
@@ -623,6 +757,133 @@ export const AuditoriaPage: React.FC = () => {
                   size="sm"
                   disabled={currentPage >= totalPages}
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <span>Próxima</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabela Categoria: Conflitos */}
+      {!error && categoriaAtiva === 'conflitos' && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
+          {isLoading ? (
+            <div className="p-8 space-y-3">
+              <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                <span>Carregando conflitos de auditoria...</span>
+              </div>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 rounded-lg" />
+              ))}
+            </div>
+          ) : filtradosConflitos.length === 0 ? (
+            <div className="p-8">
+              <EmptyState
+                icon={CheckCircle2}
+                title="Nenhum conflito encontrado"
+                description="Não há conflitos de confronto bidirecional pendentes de conciliação."
+              />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50/60">
+                    <TableHead className="text-xs">Loja / PDV</TableHead>
+                    <TableHead className="text-xs">Marca</TableHead>
+                    <TableHead className="text-xs">Produto</TableHead>
+                    <TableHead className="text-xs">Data Ruptura</TableHead>
+                    <TableHead className="text-xs">Data Validade</TableHead>
+                    <TableHead className="text-xs">Motivo do Conflito</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginadasConflitos.map((c) => (
+                    <TableRow key={c.id} className="hover:bg-slate-50/70">
+                      <TableCell className="text-xs font-semibold text-slate-900 max-w-[200px]">
+                        <div className="flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">{c.loja}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge
+                          variant="outline"
+                          className="text-[11px] font-semibold border-slate-300 text-slate-700 bg-slate-50"
+                        >
+                          {c.marca}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs font-medium text-slate-800 max-w-[220px]">
+                        <div className="flex items-center gap-1.5">
+                          <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">{c.produto}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <CalendarDays className="w-3 h-3 text-slate-400" />
+                          {fmtDate(c.dataRuptura)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <CalendarDays className="w-3 h-3 text-slate-400" />
+                          {fmtDate(c.dataValidade)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge
+                          variant="outline"
+                          className="text-[11px] font-semibold border-amber-300 text-amber-800 bg-amber-50"
+                        >
+                          {c.motivo}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {/* Paginação de Conflitos */}
+          {!isLoading && totalConflitosPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 text-xs text-slate-600 bg-white">
+              <div>
+                Mostrando{' '}
+                <strong className="text-slate-900">
+                  {startRangeConflitos}–{endRangeConflitos}
+                </strong>{' '}
+                de <strong className="text-slate-900">{totalConflitosItems}</strong> conflitos
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPageConflitos <= 1}
+                  onClick={() => setCurrentPageConflitos((p) => Math.max(1, p - 1))}
+                  className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Anterior</span>
+                </Button>
+                <span className="text-slate-500">
+                  Página <strong className="text-slate-900">{currentPageConflitos}</strong> de{' '}
+                  <strong className="text-slate-900">{totalConflitosPages}</strong>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPageConflitos >= totalConflitosPages}
+                  onClick={() =>
+                    setCurrentPageConflitos((p) => Math.min(totalConflitosPages, p + 1))
+                  }
                   className="h-8 px-2.5 text-xs gap-1 border-slate-200 rounded-lg hover:bg-slate-50"
                 >
                   <span>Próxima</span>

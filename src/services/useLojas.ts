@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getBaseAtualSnapshot, type BaseAtualSnapshot, type LojaAgregada } from '@/lib/selectors'
 import {
   buildStoreCompositeKey,
   parseCityUf,
@@ -7,6 +6,8 @@ import {
   formatCityUf,
 } from '@/lib/format/storeIdentity'
 import { resolveStoreSupervisors } from '@/lib/resolve/supervisorResolver'
+import { useValidades } from '@/services/useValidades'
+import { useRupturas } from '@/services/useRupturas'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export interface StoreSummary {
@@ -68,240 +69,209 @@ export interface UseLojasResult {
 }
 
 export function useLojas(filters?: LojasFilter): UseLojasResult {
-  const [stores, setStores] = useState<StoreSummary[]>([])
-  const [validadesAtivas, setValidadesAtivas] = useState<ValidadeItem[]>([])
-  const [rupturasAtivas, setRupturasAtivas] = useState<Ruptura[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  const {
+    data: validadesData,
+    isLoading: isLoadingValidades,
+    error: errorValidades,
+    refetch: refetchValidades,
+  } = useValidades()
 
-  const fetchStores = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
-      setValidadesAtivas(snapshot.validadesAtivas)
-      setRupturasAtivas(snapshot.rupturasAtivas)
+  const {
+    filteredRupturas: rupturasData,
+    isLoading: isLoadingRupturas,
+    error: errorRupturas,
+    refetch: refetchRupturas,
+  } = useRupturas()
 
-      const agregadas = snapshot.lojasAgregadas
-      const activeRupturas = snapshot.rupturasAtivas.filter((r) => r.situacao_atual === 'Ativo')
+  const isLoading = isLoadingValidades || isLoadingRupturas
+  const error = errorValidades || errorRupturas
 
-      // Mapeia rupturas ativas por storeId usando parseCityUf e deriveNetworkName
-      const rupturasByStoreId = new Map<string, Ruptura[]>()
-      for (const rup of activeRupturas) {
-        const { city: rupCity, uf: rupState } = parseCityUf(rup.cidade, rup.estado)
-        const rupRede = deriveNetworkName(rup.nome_loja)
-        const key = buildStoreCompositeKey({
-          codigoLoja: rup.codigo_loja,
-          nomeLoja: rup.nome_loja,
-          rede: rupRede,
-          cidade: rupCity,
-          uf: rupState,
-        })
-        const list = rupturasByStoreId.get(key) || []
-        list.push(rup)
-        rupturasByStoreId.set(key, list)
-      }
-
-      const summaries: StoreSummary[] = agregadas.map((l: LojaAgregada) => {
-        const { city: lCity, uf: lUf } = parseCityUf(l.cidade, l.uf)
-        const storeId =
-          l.lojaKey ||
-          buildStoreCompositeKey({
-            codigoLoja: l.codigoLoja,
-            nomeLoja: l.nomeLoja,
-            rede: l.rede,
-            cidade: lCity,
-            uf: lUf,
-          })
-
-        const marcasSet = new Set<string>()
-        let validadesCriticasCount = 0
-        let validadesAtencaoCount = 0
-
-        // Processa validades ativas da loja
-        for (const it of l.itemsAtivos) {
-          if (it.cliente && it.cliente.trim()) {
-            marcasSet.add(it.cliente.trim())
-          }
-          if (it.diasRestantes <= 15) {
-            validadesCriticasCount++
-          } else if (it.diasRestantes > 15 && it.diasRestantes <= 30) {
-            validadesAtencaoCount++
-          }
-        }
-
-        // Processa rupturas da loja
-        const storeRupturas = rupturasByStoreId.get(storeId) || []
-        for (const rup of storeRupturas) {
-          if (rup.cliente && rup.cliente.trim()) {
-            marcasSet.add(rup.cliente.trim())
-          }
-        }
-
-        const rupturasAtivasCount = l.totalRupturasAtivas || storeRupturas.length
-        const situacao: 'Crítica' | 'Normal' =
-          validadesCriticasCount > 0 || rupturasAtivasCount > 0 ? 'Crítica' : 'Normal'
-
-        const marcasList = Array.from(marcasSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-        return {
-          storeId,
-          storeCode: l.codigoLoja || '',
-          storeName: l.nomeLoja,
-          networkName: l.rede,
-          city: l.cidade,
-          uf: l.uf,
-          marcasCount: marcasList.length,
-          marcasList,
-          validadesCriticasCount,
-          validadesAtencaoCount,
-          rupturasAtivasCount,
-          situacao,
-          itemsAtivos: l.itemsAtivos,
-          itemsAuditoria: l.itemsAuditoria,
-          rupturasList: storeRupturas,
-          supervisorKey: 'sem-supervisor',
-          supervisorName: 'Sem supervisor definido',
-          supervisoresList: [],
-        }
-      })
-
-      // Etapa de deduplicação de StoreSummary:
-      // Agrupa StoreSummary por storeCode|storeName|city (normalizado)
-      const isRedeGeneric = (r: string) =>
-        !r ||
-        !r.trim() ||
-        r.trim().toUpperCase() === 'REDE NÃO IDENTIFICADA' ||
-        r.trim().toUpperCase() === 'REDE NÃO INFORMADA'
-
-      const storeGroupMap = new Map<string, StoreSummary[]>()
-      for (const s of summaries) {
-        const normCode = s.storeCode ? s.storeCode.trim().toUpperCase() : 'SEM_CODIGO'
-        const normName = s.storeName.trim().toUpperCase()
-        const normCity = s.city.trim().toUpperCase()
-        const groupKey = `${normCode}|${normName}|${normCity}`
-
-        const group = storeGroupMap.get(groupKey) || []
-        group.push(s)
-        storeGroupMap.set(groupKey, group)
-      }
-
-      const deduplicatedSummaries: StoreSummary[] = []
-      for (const group of storeGroupMap.values()) {
-        if (group.length === 1) {
-          deduplicatedSummaries.push(group[0])
-        } else {
-          // Mais de 1 entrada: consolida na primeira
-          const first = group[0]
-
-          // Herdar networkName não-vazio/não-genérico
-          const validNetwork =
-            group.find((item) => !isRedeGeneric(item.networkName))?.networkName || first.networkName
-
-          // Herdar UF não-vazia
-          const validUf = group.find((item) => Boolean(item.uf && item.uf.trim()))?.uf || first.uf
-
-          const allMarcasSet = new Set<string>()
-          let totalValidadesCriticas = 0
-          let totalValidadesAtencao = 0
-          let totalRupturasAtivas = 0
-          const allItemsAtivos: ValidadeItem[] = []
-          const allItemsAuditoria: ValidadeItem[] = []
-          const allRupturasList: Ruptura[] = []
-
-          for (const item of group) {
-            item.marcasList.forEach((m) => {
-              if (m && m.trim()) allMarcasSet.add(m.trim())
-            })
-            totalValidadesCriticas += item.validadesCriticasCount
-            totalValidadesAtencao += item.validadesAtencaoCount
-            totalRupturasAtivas += item.rupturasAtivasCount
-            allItemsAtivos.push(...item.itemsAtivos)
-            allItemsAuditoria.push(...item.itemsAuditoria)
-            allRupturasList.push(...item.rupturasList)
-          }
-
-          const consolidatedMarcasList = Array.from(allMarcasSet).sort((a, b) =>
-            a.localeCompare(b, 'pt-BR'),
-          )
-
-          const recalculatedStoreId = buildStoreCompositeKey({
-            codigoLoja: first.storeCode,
-            nomeLoja: first.storeName,
-            rede: validNetwork,
-            cidade: first.city,
-            uf: validUf,
-          })
-
-          const situacao: 'Crítica' | 'Normal' =
-            totalValidadesCriticas > 0 || totalRupturasAtivas > 0 ? 'Crítica' : 'Normal'
-
-          deduplicatedSummaries.push({
-            storeId: recalculatedStoreId,
-            storeCode: first.storeCode,
-            storeName: first.storeName,
-            networkName: validNetwork,
-            city: first.city,
-            uf: validUf,
-            marcasCount: consolidatedMarcasList.length,
-            marcasList: consolidatedMarcasList,
-            validadesCriticasCount: totalValidadesCriticas,
-            validadesAtencaoCount: totalValidadesAtencao,
-            rupturasAtivasCount: totalRupturasAtivas,
-            situacao,
-            itemsAtivos: allItemsAtivos,
-            itemsAuditoria: allItemsAuditoria,
-            rupturasList: allRupturasList,
-            supervisorKey: 'sem-supervisor',
-            supervisorName: 'Sem supervisor definido',
-            supervisoresList: [],
-          })
-        }
-      }
-
-      // Atribuição de supervisor por loja
-      for (const s of deduplicatedSummaries) {
-        const storeKey = buildStoreCompositeKey({
-          codigoLoja: s.storeCode,
-          nomeLoja: s.storeName,
-          rede: s.networkName,
-          cidade: s.city,
-          uf: s.uf,
-        })
-        const supResolution = resolveStoreSupervisors(s.itemsAtivos, s.rupturasList, storeKey)
-        s.supervisorKey = supResolution.supervisorKey
-        s.supervisorName = supResolution.supervisorName
-        s.supervisoresList = supResolution.supervisoresList
-      }
-
-      // Defesa em profundidade: filtrar duplicatas exatas de storeId
-      const seenStoreIds = new Set<string>()
-      const finalSummaries: StoreSummary[] = []
-      for (const s of deduplicatedSummaries) {
-        if (!seenStoreIds.has(s.storeId)) {
-          seenStoreIds.add(s.storeId)
-          finalSummaries.push(s)
-        }
-      }
-
-      setStores(finalSummaries)
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Falha ao processar base de lojas'))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchStores()
-  }, [fetchStores])
+  const refetch = useCallback(async () => {
+    await Promise.all([refetchValidades(), refetchRupturas()])
+  }, [refetchValidades, refetchRupturas])
 
   // Header refresh listener
   useEffect(() => {
-    const handleGlobalRefresh = () => fetchStores()
+    const handleGlobalRefresh = () => {
+      refetch()
+    }
     window.addEventListener('diretoria:refresh', handleGlobalRefresh)
     return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
-  }, [fetchStores])
+  }, [refetch])
+
+  const stores = useMemo(() => {
+    const isRedeGeneric = (r: string) =>
+      !r ||
+      !r.trim() ||
+      r.trim().toUpperCase() === 'REDE NÃO IDENTIFICADA' ||
+      r.trim().toUpperCase() === 'REDE NÃO INFORMADA'
+
+    // Mapa por groupKey normalizada: CODIGO|NOME|CIDADE
+    const storeMap = new Map<
+      string,
+      {
+        storeCode: string
+        storeName: string
+        networkName: string
+        city: string
+        uf: string
+        marcasSet: Set<string>
+        validadesCriticasCount: number
+        validadesAtencaoCount: number
+        rupturasAtivasCount: number
+        itemsAtivos: ValidadeItem[]
+        itemsAuditoria: ValidadeItem[]
+        rupturasList: Ruptura[]
+      }
+    >()
+
+    // 1. Processa Validades Canônicas
+    for (const v of validadesData) {
+      const { city: vCity, uf: vUf } = parseCityUf(v.cidade, v.uf)
+      const storeCode = v.codigoLoja ? String(v.codigoLoja).trim() : ''
+      const storeName = v.loja ? String(v.loja).trim() : ''
+      const networkName = v.rede ? String(v.rede).trim() : deriveNetworkName(storeName)
+
+      const normCode = storeCode ? storeCode.toUpperCase() : 'SEM_CODIGO'
+      const normName = storeName.toUpperCase()
+      const normCity = vCity.toUpperCase()
+      const groupKey = `${normCode}|${normName}|${normCity}`
+
+      let entry = storeMap.get(groupKey)
+      if (!entry) {
+        entry = {
+          storeCode,
+          storeName,
+          networkName,
+          city: vCity,
+          uf: vUf,
+          marcasSet: new Set<string>(),
+          validadesCriticasCount: 0,
+          validadesAtencaoCount: 0,
+          rupturasAtivasCount: 0,
+          itemsAtivos: [],
+          itemsAuditoria: [],
+          rupturasList: [],
+        }
+        storeMap.set(groupKey, entry)
+      } else {
+        if (isRedeGeneric(entry.networkName) && !isRedeGeneric(networkName)) {
+          entry.networkName = networkName
+        }
+        if (!entry.uf && vUf) {
+          entry.uf = vUf
+        }
+      }
+
+      entry.itemsAtivos.push(v)
+
+      if (v.cliente && v.cliente.trim()) {
+        entry.marcasSet.add(v.cliente.trim())
+      }
+      if (v.diasRestantes <= 15) {
+        entry.validadesCriticasCount++
+      } else if (v.diasRestantes > 15 && v.diasRestantes <= 30) {
+        entry.validadesAtencaoCount++
+      }
+    }
+
+    // 2. Processa Rupturas Canônicas (já pós-confronto)
+    for (const r of rupturasData) {
+      const { city: rCity, uf: rUf } = parseCityUf(r.cidade, r.estado)
+      const storeCode = r.codigo_loja ? String(r.codigo_loja).trim() : ''
+      const storeName = r.nome_loja ? String(r.nome_loja).trim() : ''
+      const networkName = deriveNetworkName(storeName)
+
+      const normCode = storeCode ? storeCode.toUpperCase() : 'SEM_CODIGO'
+      const normName = storeName.toUpperCase()
+      const normCity = rCity.toUpperCase()
+      const groupKey = `${normCode}|${normName}|${normCity}`
+
+      let entry = storeMap.get(groupKey)
+      if (!entry) {
+        entry = {
+          storeCode,
+          storeName,
+          networkName,
+          city: rCity,
+          uf: rUf,
+          marcasSet: new Set<string>(),
+          validadesCriticasCount: 0,
+          validadesAtencaoCount: 0,
+          rupturasAtivasCount: 0,
+          itemsAtivos: [],
+          itemsAuditoria: [],
+          rupturasList: [],
+        }
+        storeMap.set(groupKey, entry)
+      } else {
+        if (isRedeGeneric(entry.networkName) && !isRedeGeneric(networkName)) {
+          entry.networkName = networkName
+        }
+        if (!entry.uf && rUf) {
+          entry.uf = rUf
+        }
+      }
+
+      entry.rupturasList.push(r)
+
+      if (r.cliente && r.cliente.trim()) {
+        entry.marcasSet.add(r.cliente.trim())
+      }
+      entry.rupturasAtivasCount++
+    }
+
+    // 3. Converte para StoreSummary[] e calcula supervisores
+    const list: StoreSummary[] = []
+    const seenStoreIds = new Set<string>()
+
+    for (const entry of storeMap.values()) {
+      const marcasList = Array.from(entry.marcasSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+      const storeId = buildStoreCompositeKey({
+        codigoLoja: entry.storeCode,
+        nomeLoja: entry.storeName,
+        rede: entry.networkName,
+        cidade: entry.city,
+        uf: entry.uf,
+      })
+
+      if (!seenStoreIds.has(storeId)) {
+        seenStoreIds.add(storeId)
+        const situacao: 'Crítica' | 'Normal' =
+          entry.validadesCriticasCount > 0 || entry.rupturasAtivasCount > 0 ? 'Crítica' : 'Normal'
+
+        const supResolution = resolveStoreSupervisors(
+          entry.itemsAtivos,
+          entry.rupturasList,
+          storeId,
+        )
+
+        list.push({
+          storeId,
+          storeCode: entry.storeCode,
+          storeName: entry.storeName,
+          networkName: entry.networkName,
+          city: entry.city,
+          uf: entry.uf,
+          marcasCount: marcasList.length,
+          marcasList,
+          validadesCriticasCount: entry.validadesCriticasCount,
+          validadesAtencaoCount: entry.validadesAtencaoCount,
+          rupturasAtivasCount: entry.rupturasAtivasCount,
+          situacao,
+          itemsAtivos: entry.itemsAtivos,
+          itemsAuditoria: entry.itemsAuditoria,
+          rupturasList: entry.rupturasList,
+          supervisorKey: supResolution.supervisorKey,
+          supervisorName: supResolution.supervisorName,
+          supervisoresList: supResolution.supervisoresList,
+        })
+      }
+    }
+
+    return list
+  }, [validadesData, rupturasData])
 
   const filteredStores = useMemo(() => {
     return stores.filter((store) => {
@@ -389,11 +359,11 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
   return {
     stores,
     filteredStores,
-    validadesAtivas,
-    rupturasAtivas,
+    validadesAtivas: validadesData,
+    rupturasAtivas: rupturasData,
     isLoading,
     error,
-    refetch: fetchStores,
+    refetch,
     getStoreById,
   }
 }

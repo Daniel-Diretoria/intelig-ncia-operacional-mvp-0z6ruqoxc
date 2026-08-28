@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   getBaseAtualSnapshot,
   type BaseAtualSnapshot,
   type ValidadeItemAuditoria,
 } from '@/lib/selectors'
+import { useRupturas } from '@/services/useRupturas'
+import type { ConflitoAuditoria } from '@/lib/engine/confrontoBidirecional'
 import pb from '@/lib/pocketbase/client'
 
 export interface AuditoriaOcorrencia {
@@ -23,15 +25,28 @@ export interface AuditoriaOcorrencia {
   motivoAuditoria?: 'Vencido' | 'Data inválida'
 }
 
+export interface AuditoriaConflitoItem {
+  id: string
+  chave: string
+  loja: string
+  marca: string
+  produto: string
+  dataRuptura: string
+  dataValidade: string
+  motivo: string
+}
+
 export interface AuditoriaResumo {
   totalVencidos: number
   pendentes: number
   confirmados: number
   sinalizados: number
+  totalConflitos: number
 }
 
 export interface UseAuditoriaResult {
   ocorrencias: AuditoriaOcorrencia[]
+  conflitos: AuditoriaConflitoItem[]
   resumo: AuditoriaResumo
   isLoading: boolean
   error: Error | null
@@ -46,33 +61,25 @@ export interface UseAuditoriaResult {
 
 export function useAuditoria(): UseAuditoriaResult {
   const [ocorrencias, setOcorrencias] = useState<AuditoriaOcorrencia[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [error, setError] = useState<Error | null>(null)
+  const [isLoadingSnapshot, setIsLoadingSnapshot] = useState<boolean>(true)
+  const [snapshotError, setSnapshotError] = useState<Error | null>(null)
   const isMounted = useRef(true)
 
+  const {
+    conflitos: rawConflitos,
+    isLoading: isLoadingRupturas,
+    error: errorRupturas,
+    refetch: refetchRupturas,
+  } = useRupturas()
+
   const fetchData = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
+    setIsLoadingSnapshot(true)
+    setSnapshotError(null)
     try {
       const snapshot: BaseAtualSnapshot = await getBaseAtualSnapshot()
       const rawAuditoria = snapshot.validadesAuditoria
 
-      // Busca pendências de auditoria registradas em auditoria_pendencias
-      let pendenciasMap = new Map<string, Record<string, unknown>>()
-      try {
-        const pendencias = await pb.collection('auditoria_pendencias').getFullList()
-        pendencias.forEach((p) => {
-          const r = p as unknown as Record<string, unknown>
-          if (r.validades_base_id) {
-            pendenciasMap.set(String(r.validades_base_id), r)
-          }
-        })
-      } catch {
-        // ignore
-      }
-
       const lista: AuditoriaOcorrencia[] = rawAuditoria.map((item: ValidadeItemAuditoria) => {
-        const pend = pendenciasMap.get(item.id)
         return {
           id: item.id,
           produto: item.product,
@@ -85,11 +92,9 @@ export function useAuditoria(): UseAuditoriaResult {
           promotor: item.promotor || '',
           supervisor: item.supervisor || '',
           motivoAuditoria: item.motivoAuditoria,
-          sinalizadoCorrecao: pend ? true : false,
-          statusAuditoria: pend
-            ? (pend.status as AuditoriaOcorrencia['statusAuditoria'])
-            : undefined,
-          motivoCorrecao: pend ? (pend.motivo as string) : undefined,
+          sinalizadoCorrecao: false,
+          statusAuditoria: undefined,
+          motivoCorrecao: undefined,
         }
       })
 
@@ -98,11 +103,11 @@ export function useAuditoria(): UseAuditoriaResult {
       }
     } catch (err) {
       if (isMounted.current) {
-        setError(err instanceof Error ? err : new Error('Erro ao carregar auditoria'))
+        setSnapshotError(err instanceof Error ? err : new Error('Erro ao carregar auditoria'))
       }
     } finally {
       if (isMounted.current) {
-        setIsLoading(false)
+        setIsLoadingSnapshot(false)
       }
     }
   }, [])
@@ -114,6 +119,10 @@ export function useAuditoria(): UseAuditoriaResult {
       isMounted.current = false
     }
   }, [fetchData])
+
+  const refetch = useCallback(async () => {
+    await Promise.all([fetchData(), refetchRupturas()])
+  }, [fetchData, refetchRupturas])
 
   const sinalizarCorrecao = useCallback(
     async (ocorrencia: AuditoriaOcorrencia, motivo: string, usuario: string) => {
@@ -180,19 +189,42 @@ export function useAuditoria(): UseAuditoriaResult {
     [],
   )
 
-  const resumo: AuditoriaResumo = {
-    totalVencidos: ocorrencias.length,
-    pendentes: ocorrencias.filter((o) => o.statusAuditoria === 'pendente').length,
-    confirmados: ocorrencias.filter((o) => o.statusAuditoria === 'confirmado').length,
-    sinalizados: ocorrencias.filter((o) => o.sinalizadoCorrecao).length,
-  }
+  const conflitos: AuditoriaConflitoItem[] = useMemo(() => {
+    return (rawConflitos || []).map((c: ConflitoAuditoria, idx: number) => {
+      const stableId = `conf:${c.chave || ''}:${c.origemRuptura || ''}:${c.origemValidade || ''}:${idx}`
+      return {
+        id: stableId,
+        chave: c.chave,
+        loja: c.loja,
+        marca: c.marca,
+        produto: c.produto,
+        dataRuptura: c.dataRuptura,
+        dataValidade: c.dataValidade,
+        motivo: c.motivo,
+      }
+    })
+  }, [rawConflitos])
+
+  const resumo: AuditoriaResumo = useMemo(() => {
+    return {
+      totalVencidos: ocorrencias.length,
+      pendentes: ocorrencias.filter((o) => o.statusAuditoria === 'pendente').length,
+      confirmados: ocorrencias.filter((o) => o.statusAuditoria === 'confirmado').length,
+      sinalizados: ocorrencias.filter((o) => o.sinalizadoCorrecao).length,
+      totalConflitos: conflitos.length,
+    }
+  }, [ocorrencias, conflitos])
+
+  const isLoading = isLoadingSnapshot || isLoadingRupturas
+  const error = snapshotError || errorRupturas
 
   return {
     ocorrencias,
+    conflitos,
     resumo,
     isLoading,
     error,
-    refetch: fetchData,
+    refetch,
     sinalizarCorrecao,
     confirmarLegitimo,
   }
