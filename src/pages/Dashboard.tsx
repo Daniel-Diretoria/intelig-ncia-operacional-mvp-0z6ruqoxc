@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertOctagon,
@@ -9,18 +9,17 @@ import {
   ExternalLink,
   ChevronRight,
   Sparkles,
-  Info,
   X,
 } from 'lucide-react'
-import { useLojas, type StoreSummary } from '@/services/useLojas'
 import {
   formatStoreIdentityTable,
   formatCityUf,
   buildCityUfCanonicalizer,
+  buildStoreCompositeKey,
+  parseCityUf,
+  deriveNetworkName,
 } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { computeConfrontoBidirecional } from '@/lib/engine/confrontoBidirecional'
-import type { ValidadeRecord } from '@/lib/engine/ruptureValidityReconciliationEngine'
 import { useRupturas } from '@/services/useRupturas'
 import { useValidades } from '@/services/useValidades'
 import { Button } from '@/components/ui/button'
@@ -32,6 +31,19 @@ interface StrategicFilterState {
   rede: string
   loja: string
   cidadeUf: string
+}
+
+export interface DashboardAggregatedStore {
+  storeId: string
+  storeCode: string
+  storeName: string
+  networkName: string
+  city: string
+  uf: string
+  marcasList: string[]
+  validadesCriticasCount: number
+  rupturasAtivasCount: number
+  situacao: 'Crítica' | 'Normal'
 }
 
 const initialFilterState: StrategicFilterState = {
@@ -46,36 +58,177 @@ export const DashboardPage: React.FC = () => {
   const [filterState, setFilterState] = useState<StrategicFilterState>(initialFilterState)
 
   const {
-    stores,
-    validadesAtivas,
-    rupturasAtivas,
-    isLoading: isLoadingLojas,
-    error: errorLojas,
-    refetch: refetchLojas,
-  } = useLojas()
-
-  const {
-    isLoading: isLoadingRupturas,
-    error: errorRupturas,
-    refetch: refetchRupturas,
-  } = useRupturas()
-
-  const {
+    data: validades,
     isLoading: isLoadingValidades,
     error: errorValidades,
     refetch: refetchValidades,
   } = useValidades()
 
-  const isLoading = isLoadingLojas || isLoadingRupturas || isLoadingValidades
-  const error = errorLojas || errorRupturas || errorValidades
+  const {
+    filteredRupturas: rupturas,
+    isLoading: isLoadingRupturas,
+    error: errorRupturas,
+    refetch: refetchRupturas,
+  } = useRupturas()
+
+  const isLoading = isLoadingValidades || isLoadingRupturas
+  const error = errorValidades || errorRupturas
 
   const refetch = useCallback(() => {
-    refetchLojas()
-    refetchRupturas()
     refetchValidades()
-  }, [refetchLojas, refetchRupturas, refetchValidades])
+    refetchRupturas()
+  }, [refetchValidades, refetchRupturas])
 
-  const canonicalize = useMemo(() => buildCityUfCanonicalizer(stores), [stores])
+  useEffect(() => {
+    const handleGlobalRefresh = () => refetch()
+    window.addEventListener('diretoria:refresh', handleGlobalRefresh)
+    return () => window.removeEventListener('diretoria:refresh', handleGlobalRefresh)
+  }, [refetch])
+
+  // Agregação de lojas a partir de validades e rupturas canônicos
+  const lojasAgregadas = useMemo(() => {
+    const isRedeGeneric = (r: string) =>
+      !r ||
+      !r.trim() ||
+      r.trim().toUpperCase() === 'REDE NÃO IDENTIFICADA' ||
+      r.trim().toUpperCase() === 'REDE NÃO INFORMADA'
+
+    // Mapa por groupKey normalizada: CODIGO|NOME|CIDADE
+    const storeMap = new Map<
+      string,
+      {
+        storeCode: string
+        storeName: string
+        networkName: string
+        city: string
+        uf: string
+        marcasSet: Set<string>
+        validadesCriticasCount: number
+        rupturasAtivasCount: number
+      }
+    >()
+
+    // 1. Processa Validades
+    for (const v of validades) {
+      const { city: vCity, uf: vUf } = parseCityUf(v.cidade, v.uf)
+      const storeCode = v.codigoLoja ? String(v.codigoLoja).trim() : ''
+      const storeName = v.loja ? String(v.loja).trim() : ''
+      const networkName = v.rede ? String(v.rede).trim() : deriveNetworkName(storeName)
+
+      const normCode = storeCode ? storeCode.toUpperCase() : 'SEM_CODIGO'
+      const normName = storeName.toUpperCase()
+      const normCity = vCity.toUpperCase()
+      const groupKey = `${normCode}|${normName}|${normCity}`
+
+      let entry = storeMap.get(groupKey)
+      if (!entry) {
+        entry = {
+          storeCode,
+          storeName,
+          networkName,
+          city: vCity,
+          uf: vUf,
+          marcasSet: new Set<string>(),
+          validadesCriticasCount: 0,
+          rupturasAtivasCount: 0,
+        }
+        storeMap.set(groupKey, entry)
+      } else {
+        if (isRedeGeneric(entry.networkName) && !isRedeGeneric(networkName)) {
+          entry.networkName = networkName
+        }
+        if (!entry.uf && vUf) {
+          entry.uf = vUf
+        }
+      }
+
+      if (v.cliente && v.cliente.trim()) {
+        entry.marcasSet.add(v.cliente.trim())
+      }
+      if (v.diasRestantes <= 15) {
+        entry.validadesCriticasCount++
+      }
+    }
+
+    // 2. Processa Rupturas
+    for (const r of rupturas) {
+      const { city: rCity, uf: rUf } = parseCityUf(r.cidade, r.estado)
+      const storeCode = r.codigo_loja ? String(r.codigo_loja).trim() : ''
+      const storeName = r.nome_loja ? String(r.nome_loja).trim() : ''
+      const networkName = deriveNetworkName(storeName)
+
+      const normCode = storeCode ? storeCode.toUpperCase() : 'SEM_CODIGO'
+      const normName = storeName.toUpperCase()
+      const normCity = rCity.toUpperCase()
+      const groupKey = `${normCode}|${normName}|${normCity}`
+
+      let entry = storeMap.get(groupKey)
+      if (!entry) {
+        entry = {
+          storeCode,
+          storeName,
+          networkName,
+          city: rCity,
+          uf: rUf,
+          marcasSet: new Set<string>(),
+          validadesCriticasCount: 0,
+          rupturasAtivasCount: 0,
+        }
+        storeMap.set(groupKey, entry)
+      } else {
+        if (isRedeGeneric(entry.networkName) && !isRedeGeneric(networkName)) {
+          entry.networkName = networkName
+        }
+        if (!entry.uf && rUf) {
+          entry.uf = rUf
+        }
+      }
+
+      if (r.cliente && r.cliente.trim()) {
+        entry.marcasSet.add(r.cliente.trim())
+      }
+      entry.rupturasAtivasCount++
+    }
+
+    // Converte para DashboardAggregatedStore[]
+    const list: DashboardAggregatedStore[] = []
+    const seenStoreIds = new Set<string>()
+
+    for (const entry of storeMap.values()) {
+      const marcasList = Array.from(entry.marcasSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+      const storeId = buildStoreCompositeKey({
+        codigoLoja: entry.storeCode,
+        nomeLoja: entry.storeName,
+        rede: entry.networkName,
+        cidade: entry.city,
+        uf: entry.uf,
+      })
+
+      if (!seenStoreIds.has(storeId)) {
+        seenStoreIds.add(storeId)
+        const situacao: 'Crítica' | 'Normal' =
+          entry.validadesCriticasCount > 0 || entry.rupturasAtivasCount > 0 ? 'Crítica' : 'Normal'
+
+        list.push({
+          storeId,
+          storeCode: entry.storeCode,
+          storeName: entry.storeName,
+          networkName: entry.networkName,
+          city: entry.city,
+          uf: entry.uf,
+          marcasList,
+          validadesCriticasCount: entry.validadesCriticasCount,
+          rupturasAtivasCount: entry.rupturasAtivasCount,
+          situacao,
+        })
+      }
+    }
+
+    return list
+  }, [validades, rupturas])
+
+  const canonicalize = useMemo(() => buildCityUfCanonicalizer(lojasAgregadas), [lojasAgregadas])
 
   // Opções para os filtros executivos
   const filterOptions = useMemo(() => {
@@ -84,7 +237,7 @@ export const DashboardPage: React.FC = () => {
     const lojasSet = new Set<string>()
     const cidadesUfSet = new Set<string>()
 
-    for (const s of stores) {
+    for (const s of lojasAgregadas) {
       s.marcasList.forEach((m) => {
         if (m && m.trim()) marcasSet.add(m.trim())
       })
@@ -108,11 +261,11 @@ export const DashboardPage: React.FC = () => {
       lojas: Array.from(lojasSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
       cidadesUf: Array.from(cidadesUfSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     }
-  }, [stores, canonicalize])
+  }, [lojasAgregadas, canonicalize])
 
   // Lojas Filtradas
   const filteredStores = useMemo(() => {
-    return stores.filter((s) => {
+    return lojasAgregadas.filter((s) => {
       // Filtro Marca
       if (filterState.marca !== 'Todas as marcas') {
         const hasMarca = s.marcasList.some(
@@ -142,11 +295,11 @@ export const DashboardPage: React.FC = () => {
       }
       return true
     })
-  }, [stores, filterState])
+  }, [lojasAgregadas, filterState, canonicalize])
 
   // Validades Ativas Filtradas
   const filteredValidadesAtivas = useMemo(() => {
-    return validadesAtivas.filter((v) => {
+    return validades.filter((v) => {
       if (filterState.marca !== 'Todas as marcas') {
         if (!v.cliente || v.cliente.toLowerCase() !== filterState.marca.toLowerCase()) return false
       }
@@ -161,41 +314,22 @@ export const DashboardPage: React.FC = () => {
         if (label.toLowerCase() !== filterState.loja.toLowerCase()) return false
       }
       if (filterState.cidadeUf !== 'Todas as cidades') {
-        const cUf = formatCityUf(v.cidade, v.uf)
+        const { city, uf } = canonicalize(v.cidade, v.uf)
+        const cUf = formatCityUf(city, uf)
         if (cUf.toLowerCase() !== filterState.cidadeUf.toLowerCase()) return false
       }
       return true
     })
-  }, [validadesAtivas, filterState])
+  }, [validades, filterState, canonicalize])
 
-  // Rupturas Ativas Pós-Confronto Bidirecional e Filtradas
-  const rupturasPosConfronto = useMemo(() => {
-    // Converte validadesAtivas para ValidadeRecord para o confronto bidirecional
-    const validadesRecords: ValidadeRecord[] = validadesAtivas.map((v) => ({
-      id: v.id,
-      produto: v.product,
-      cod_produto: v.sku !== 'Código não informado' ? v.sku : undefined,
-      cliente: v.cliente,
-      fornecedor: v.industria,
-      razao_social: v.loja,
-      nome_loja: v.loja,
-      codigo_loja: v.codigoLoja,
-      cidade: v.cidade,
-      estado: v.uf,
-      realizado: v.dataEntrada || v.ultimaAtualizacao,
-      validade_efetiva: v.validade,
-      quantidade: v.quantidade ?? v.estoque,
-      is_base_atual: true,
-    }))
-
-    const confronto = computeConfrontoBidirecional(rupturasAtivas, validadesRecords)
-
-    return confronto.ativas.filter((r) => {
+  // Rupturas Ativas Filtradas (sem rodar confronto de novo; useRupturas já traz pós-confronto)
+  const filteredRupturasAtivas = useMemo(() => {
+    return rupturas.filter((r) => {
       if (filterState.marca !== 'Todas as marcas') {
         if (!r.cliente || r.cliente.toLowerCase() !== filterState.marca.toLowerCase()) return false
       }
       if (filterState.rede !== 'Todas as redes') {
-        const rupRede = (r as any).rede || ''
+        const rupRede = (r as any).rede || deriveNetworkName(r.nome_loja)
         if (!rupRede || rupRede.toLowerCase() !== filterState.rede.toLowerCase()) return false
       }
       if (filterState.loja !== 'Todas as lojas') {
@@ -206,34 +340,33 @@ export const DashboardPage: React.FC = () => {
         if (label.toLowerCase() !== filterState.loja.toLowerCase()) return false
       }
       if (filterState.cidadeUf !== 'Todas as cidades') {
-        const cUf = formatCityUf(r.cidade, r.estado)
+        const { city, uf } = canonicalize(r.cidade, r.estado)
+        const cUf = formatCityUf(city, uf)
         if (cUf.toLowerCase() !== filterState.cidadeUf.toLowerCase()) return false
       }
       return true
     })
-  }, [rupturasAtivas, validadesAtivas, filterState])
-
-  const filteredRupturasAtivas = rupturasPosConfronto
+  }, [rupturas, filterState, canonicalize])
 
   // 4 KPIs Executivos
   const kpis = useMemo(() => {
     // 1. Casos complexos de validade: ocorrências ativas com 0 a 15 dias (status = Crítico)
     const complexosValidade = filteredValidadesAtivas.filter((v) => v.diasRestantes <= 15).length
 
-    // 2. Rupturas ativas pós-confronto bidirecional
-    const rupturasCount = rupturasPosConfronto.length
+    // 2. Rupturas ativas
+    const rupturasCount = filteredRupturasAtivas.length
 
-    // 3. Lojas críticas: identidades distintas com pelo menos 1 caso 0-15d OU 1 ruptura ativa pós-confronto
+    // 3. Lojas críticas: identidades distintas com situação = 'Crítica'
     const lojasCriticas = filteredStores.filter((s) => s.situacao === 'Crítica').length
 
-    // 4. Produtos em risco: produtos distintos presentes nos grupos acima (validades 0-15d + rupturas ativas), sem duplicar
+    // 4. Produtos em risco: produtos distintos presentes em validades 0-15d + rupturas ativas
     const produtosSet = new Set<string>()
     filteredValidadesAtivas.forEach((v) => {
       if (v.diasRestantes <= 15 && v.product && v.product.trim()) {
         produtosSet.add(v.product.trim().toUpperCase())
       }
     })
-    rupturasPosConfronto.forEach((r) => {
+    filteredRupturasAtivas.forEach((r) => {
       if (r.produto && r.produto.trim()) {
         produtosSet.add(r.produto.trim().toUpperCase())
       }
@@ -246,7 +379,7 @@ export const DashboardPage: React.FC = () => {
       lojasCriticas,
       produtosEmRisco,
     }
-  }, [filteredValidadesAtivas, rupturasPosConfronto, filteredStores])
+  }, [filteredValidadesAtivas, filteredRupturasAtivas, filteredStores])
   // Prioridades de ação: ranking de no máximo 10 lojas
   // Ordenação transparente (NUNCA score opaco):
   // 1. Lojas com AMBOS os riscos primeiro
