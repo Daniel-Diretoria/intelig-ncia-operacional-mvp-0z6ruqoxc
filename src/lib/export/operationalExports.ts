@@ -731,7 +731,7 @@ export function buildConfrontoRupturaValidade(
       cod_produto: v.sku,
       quantidade: v.quantidade ?? v.estoque,
       validade_efetiva: v.validade,
-      realizado: v.dataEntrada || v.validade,
+      realizado: (v as any).realizado,
       status: v.status,
     }))
 

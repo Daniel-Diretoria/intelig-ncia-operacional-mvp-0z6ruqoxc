@@ -642,8 +642,8 @@ describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retoma
     expect(record.registros_consolidados).toBe(90)
   })
 
-  it('staging com is_base_atual=false e tenant_id=tradepro_job_* não afeta KPIs da Base Atual', async () => {
-    // Insere 240 registros de staging e verifica que query de rupturas_base com anti-staging retorna 0 deles
+  it('staging com is_base_atual=false e tenant_id=tradepro_job_* não afeta KPIs da Base Atual (filtro is_base_atual = true)', async () => {
+    // Insere 240 registros de staging (is_base_atual=false) e 1 registro ativo de Base Atual
     const stagingRecords = Array.from({ length: 240 }, (_, i) => ({
       id: `staging_${i + 1}`,
       is_base_atual: false,
@@ -664,25 +664,20 @@ describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retoma
 
     const allRecords = [...stagingRecords, ...activeBaseRecords]
 
-    // Simula PocketBase avaliando o filtro anti-staging
+    // Simula PocketBase avaliando o filtro exclusivo is_base_atual = true
     const mockFindRupturas = (filter: string) => {
       return allRecords.filter((r) => {
         if (filter.includes('is_base_atual = true') && !r.is_base_atual) return false
-        if (
-          filter.includes('tenant_id !~ "tradepro_job_"') &&
-          r.tenant_id.includes('tradepro_job_')
-        )
-          return false
         return true
       })
     }
 
-    const antiStagingFilter = 'is_base_atual = true && tenant_id !~ "tradepro_job_"'
-    const result = mockFindRupturas(antiStagingFilter)
+    const baseFilter = 'is_base_atual = true'
+    const result = mockFindRupturas(baseFilter)
 
     expect(result.length).toBe(1)
     expect(result[0].id).toBe('base_1')
-    expect(result.some((r) => r.tenant_id.startsWith('tradepro_job_'))).toBe(false)
+    expect(result.some((r) => r.is_base_atual === false)).toBe(false)
   })
 
   describe('findRetryableSyncJob — Testes Unitários Obrigatórios', () => {

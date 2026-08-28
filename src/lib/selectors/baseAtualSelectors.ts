@@ -104,7 +104,7 @@ export interface LojaAgregada {
 }
 
 const VALIDATION_PROJECTION_FIELDS =
-  'id,quantidade,validade_corrigida,validade_efetiva,validade_original,validade,codigo_loja,cod_cliente,nome_loja,razao_social,fantasia,cliente,cod_produto,cod_barras,produto,rede,cidade,estado,uf,fornecedor,representante,numero_lote,colaborador,cod_supervisor,supervisor,data_entrada,data_arquivo,created,updated,chave_operacional,is_base_atual'
+  'id,quantidade,validade_corrigida,validade_efetiva,validade_original,validade,codigo_loja,cod_cliente,nome_loja,razao_social,fantasia,cliente,cod_produto,cod_barras,produto,rede,cidade,estado,uf,fornecedor,representante,numero_lote,colaborador,cod_supervisor,supervisor,data_entrada,data_arquivo,created,updated,chave_operacional,is_base_atual,realizado'
 
 const RUPTURA_PROJECTION_FIELDS =
   'id,codigo_loja,cod_cliente,nome_loja,razao_social,cliente,cnpj_loja,cnpj,cidade,estado,uf,codigo_cliente,produto,motivo,data_visita,situacao_atual,colaborador,promotor,data_entrada,primeira_ocorrencia,ultima_aparicao,categoria,observacao,dedup_key,source_import_id,source_row,chave_operacional,is_base_atual'
@@ -122,10 +122,7 @@ async function fetchSinglePage(
   timeoutMs = 15000,
 ): Promise<{ items: Array<Record<string, unknown>>; totalPages: number; totalItems: number }> {
   const executeCall = async () => {
-    const filter =
-      collectionName === 'rupturas_base'
-        ? 'is_base_atual = true && tenant_id !~ "tradepro_job_"'
-        : 'is_base_atual = true'
+    const filter = 'is_base_atual = true'
 
     const pagePromise = pb.collection(collectionName).getList(page, perPage, {
       filter,
@@ -370,6 +367,7 @@ async function buildSnapshotFromBackend(): Promise<{
       dataEntrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : undefined,
       ultimaAtualizacao: rec.updated ? String(rec.updated) : undefined,
       chaveOperacional: (rec.chave_operacional as string) || undefined,
+      realizado: rec.realizado ? String(rec.realizado) : undefined,
     }
 
     // Filtro de fotografia Base Atual:
@@ -891,6 +889,16 @@ export async function getBaseAtualSnapshot(forceRefresh = false): Promise<BaseAt
 
 function itemIsAtencaoOuModerado(st: StatusOperacionalFaixa): boolean {
   return st === 'Atenção' || st === 'Moderado'
+}
+
+/**
+ * Seletor central para Rupturas da Base Atual (`is_base_atual === true`).
+ * Garante que Dashboard, Lojas, Rupturas, Alertas, Relatórios, Assistente e exportações
+ * compartilhem a mesma lista reconciliada sem filtros locais divergentes.
+ */
+export async function getCurrentRupturas(forceRefresh = false): Promise<Ruptura[]> {
+  const snapshot = await getBaseAtualSnapshot(forceRefresh)
+  return snapshot.rupturasAtivas
 }
 
 /** Reseta cache quando houver importação ou refresh */

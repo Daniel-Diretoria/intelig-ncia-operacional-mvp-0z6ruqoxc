@@ -1,4 +1,5 @@
 export * from './baseAtualSelectors'
+export { getCurrentRupturas } from './baseAtualSelectors'
 export {
   parseCityUf,
   formatStoreIdentity,

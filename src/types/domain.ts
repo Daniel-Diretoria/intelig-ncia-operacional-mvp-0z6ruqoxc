@@ -222,6 +222,7 @@ export interface ValidadeItem {
   ultimaAtualizacao?: string // ISO date-time string
   dataEntrada?: string
   chaveOperacional?: string
+  realizado?: string
 }
 
 export interface RupturaItem {

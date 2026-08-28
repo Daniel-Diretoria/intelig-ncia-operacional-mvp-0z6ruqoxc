@@ -429,13 +429,10 @@ export async function exportarRelatorioRupturasPdf(
 ): Promise<number> {
   let records: import('@/types').Ruptura[] = []
   try {
-    const raw = await pb.collection('rupturas_base').getFullList({
-      sort: '-data_visita',
-      filter: 'is_base_atual = true && tenant_id !~ "tradepro_job_"',
-    })
-    const { toRuptura, applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
-    const mapped = raw.map((r) => toRuptura(r as unknown as Record<string, unknown>))
-    records = applyRupturasFilters(mapped, filters)
+    const { getCurrentRupturas } = await import('@/lib/selectors/baseAtualSelectors')
+    const { applyRupturasFilters } = await import('@/lib/pipeline/rupturasPipeline')
+    const allRupturas = await getCurrentRupturas()
+    records = applyRupturasFilters(allRupturas, filters)
   } catch (err) {
     console.error('[relatoriosPdfExport] Falha ao carregar rupturas_base:', err)
   }

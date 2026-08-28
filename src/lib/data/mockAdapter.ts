@@ -552,7 +552,7 @@ export class MockOperationalAdapter implements IOperationalDataSource {
     // collection existir (inclusive no provider 'skipcloud'/'pocketbase').
     try {
       const records = await pb.collection('rupturas_base').getFullList({
-        filter: 'is_base_atual = true && tenant_id !~ "tradepro_job_"',
+        filter: 'is_base_atual = true',
         sort: '-data_visita',
       })
       if (records.length > 0) {
@@ -601,7 +601,7 @@ export class MockOperationalAdapter implements IOperationalDataSource {
     await delay()
     try {
       const records = await pb.collection('rupturas_base').getFullList({
-        filter: 'is_base_atual = true && tenant_id !~ "tradepro_job_"',
+        filter: 'is_base_atual = true',
         sort: '-data_visita',
       })
       if (records.length > 0) {

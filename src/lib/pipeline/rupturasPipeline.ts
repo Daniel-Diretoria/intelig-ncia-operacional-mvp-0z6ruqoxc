@@ -900,7 +900,7 @@ async function fetchExistingBaseByDedup(
     const filter = chunk.map((k) => `dedup_key="${k.replace(/"/g, '')}"`).join(' || ')
     try {
       const records = await pb.collection('rupturas_base').getFullList({
-        filter: `is_base_atual=true && tenant_id !~ "tradepro_job_" && (${filter})`,
+        filter: `is_base_atual=true && (${filter})`,
       })
       for (const rec of records) {
         const r = rec as unknown as Record<string, unknown>

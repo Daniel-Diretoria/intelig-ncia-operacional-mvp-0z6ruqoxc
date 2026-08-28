@@ -353,7 +353,7 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
     expect(snapshot.loadedFromBackend).toBe(true)
   })
 
-  it('exclui registros de staging (tenant_id tradepro_job_) do snapshot', async () => {
+  it('filtra snapshot exclusivamente por is_base_atual=true, incluindo registros promovidos de tradepro_job_*', async () => {
     const mockRupturas = [
       {
         id: 'r1',
@@ -384,17 +384,13 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
     const mockGetList = vi
       .fn()
       .mockImplementation((page: number, perPage: number, options: any) => {
-        // Simula o PocketBase aplicando o filtro passado na query
+        // Simula o PocketBase aplicando o filtro passado na query (is_base_atual = true)
         const filterStr = options?.filter || ''
-        expect(filterStr).toContain('tenant_id !~ "tradepro_job_"')
+        expect(filterStr).toContain('is_base_atual = true')
+        expect(filterStr).not.toContain('tenant_id !~ "tradepro_job_"')
 
         const filtered = mockRupturas.filter((r) => {
           if (filterStr.includes('is_base_atual = true') && !r.is_base_atual) return false
-          if (
-            filterStr.includes('tenant_id !~ "tradepro_job_"') &&
-            r.tenant_id.includes('tradepro_job_')
-          )
-            return false
           return true
         })
 
@@ -424,11 +420,9 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
 
     const snapshot = await getBaseAtualSnapshot(true)
 
-    // Apenas r1 deve ser retornado (is_base_atual=true E tenant_id não começa com tradepro_job_)
-    // r2 tem is_base_atual=false, r3 tem tenant_id que começa com tradepro_job_
-    expect(snapshot.rupturasAtivas.length).toBe(1)
-    expect(snapshot.rupturasAtivas[0].id).toBe('r1')
-    expect(snapshot.rupturasAtivas[0].produto).toBe('Prod A')
-    expect(snapshot.kpisReconciliados.rupturasAtivasTotal).toBe(1)
+    // r1 e r3 são elegíveis (is_base_atual=true); r2 é oculto (is_base_atual=false)
+    expect(snapshot.rupturasAtivas.length).toBe(2)
+    expect(snapshot.rupturasAtivas.map((r) => r.id)).toEqual(['r1', 'r3'])
+    expect(snapshot.kpisReconciliados.rupturasAtivasTotal).toBe(2)
   })
 })
