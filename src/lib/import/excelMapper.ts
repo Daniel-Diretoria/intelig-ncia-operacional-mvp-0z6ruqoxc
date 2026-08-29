@@ -252,8 +252,8 @@ export function mapRecord(
     parseString(get('statusOperacionalArquivo')) || parseString(get('statusOperacional'))
   const dataEntradaArquivo = parseDate(get('dataEntradaArquivo')) || parseDate(get('dataEntrada'))
 
-  // --- Campos obrigatórios do modelo de Validades (9):
-  // Razão Social, Realizado, Produto, Cliente, Quantidade, Validade, Dias p/ Vencimento, Status Operacional, Data Entrada
+  // --- Campos obrigatórios do modelo de Validades (7):
+  // Razão Social, Realizado, Produto, Cliente, Quantidade, Validade, Dias p/ Vencimento
   if (!razaoSocial) errors.push('Razão Social ausente')
   if (!realizado) errors.push('Realizado (data da coleta) ausente ou inválido')
   if (!produto) errors.push('Produto ausente')
@@ -262,8 +262,6 @@ export function mapRecord(
   else if (quantidade < 0) errors.push('Quantidade negativa é rejeitada')
   if (!validade) errors.push('Validade ausente ou inválida')
   if (diasVencimentoArquivo == null) errors.push('Dias p/ Vencimento ausente')
-  if (!statusOperacionalArquivo) errors.push('Status Operacional ausente')
-  if (!dataEntradaArquivo) errors.push('Data Entrada ausente ou inválida')
 
   if (errors.length > 0) {
     return { item: { ...item }, errors }
@@ -311,6 +309,7 @@ export function mapRecord(
   item.quantidade = quantidade ?? 0
   item.precoUnitario = undefined
   item.ultimaAtualizacao = realizado || undefined
+  item.dataEntrada = dataEntradaArquivo || undefined
 
   // Campos extras do TradePro são preservados via attachment em runtime
   // (não fazem parte de ValidadeItem, mas o pipeline os utiliza).

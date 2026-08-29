@@ -10,6 +10,7 @@ import {
   getTodaySaoPaulo,
   deriveStatus,
 } from '../excelMapper'
+import { executarPipeline } from '../../data/tradeProPipeline'
 import {
   EXPECTED_COLUMNS,
   REQUIRED_COLUMNS,
@@ -33,7 +34,7 @@ import {
 } from '../../format/dateParser'
 
 describe('excelMapper / validators / dateParser.test.ts — Mapeamento, Validação e Datas', () => {
-  describe('1. Aliases das 9 colunas obrigatórias e 4 opcionais', () => {
+  describe('1. Aliases das 7 colunas obrigatórias e colunas opcionais', () => {
     it('reconhece variações de acentuação e caixa para "Razão Social" ("razao social", "RAZÃO SOCIAL", "Razao Social")', () => {
       const headers1 = ['razao social']
       const headers2 = ['RAZÃO SOCIAL']
@@ -54,8 +55,8 @@ describe('excelMapper / validators / dateParser.test.ts — Mapeamento, Validaç
       expect(suggestMapping(h3).diasVencimentoArquivo).toBe('DIAS P/VENCIMENTO')
     })
 
-    it('reconhece todas as 9 colunas obrigatórias via suggestMapping', () => {
-      const headers9 = [
+    it('reconhece todas as 7 colunas obrigatórias via suggestMapping', () => {
+      const headers7 = [
         'Razão Social',
         'Realizado',
         'Produto',
@@ -63,11 +64,9 @@ describe('excelMapper / validators / dateParser.test.ts — Mapeamento, Validaç
         'Quantidade',
         'Validade',
         'Dias p/ Vencimento',
-        'Status Operacional',
-        'Data Entrada',
       ]
 
-      const mapping = suggestMapping(headers9)
+      const mapping = suggestMapping(headers7)
       expect(mapping.razaoSocial).toBe('Razão Social')
       expect(mapping.realizado).toBe('Realizado')
       expect(mapping.produto).toBe('Produto')
@@ -75,13 +74,11 @@ describe('excelMapper / validators / dateParser.test.ts — Mapeamento, Validaç
       expect(mapping.quantidade).toBe('Quantidade')
       expect(mapping.validade).toBe('Validade')
       expect(mapping.diasVencimentoArquivo).toBe('Dias p/ Vencimento')
-      expect(mapping.statusOperacionalArquivo).toBe('Status Operacional')
-      expect(mapping.dataEntradaArquivo).toBe('Data Entrada')
 
-      const validation = validateStructure(headers9)
+      const validation = validateStructure(headers7)
       expect(validation.isStructureValid).toBe(true)
       expect(validation.missingRequired.length).toBe(0)
-      expect(validation.presentRequired.length).toBe(9)
+      expect(validation.presentRequired.length).toBe(7)
     })
 
     it('reconhece as 4 colunas opcionais (Colaborador, Supervisor, Cidade, Fornecedor)', () => {
@@ -232,6 +229,133 @@ describe('excelMapper / validators / dateParser.test.ts — Mapeamento, Validaç
       const duplicates = detectDuplicates(items)
       expect(duplicates.length).toBe(1)
       expect(duplicates[0].indices).toEqual([0, 1])
+    })
+  })
+
+  describe('5. Novo contrato obrigatório de Validades com exatamente 7 colunas', () => {
+    it('a) validateStructure / suggestMapping com APENAS as 7 colunas obrigatórias (usando "Validades" plural e "Dias p/Vencer")', () => {
+      const headers7 = [
+        'Razão Social',
+        'Realizado',
+        'Produto',
+        'Cliente',
+        'Quantidade',
+        'Validades',
+        'Dias p/Vencer',
+      ]
+
+      const mapping = suggestMapping(headers7)
+      expect(mapping.razaoSocial).toBe('Razão Social')
+      expect(mapping.realizado).toBe('Realizado')
+      expect(mapping.produto).toBe('Produto')
+      expect(mapping.cliente).toBe('Cliente')
+      expect(mapping.quantidade).toBe('Quantidade')
+      expect(mapping.validade).toBe('Validades')
+      expect(mapping.diasVencimentoArquivo).toBe('Dias p/Vencer')
+
+      const validation = validateStructure(headers7)
+      expect(validation.isStructureValid).toBe(true)
+      expect(validation.missingRequired.length).toBe(0)
+      expect(validation.presentRequired.length).toBe(7)
+    })
+
+    it('b) mapRecord com uma linha contendo somente os 7 campos obrigatórios (sem statusOperacionalArquivo e sem dataEntradaArquivo)', () => {
+      const row = {
+        razaoSocial: '00100 - Supermercado Alpha',
+        realizado: '2025-05-10',
+        produto: 'Biscoito Recheado 140g',
+        cliente: 'Rede Alpha',
+        quantidade: 25,
+        validade: '2025-05-20',
+        diasVencimentoArquivo: 10,
+      }
+      const mapping = {
+        razaoSocial: 'razaoSocial',
+        realizado: 'realizado',
+        produto: 'produto',
+        cliente: 'cliente',
+        quantidade: 'quantidade',
+        validade: 'validade',
+        diasVencimentoArquivo: 'diasVencimentoArquivo',
+      }
+
+      const res = mapRecord(row, mapping, 0)
+      expect(res.errors.length).toBe(0)
+      expect(res.item.status).toBeDefined()
+      expect(res.item.status).not.toBe('')
+      expect(res.item.dataEntrada).toBeUndefined()
+    })
+
+    it('c) mapRecord com a mesma linha + statusOperacionalArquivo e dataEntradaArquivo preenchidos', () => {
+      const row = {
+        razaoSocial: '00100 - Supermercado Alpha',
+        realizado: '2025-05-10',
+        produto: 'Biscoito Recheado 140g',
+        cliente: 'Rede Alpha',
+        quantidade: 25,
+        validade: '2025-05-20',
+        diasVencimentoArquivo: 10,
+        statusOperacionalArquivo: 'Atenção',
+        dataEntradaArquivo: '2025-05-01',
+      }
+      const mapping = {
+        razaoSocial: 'razaoSocial',
+        realizado: 'realizado',
+        produto: 'produto',
+        cliente: 'cliente',
+        quantidade: 'quantidade',
+        validade: 'validade',
+        diasVencimentoArquivo: 'diasVencimentoArquivo',
+        statusOperacionalArquivo: 'statusOperacionalArquivo',
+        dataEntradaArquivo: 'dataEntradaArquivo',
+      }
+
+      const res = mapRecord(row, mapping, 0)
+      expect(res.errors.length).toBe(0)
+      expect(res.item.dataEntrada).toBe('2025-05-01')
+    })
+
+    it('d) executarPipeline com registro sem Status Operacional e sem Data de Entrada', () => {
+      const rawRecords = [
+        {
+          razaoSocial: '250 - Fort Atacadista Floresta',
+          realizado: '2025-05-10',
+          produto: 'Iogurte Natural 170g',
+          cliente: 'Fort Atacadista',
+          quantidade: 12,
+          validade: '2025-06-10',
+          diasVencimentoArquivo: 31,
+          fornecedor: 'Laticínios Bela Vista',
+        },
+      ]
+      const mapping = {
+        razaoSocial: 'razaoSocial',
+        realizado: 'realizado',
+        produto: 'produto',
+        cliente: 'cliente',
+        quantidade: 'quantidade',
+        validade: 'validade',
+        diasVencimentoArquivo: 'diasVencimentoArquivo',
+        fornecedor: 'fornecedor',
+      }
+
+      const result = executarPipeline({
+        rawRecords,
+        mapping,
+        fileName: 'teste_7_colunas.xlsx',
+        dataArquivo: '2025-05-10',
+        importId: 'test-import-7col',
+      })
+
+      expect(result.summary.validos).toBe(1)
+      expect(result.summary.rejeitados).toBe(0)
+      expect(result.baseAtual.length).toBe(1)
+
+      const item = result.baseAtual[0]
+      expect(item.statusOperacional).toBeDefined()
+      expect(item.statusOperacional).not.toBe('')
+      expect(item.dataEntrada).toBeDefined()
+      expect(item.dataEntrada).toBe('2025-05-10')
     })
   })
 })

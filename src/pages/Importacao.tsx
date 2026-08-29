@@ -3913,12 +3913,15 @@ export const ImportacaoPage: React.FC = () => {
                       )
                     })}
                   </div>
-                  <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50/60">
+                  <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/60">
                     <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <Info className="w-3.5 h-3.5" />
+                      <Info className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         Identificadores (Cód., CPF/CNPJ) são tratados como texto, preservando zeros
-                        à esquerda.
+                        à esquerda. Os 7 campos obrigatórios são: Razão Social, Realizado, Produto,
+                        Cliente, Quantidade, Validade e Dias p/ Vencimento. Status Operacional e
+                        Data de Entrada (assim como os demais) são opcionais e derivados pelas
+                        regras canônicas quando ausentes.
                       </span>
                     </div>
                     <Button
@@ -4631,10 +4634,11 @@ export const ImportacaoPage: React.FC = () => {
               </p>
               <p>
                 O importador identifica automaticamente o tipo de arquivo TradePro: para{' '}
-                <strong>Validades</strong> (aba “Pesquisa Validade”), processa os campos
+                <strong>Validades</strong> (aba “Pesquisa Validade”), processa os 7 campos
                 obrigatórios da extração TradePro (Razão Social, Realizado, Produto, Cliente,
-                Quantidade e Validade), calcula os status operacionais e aplica deduplicação em 2
-                etapas; para <strong>Rupturas</strong> (aba “Rupturas” ou exportação
+                Quantidade, Validade e Dias p/ Vencimento — com Status Operacional e Data de Entrada
+                derivados quando ausentes), calcula os status operacionais e aplica deduplicação em
+                2 etapas; para <strong>Rupturas</strong> (aba “Rupturas” ou exportação
                 correspondente), padroniza os motivos, valida as informações da visita/produto e
                 atualiza a Base Atual de Rupturas com histórico completo.
               </p>
