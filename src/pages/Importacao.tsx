@@ -4336,24 +4336,36 @@ export const ImportacaoPage: React.FC = () => {
                             : `${importResult.errors} registro(s) falharam.`}
                         </p>
                         <p className="text-xs text-red-900 leading-relaxed">
-                          {importResult.errors} falharam após múltiplas tentativas de retry. Motivo
-                          principal:{' '}
-                          <span className="font-semibold">rate limit do banco (429)</span> ou
-                          instabilidade transitória.
+                          {importResult.errors} registro(s) falharam após múltiplas tentativas de
+                          retry. Motivo principal:{' '}
+                          <span className="font-semibold">
+                            rate limit do banco (HTTP 429 - Too Many Requests)
+                          </span>{' '}
+                          ou instabilidade transitória.
                         </p>
-                        {importResult.rawRows !== undefined && importResult.rawRows > 0 && (
-                          <div className="p-2.5 rounded-lg bg-red-100/70 border border-red-200 text-xs text-red-950 space-y-1">
-                            <p className="font-semibold">
-                              ✓ Os {importResult.rawRows.toLocaleString('pt-BR')} registros já
-                              gravados estão seguros no banco.
+                        <div className="p-3 rounded-lg bg-red-100/80 border border-red-200 text-xs text-red-950 space-y-1.5">
+                          {importResult.rawRows !== undefined && importResult.rawRows > 0 ? (
+                            <>
+                              <p className="font-semibold text-emerald-950">
+                                ✓ Os {importResult.rawRows.toLocaleString('pt-BR')} registros já
+                                gravados estão seguros e preservados no banco.
+                              </p>
+                              <p className="text-red-900 leading-relaxed">
+                                Você pode <strong>baixar o relatório de erros</strong> abaixo para
+                                conferência detalhada e clicar no botão{' '}
+                                <strong>&quot;Reprocessar&quot;</strong> — o processo é{' '}
+                                <strong>100% idempotente</strong> e gravará apenas os registros
+                                pendentes, sem duplicar o que já foi salvo.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-red-900 leading-relaxed">
+                              Você pode <strong>baixar o relatório de erros</strong> abaixo para
+                              análise e usar o botão <strong>&quot;Reprocessar&quot;</strong>{' '}
+                              (idempotente) para tentar gravar os registros pendentes novamente.
                             </p>
-                            <p className="text-red-800">
-                              Os registros brutos já persistidos <strong>NÃO</strong> serão
-                              perdidos. Marque &quot;Reprocessar&quot; e envie o mesmo arquivo para
-                              retomar apenas os pendentes de forma idempotente.
-                            </p>
-                          </div>
-                        )}
+                          )}
+                        </div>
                         <p className="text-[11px] text-red-700 italic">
                           {importResult.errorDetails}
                         </p>

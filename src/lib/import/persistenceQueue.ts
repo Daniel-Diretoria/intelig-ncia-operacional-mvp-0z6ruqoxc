@@ -31,11 +31,11 @@ export interface PersistenceQueueOptions {
   concurrency?: number
   /** Delay base entre cada item processado em ms (default: 50). Aplicado antes de taskFn. */
   throttleMs?: number
-  /** Número máximo de tentativas por item (default: 5). */
+  /** Número máximo de tentativas por item (default: 8). */
   maxRetries?: number
   /** Backoff inicial em milissegundos (default: 400ms). */
   initialBackoffMs?: number
-  /** Backoff máximo em milissegundos (default: 8000ms). */
+  /** Backoff máximo em milissegundos (default: 15000ms). */
   maxBackoffMs?: number
   /** Fator multiplicador para o backoff exponencial (default: 2). */
   backoffFactor?: number
@@ -287,9 +287,9 @@ export async function runPersistenceQueue<T, R = unknown>(
 ): Promise<PersistenceQueueResult<T, R>> {
   const concurrency = Math.max(1, Math.min(options?.concurrency ?? 2, 4))
   const baseThrottleMs = options?.throttleMs ?? 50
-  const maxRetries = Math.max(1, options?.maxRetries ?? 5)
+  const maxRetries = Math.max(1, options?.maxRetries ?? 8)
   const initialBackoffMs = options?.initialBackoffMs ?? 400
-  const maxBackoffMs = options?.maxBackoffMs ?? 8000
+  const maxBackoffMs = options?.maxBackoffMs ?? 15000
   const backoffFactor = options?.backoffFactor ?? 2
   const sleep = options?.sleepFn ?? defaultSleep
   const signal = options?.signal
@@ -371,8 +371,9 @@ export async function runPersistenceQueue<T, R = unknown>(
         // Se não houve 429 neste item, incrementa contador de itens limpos
         if (!had429) {
           consecutiveNon429Count++
-          if (consecutiveNon429Count >= 50 && currentThrottleMs > baseThrottleMs) {
-            currentThrottleMs = baseThrottleMs
+          // Redução gradual e cautelosa a cada janela de 20 itens sem 429
+          if (consecutiveNon429Count >= 20 && currentThrottleMs > baseThrottleMs) {
+            currentThrottleMs = Math.max(baseThrottleMs, Math.round(currentThrottleMs * 0.75))
             consecutiveNon429Count = 0
           }
         }
@@ -389,8 +390,9 @@ export async function runPersistenceQueue<T, R = unknown>(
         if (statusCode === 429) {
           had429 = true
           consecutiveNon429Count = 0
-          // Aumenta throttle adaptativo (+200ms com teto de 5000ms)
-          currentThrottleMs = Math.min(currentThrottleMs + 200, 5000)
+          // Aumento agressivo e imediato do throttle ao primeiro 429:
+          // Multiplica por 2x + 300ms de margem extra com piso mínimo de 400ms e teto de 8000ms
+          currentThrottleMs = Math.min(Math.max(currentThrottleMs * 2 + 300, 400), 8000)
         }
 
         if (!isTransient || attempts >= maxRetries) {

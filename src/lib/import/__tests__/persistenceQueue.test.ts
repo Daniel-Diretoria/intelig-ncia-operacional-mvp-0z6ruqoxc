@@ -51,16 +51,16 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
   })
 
   it('calcula exponential backoff com jitter e respeita Retry-After', () => {
-    const b1 = calculateBackoff(0, 400, 8000, 2)
+    const b1 = calculateBackoff(0, 400, 15000, 2)
     expect(b1).toBeGreaterThanOrEqual(200)
     expect(b1).toBeLessThanOrEqual(400)
 
-    const b2 = calculateBackoff(3, 400, 8000, 2)
+    const b2 = calculateBackoff(3, 400, 15000, 2)
     expect(b2).toBeGreaterThanOrEqual(200)
     expect(b2).toBeLessThanOrEqual(3200)
 
     // Com retryAfterMs
-    const bRetry = calculateBackoff(0, 400, 8000, 2, 5000)
+    const bRetry = calculateBackoff(0, 400, 15000, 2, 5000)
     expect(bRetry).toBeGreaterThanOrEqual(5000)
     expect(bRetry).toBeLessThanOrEqual(6000)
   })
@@ -89,7 +89,7 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
     expect(sleepMock).not.toHaveBeenCalled()
   })
 
-  it('executa retry em 429 com sleep mockado e recupera com sucesso', async () => {
+  it('executa retry em 429 com sleep mockado e recupera com sucesso com default maxRetries=8', async () => {
     const items = ['item-A', 'item-B']
     const attemptsPerItem = new Map<string, number>()
     const sleepCalls: number[] = []
@@ -104,8 +104,8 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
         const count = attemptsPerItem.get(item) || 0
         attemptsPerItem.set(item, count + 1)
 
-        // item-A falha 2 vezes com 429 e passa na 3ª
-        if (item === 'item-A' && count < 2) {
+        // item-A falha 6 vezes com 429 e passa na 7ª (dentro do novo maxRetries=8)
+        if (item === 'item-A' && count < 6) {
           const err = new Error('Too Many Requests')
           ;(err as unknown as { status: number }).status = 429
           throw err
@@ -114,16 +114,14 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
       },
       {
         concurrency: 2,
-        maxRetries: 5,
         sleepFn: sleepMock,
       },
     )
 
     expect(result.successCount).toBe(2)
     expect(result.failureCount).toBe(0)
-    expect(result.totalRetries).toBe(2)
-    expect(sleepCalls.length).toBe(2)
-    expect(attemptsPerItem.get('item-A')).toBe(3)
+    expect(result.totalRetries).toBe(6)
+    expect(attemptsPerItem.get('item-A')).toBe(7)
     expect(attemptsPerItem.get('item-B')).toBe(1)
   })
 
@@ -369,14 +367,14 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
     expect(sleepMock).not.toHaveBeenCalled()
   })
 
-  it('e) throttle adaptativo: sobe com 429 e desce após 50 itens sem 429', async () => {
+  it('e) throttle adaptativo: aumento agressivo no primeiro 429 e redução gradual após janelas sem 429', async () => {
     const sleepCalls: number[] = []
     const sleepMock = vi.fn(async (ms: number) => {
       sleepCalls.push(ms)
     })
 
-    // 55 itens
-    const items = Array.from({ length: 55 }, (_, i) => `item_${i + 1}`)
+    // 65 itens
+    const items = Array.from({ length: 65 }, (_, i) => `item_${i + 1}`)
     let firstItemAttempt = 0
 
     const result = await runPersistenceQueue(
@@ -400,18 +398,21 @@ describe('persistenceQueue — Fila de Persistência com Concorrência e Retry',
       },
     )
 
-    expect(result.successCount).toBe(55)
+    expect(result.successCount).toBe(65)
     expect(result.failureCount).toBe(0)
     expect(result.retriesRecovered).toBe(1)
 
-    // Ao tomar 429 no item 1, throttleMs sobe de 50 para 250ms
-    // Os itens subsequentes dormem 250ms até completar 50 itens sem 429 (ao redor do item 51), quando volta para 50ms
-    const throttle250Calls = sleepCalls.filter((ms) => ms === 250)
-    expect(throttle250Calls.length).toBeGreaterThanOrEqual(40)
+    // Ao tomar 429 no item 1, throttleMs sobe agressivamente: 50 * 2 + 300 = 400ms
+    const throttle400Calls = sleepCalls.filter((ms) => ms === 400)
+    expect(throttle400Calls.length).toBeGreaterThanOrEqual(19)
 
-    // Verifica que após 50 itens sem erro, voltou a chamar com 50ms
-    const lastCalls = sleepCalls.slice(-4)
-    expect(lastCalls).toContain(50)
+    // Após 20 itens sem 429 (ao redor do item 21), reduz gradualmente: 400 * 0.75 = 300ms
+    const throttle300Calls = sleepCalls.filter((ms) => ms === 300)
+    expect(throttle300Calls.length).toBeGreaterThanOrEqual(19)
+
+    // Após mais 20 itens sem 429 (ao redor do item 41), reduz gradualmente: 300 * 0.75 = 225ms
+    const throttle225Calls = sleepCalls.filter((ms) => ms === 225)
+    expect(throttle225Calls.length).toBeGreaterThanOrEqual(19)
   })
 
   it('f) abort cancela workers e throttle', async () => {
