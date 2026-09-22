@@ -236,6 +236,21 @@ describe('TradePro Offline API Contracts & Adapters', () => {
     expect(res.data.totalDeProdutos).toBe(120)
   })
 
+  // Teste 1b: parseValidadeResponse com nomes alternativos de campo de total (totalDeRegistros, totalRegistros, total)
+  it('1b. parseValidadeResponse detecta dinamicamente totalDeRegistros quando totalDeProdutos estiver ausente', () => {
+    const raw = {
+      validade: mockValidadesResponse.validade,
+      paginaAtual: 1,
+      quantidadePorPagina: 30,
+      totalDePaginas: 39,
+      totalDeRegistros: 1152,
+    }
+    const res = parseValidadeResponse(raw)
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data.totalDeProdutos).toBe(1152)
+  })
+
   // Teste 2: parseValidadeResponse com paginaAtual: "1" (string) → normalizado para 1
   it('2. parseValidadeResponse com paginaAtual: "1" (string) → normalizado para 1', () => {
     const raw = {

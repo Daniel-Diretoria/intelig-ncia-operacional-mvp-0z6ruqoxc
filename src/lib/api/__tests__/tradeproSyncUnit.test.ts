@@ -288,6 +288,92 @@ describe('TradePro Sync — Funções Utilitárias do Backend e Pipeline', () =>
     expect(cleaned).not.toContain('https://')
     expect(cleaned).toContain('[URL]')
   })
+
+  it('Detecção dinâmica de campo de total na prévia de Validades', () => {
+    // Simula a lógica do parser de prévia do hook tradepro_sync.js
+    function parseValidadesPreviewTotal(jsonBody: Record<string, any>) {
+      let totalDetectado = 0
+      let nomeCampoTotalDetectado = ''
+
+      const prioridades = [
+        'totalDeRegistros',
+        'totalRegistros',
+        'totalDeProdutos',
+        'totalProdutos',
+        'totalDeValidades',
+        'totalValidades',
+        'totalDeItens',
+        'totalItens',
+        'total',
+        'quantidadeTotal',
+        'totalGeral',
+        'totalGeralRegistros',
+      ]
+
+      for (let p = 0; p < prioridades.length; p++) {
+        const cand = prioridades[p]
+        if (jsonBody[cand] != null) {
+          const parsed = parseInt(jsonBody[cand], 10)
+          if (!isNaN(parsed) && parsed >= 0) {
+            totalDetectado = parsed
+            nomeCampoTotalDetectado = cand
+            break
+          }
+        }
+      }
+
+      if (totalDetectado === 0) {
+        const bodyKeys = Object.keys(jsonBody)
+        for (let k = 0; k < bodyKeys.length; k++) {
+          const key = bodyKeys[k]
+          const lower = key.toLowerCase()
+          if (
+            lower.indexOf('total') !== -1 &&
+            lower.indexOf('pagina') === -1 &&
+            lower.indexOf('page') === -1
+          ) {
+            const parsed = parseInt(jsonBody[key], 10)
+            if (!isNaN(parsed) && parsed > 0) {
+              totalDetectado = parsed
+              nomeCampoTotalDetectado = key
+              break
+            }
+          }
+        }
+      }
+
+      return { totalDetectado, nomeCampoTotalDetectado }
+    }
+
+    // Cenário 1: resposta padrão com totalDeRegistros (como no teste de conexão)
+    const res1 = parseValidadesPreviewTotal({
+      paginaAtual: 1,
+      quantidadePorPagina: 1,
+      totalDePaginas: 583,
+      totalDeRegistros: 1152,
+      validade: [{ id: 1 }],
+    })
+    expect(res1.totalDetectado).toBe(1152)
+    expect(res1.nomeCampoTotalDetectado).toBe('totalDeRegistros')
+
+    // Cenário 2: resposta com totalDeProdutos (antigo)
+    const res2 = parseValidadesPreviewTotal({
+      paginaAtual: 1,
+      totalDePaginas: 10,
+      totalDeProdutos: 300,
+    })
+    expect(res2.totalDetectado).toBe(300)
+    expect(res2.nomeCampoTotalDetectado).toBe('totalDeProdutos')
+
+    // Cenário 3: resposta com outro campo qualquer contendo 'total' (ex: totalValidades)
+    const res3 = parseValidadesPreviewTotal({
+      paginaAtual: 1,
+      totalDePaginas: 20,
+      totalValidades: 600,
+    })
+    expect(res3.totalDetectado).toBe(600)
+    expect(res3.nomeCampoTotalDetectado).toBe('totalValidades')
+  })
 })
 
 describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retomada', () => {

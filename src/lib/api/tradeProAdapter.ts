@@ -245,8 +245,38 @@ export function parseValidadeResponse(raw: unknown): ParseResult<NormalizedValid
       raw.totalDePaginas as string | number | undefined,
       'totalDePaginas',
     )
+    // Detecção dinâmica de total de registros/produtos para compatibilidade com Validades
+    let totalValorRaw: unknown = raw.totalDeProdutos
+    if (totalValorRaw == null && isRecord(raw)) {
+      const candidates = [
+        'totalDeRegistros',
+        'totalRegistros',
+        'totalDeValidades',
+        'totalValidades',
+        'totalDeItens',
+        'totalItens',
+        'total',
+        'quantidadeTotal',
+      ]
+      for (const cand of candidates) {
+        if (raw[cand] != null) {
+          totalValorRaw = raw[cand]
+          break
+        }
+      }
+      if (totalValorRaw == null) {
+        for (const k of Object.keys(raw)) {
+          const lower = k.toLowerCase()
+          if (lower.includes('total') && !lower.includes('pagina') && !lower.includes('page')) {
+            totalValorRaw = raw[k]
+            break
+          }
+        }
+      }
+    }
+
     const totalDeProdutos = normalizePageMeta(
-      raw.totalDeProdutos as string | number | undefined,
+      totalValorRaw as string | number | undefined,
       'totalDeProdutos',
     )
 

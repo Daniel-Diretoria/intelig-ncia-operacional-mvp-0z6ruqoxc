@@ -596,28 +596,140 @@ onRecordAfterCreateSuccess((e) => {
           : JSON.stringify(res.json || {})
 
     if (statusCode === 200) {
-      let totalDeProdutos = 0
+      let totalDetectado = 0
       let paginasTotal = 0
+      let itensRetornados = 0
+      let nomeCampoTotalDetectado = ''
 
       if (res.json && typeof res.json === 'object') {
         const jsonBody = res.json
-        if (jsonBody.totalDeProdutos != null) {
-          const parsed = parseInt(jsonBody.totalDeProdutos, 10)
-          totalDeProdutos = isNaN(parsed) ? 0 : parsed
+
+        // Log sanitizado da estrutura da resposta: NOMES de campos de nível superior e seus tipos
+        // NUNCA loga valores, dados de produtos nem credenciais
+        const topLevelStructure = {}
+        const bodyKeys = Object.keys(jsonBody)
+        for (let k = 0; k < bodyKeys.length; k++) {
+          const keyName = bodyKeys[k]
+          const val = jsonBody[keyName]
+          if (Array.isArray(val)) {
+            topLevelStructure[keyName] = 'array[' + val.length + ']'
+          } else if (val === null) {
+            topLevelStructure[keyName] = 'null'
+          } else {
+            topLevelStructure[keyName] = typeof val
+          }
         }
+        console.log(
+          '[tradepro] validades preview: campos da resposta = ' + JSON.stringify(topLevelStructure),
+        )
+
+        // 1. Extração de páginas se fornecido
         if (jsonBody.totalDePaginas != null) {
           const parsedP = parseInt(jsonBody.totalDePaginas, 10)
           paginasTotal = isNaN(parsedP) ? 0 : parsedP
+        } else if (jsonBody.quantidadeDePaginas != null) {
+          const parsedP = parseInt(jsonBody.quantidadeDePaginas, 10)
+          paginasTotal = isNaN(parsedP) ? 0 : parsedP
+        } else if (jsonBody.paginas != null) {
+          const parsedP = parseInt(jsonBody.paginas, 10)
+          paginasTotal = isNaN(parsedP) ? 0 : parsedP
+        }
+
+        // 2. Detecção dinâmica do campo de total:
+        // Lista de candidatos prioritários conhecidos ou comuns na API TradePro
+        const prioridades = [
+          'totalDeRegistros',
+          'totalRegistros',
+          'totalDeProdutos',
+          'totalProdutos',
+          'totalDeValidades',
+          'totalValidades',
+          'totalDeItens',
+          'totalItens',
+          'total',
+          'quantidadeTotal',
+          'totalGeral',
+          'totalGeralRegistros',
+        ]
+
+        for (let p = 0; p < prioridades.length; p++) {
+          const cand = prioridades[p]
+          if (jsonBody[cand] != null) {
+            const parsed = parseInt(jsonBody[cand], 10)
+            if (!isNaN(parsed) && parsed >= 0) {
+              totalDetectado = parsed
+              nomeCampoTotalDetectado = cand
+              break
+            }
+          }
+        }
+
+        // Se ainda não detectou, varre dinamicamente qualquer chave contendo 'total' (exceto chaves de páginas)
+        if (totalDetectado === 0) {
+          for (let k = 0; k < bodyKeys.length; k++) {
+            const key = bodyKeys[k]
+            const lower = key.toLowerCase()
+            if (
+              lower.indexOf('total') !== -1 &&
+              lower.indexOf('pagina') === -1 &&
+              lower.indexOf('page') === -1
+            ) {
+              const parsed = parseInt(jsonBody[key], 10)
+              if (!isNaN(parsed) && parsed > 0) {
+                totalDetectado = parsed
+                nomeCampoTotalDetectado = key
+                break
+              }
+            }
+          }
+        }
+
+        // Conta quantos itens vieram no array de primeiro nível (validade, registros, data, produtos, etc.)
+        const arrayCandidates = ['validade', 'validades', 'registros', 'data', 'produtos', 'itens']
+        for (let a = 0; a < arrayCandidates.length; a++) {
+          const arrKey = arrayCandidates[a]
+          if (Array.isArray(jsonBody[arrKey])) {
+            itensRetornados = jsonBody[arrKey].length
+            break
+          }
+        }
+
+        console.log(
+          '[tradepro] validades preview: campoTotal=' +
+            (nomeCampoTotalDetectado || 'nenhum') +
+            ', totalDetectado=' +
+            totalDetectado +
+            ', paginasTotal=' +
+            paginasTotal +
+            ', itensRetornadosNaPagina=' +
+            itensRetornados,
+        )
+      }
+
+      // 3. Fallback de contagem:
+      // Se não encontrou campo de total ou veio 0, mas há páginas ou itens na primeira página
+      if (totalDetectado === 0) {
+        if (paginasTotal > 0) {
+          // Estimativa baseada no total de páginas com tamanho padrão do TradePro (ou mínimo se foi página única)
+          // Se paginasTotal > 1, sabemos que há múltiplos registros
+          // Na prévia chamamos com quantidadePorPagina=1 ou 30; se paginasTotal = 583, são ~583 páginas
+          totalDetectado = paginasTotal
+          console.log(
+            '[tradepro] validades preview: total derivado a partir de paginasTotal=' + paginasTotal,
+          )
+        } else if (itensRetornados > 0) {
+          totalDetectado = itensRetornados
         }
       }
 
-      if (paginasTotal === 0 && totalDeProdutos > 0) {
-        paginasTotal = Math.ceil(totalDeProdutos / 30)
+      // Se paginasTotal ainda for 0 mas totalDetectado > 0, deriva paginasTotal (lote padrão 30)
+      if (paginasTotal === 0 && totalDetectado > 0) {
+        paginasTotal = Math.ceil(totalDetectado / 30)
       }
 
       record.set('status', 'preview')
       record.set('error_code', null)
-      record.set('total_informado', totalDeProdutos)
+      record.set('total_informado', totalDetectado)
       record.set('paginas_total', paginasTotal)
       record.set('paginas_processadas', 0)
       record.set('registros_lidos', 0)
@@ -625,12 +737,16 @@ onRecordAfterCreateSuccess((e) => {
       record.set('registros_rejeitados', 0)
       record.set('registros_deduplicados', 0)
       record.set('registros_consolidados', 0)
-      record.set(
-        'message',
-        totalDeProdutos === 0
-          ? 'Nenhum registro de validade encontrado para o período.'
-          : 'Prévia carregada: ' + totalDeProdutos + ' registros em ' + paginasTotal + ' páginas.',
-      )
+
+      let previewMsg = ''
+      if (totalDetectado === 0 && paginasTotal === 0 && itensRetornados === 0) {
+        previewMsg = 'Nenhum registro de validade encontrado para o período.'
+      } else {
+        previewMsg =
+          'Prévia carregada: ' + totalDetectado + ' registros em ' + paginasTotal + ' páginas.'
+      }
+
+      record.set('message', previewMsg)
       record.set('finished_at', new Date().toISOString())
       $app.save(record)
       return
@@ -1464,12 +1580,40 @@ onRecordAfterUpdateSuccess((e) => {
             paginasTotal = pTotal
             record.set('paginas_total', paginasTotal)
           }
-        }
-        if (pageRes.json.totalDeProdutos != null) {
-          const pProdutos = parseInt(pageRes.json.totalDeProdutos, 10)
-          if (!isNaN(pProdutos) && pProdutos > 0) {
-            record.set('total_informado', pProdutos)
+        } else if (pageRes.json.quantidadeDePaginas != null) {
+          const pTotal = parseInt(pageRes.json.quantidadeDePaginas, 10)
+          if (!isNaN(pTotal) && pTotal > paginasTotal) {
+            paginasTotal = pTotal
+            record.set('paginas_total', paginasTotal)
           }
+        }
+
+        // Detecção defensiva de total durante paginação
+        let pTotalDetectado = 0
+        const prioridadesPaginacao = [
+          'totalDeRegistros',
+          'totalRegistros',
+          'totalDeProdutos',
+          'totalProdutos',
+          'totalDeValidades',
+          'totalValidades',
+          'totalDeItens',
+          'totalItens',
+          'total',
+          'quantidadeTotal',
+        ]
+        for (let pp = 0; pp < prioridadesPaginacao.length; pp++) {
+          const candKey = prioridadesPaginacao[pp]
+          if (pageRes.json[candKey] != null) {
+            const pVal = parseInt(pageRes.json[candKey], 10)
+            if (!isNaN(pVal) && pVal > 0) {
+              pTotalDetectado = pVal
+              break
+            }
+          }
+        }
+        if (pTotalDetectado > 0) {
+          record.set('total_informado', pTotalDetectado)
         }
       }
 
