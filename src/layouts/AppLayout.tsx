@@ -15,50 +15,114 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
+  ChevronDown,
   Upload,
   Store,
   Sparkles,
+  Factory,
+  Boxes,
+  HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 
-const NAV_ITEMS = [
+interface NavChildItem {
+  to: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  badge?: string
+  disabled?: boolean
+}
+
+interface NavSection {
+  id: string
+  label: string
+  to?: string
+  icon: React.ComponentType<{ className?: string }>
+  children?: NavChildItem[]
+  badge?: string
+}
+
+// 5 Grandes Áreas Principais + Área Secundária / Administrativa
+const PRIMARY_AREAS: NavSection[] = [
   {
+    id: 'inicio',
+    label: 'Início',
     to: '/',
-    label: 'Visão Estratégica',
     icon: LayoutDashboard,
   },
   {
-    to: '/validades',
-    label: 'Validades',
-    icon: CalendarCheck,
+    id: 'operacao',
+    label: 'Operação',
+    icon: Boxes,
+    children: [
+      {
+        to: '/validades',
+        label: 'Validades',
+        icon: CalendarCheck,
+      },
+      {
+        to: '/rupturas',
+        label: 'Rupturas',
+        icon: PackageX,
+      },
+    ],
   },
   {
-    to: '/lojas',
-    label: 'Lojas',
+    id: 'industrias',
+    label: 'Indústrias',
+    to: '/industrias',
+    icon: Factory,
+  },
+  {
+    id: 'rede',
+    label: 'Rede',
     icon: Store,
+    children: [
+      {
+        to: '/lojas',
+        label: 'Lojas',
+        icon: Store,
+      },
+    ],
   },
   {
-    to: '/rupturas',
-    label: 'Rupturas',
-    icon: PackageX,
-  },
-  {
-    to: '/alertas',
-    label: 'Alertas',
-    icon: Bell,
-  },
-  {
-    to: '/auditoria',
-    label: 'Auditoria',
-    icon: ShieldAlert,
-  },
-  {
-    to: '/relatorios',
-    label: 'Relatórios',
+    id: 'inteligencia',
+    label: 'Inteligência',
     icon: FileBarChart,
+    children: [
+      {
+        to: '/visao-geral',
+        label: 'Visão Estratégica',
+        icon: LayoutDashboard,
+      },
+      {
+        to: '/relatorios',
+        label: 'Relatórios',
+        icon: FileBarChart,
+      },
+      {
+        to: '/auditoria',
+        label: 'Auditoria',
+        icon: ShieldAlert,
+      },
+      {
+        to: '/alertas',
+        label: 'Alertas',
+        icon: Bell,
+      },
+    ],
+  },
+]
+
+// Área secundária / administrativa ao final (visualmente separada)
+const SECONDARY_AREAS: NavChildItem[] = [
+  {
+    to: '/importacao',
+    label: 'Importação',
+    icon: Upload,
   },
   {
     to: '/configuracoes',
@@ -70,11 +134,6 @@ const NAV_ITEMS = [
     label: 'Assistente',
     icon: Sparkles,
   },
-  {
-    to: '/importacao',
-    label: 'Importação',
-    icon: Upload,
-  },
 ]
 
 export const AppLayout: React.FC = () => {
@@ -83,13 +142,27 @@ export const AppLayout: React.FC = () => {
   const navigate = useNavigate()
 
   // Sidebar collapse states
-  // Desktop collapse (rail): manual toggle
-  // Tablet: auto rail mode
-  // Mobile: drawer
   const [isRailCollapsed, setIsRailCollapsed] = useState(false)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Estado dos grupos expansíveis (por padrão todos abertos para rapidez operacional)
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    operacao: true,
+    rede: true,
+    inteligencia: true,
+  })
+
+  const toggleGroup = (groupId: string) => {
+    if (isRailCollapsed) {
+      setIsRailCollapsed(false)
+    }
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }))
+  }
 
   // Auto detect tablet screen to collapse to rail
   useEffect(() => {
@@ -97,8 +170,6 @@ export const AppLayout: React.FC = () => {
       const width = window.innerWidth
       if (width >= 768 && width < 1024) {
         setIsRailCollapsed(true)
-      } else if (width >= 1024) {
-        // preserve user preference or keep expanded
       }
     }
     handleResize()
@@ -127,20 +198,30 @@ export const AppLayout: React.FC = () => {
 
   const handleHeaderRefresh = () => {
     setIsRefreshing(true)
-    // Dispatch custom event that pages/hooks can listen to or trigger window reload if needed
     window.dispatchEvent(new CustomEvent('diretoria:refresh'))
     setTimeout(() => {
       setIsRefreshing(false)
     }, 600)
   }
 
-  // Get current page title
-  const currentNavItem = NAV_ITEMS.find((item) => {
-    if (item.to === '/') return location.pathname === '/'
-    return location.pathname.startsWith(item.to)
-  })
-  const pageTitle = currentNavItem ? currentNavItem.label : 'Inteligência Operacional'
+  // Obtém o título da página atual
+  const getPageTitle = () => {
+    if (location.pathname === '/') return 'Central de Trabalho'
+    if (location.pathname === '/visao-geral') return 'Visão Estratégica'
+    if (location.pathname === '/industrias') return 'Indústrias & Fornecedores'
+    if (location.pathname === '/validades') return 'Validades'
+    if (location.pathname === '/rupturas') return 'Rupturas'
+    if (location.pathname.startsWith('/lojas')) return 'Gestão de Lojas'
+    if (location.pathname === '/relatorios') return 'Relatórios Operacionais'
+    if (location.pathname === '/auditoria') return 'Auditoria & Governança'
+    if (location.pathname === '/alertas') return 'Alertas'
+    if (location.pathname === '/importacao') return 'Importação de Dados'
+    if (location.pathname === '/configuracoes') return 'Configurações'
+    if (location.pathname === '/assistente') return 'Assistente Operacional'
+    return 'Inteligência Operacional'
+  }
 
+  const pageTitle = getPageTitle()
   const userName = user?.name || user?.email?.split('@')[0] || 'Usuário'
 
   return (
@@ -189,30 +270,137 @@ export const AppLayout: React.FC = () => {
         </div>
 
         {/* Mobile Navigation Links */}
-        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            const isActive =
-              item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          {/* 5 Grandes Áreas */}
+          <div className="space-y-1.5">
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Navegação Principal
+            </p>
 
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
-                  isActive
-                    ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
-                )}
-              >
-                <Icon
-                  className={cn('w-5 h-5 shrink-0', isActive ? 'text-white' : 'text-slate-400')}
-                />
-                <span>{item.label}</span>
-              </NavLink>
-            )
-          })}
+            {PRIMARY_AREAS.map((section) => {
+              const Icon = section.icon
+              const hasChildren = section.children && section.children.length > 0
+
+              if (!hasChildren && section.to) {
+                const isActive =
+                  section.to === '/'
+                    ? location.pathname === '/'
+                    : location.pathname.startsWith(section.to)
+
+                return (
+                  <NavLink
+                    key={section.id}
+                    to={section.to}
+                    className={cn(
+                      'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
+                      isActive
+                        ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
+                    )}
+                  >
+                    <Icon
+                      className={cn('w-5 h-5 shrink-0', isActive ? 'text-white' : 'text-slate-400')}
+                    />
+                    <span>{section.label}</span>
+                  </NavLink>
+                )
+              }
+
+              // Grupo expansível
+              const isGroupActive = section.children?.some((child) =>
+                location.pathname.startsWith(child.to),
+              )
+              const isExpanded = expandedGroups[section.id] !== false
+
+              return (
+                <div key={section.id} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(section.id)}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all',
+                      isGroupActive && 'text-indigo-300 font-semibold',
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon
+                        className={cn(
+                          'w-5 h-5 shrink-0',
+                          isGroupActive ? 'text-indigo-400' : 'text-slate-400',
+                        )}
+                      />
+                      <span>{section.label}</span>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        'w-4 h-4 text-slate-400 transition-transform duration-200',
+                        isExpanded ? 'rotate-180' : 'rotate-0',
+                      )}
+                    />
+                  </button>
+
+                  {isExpanded && (
+                    <div className="pl-6 pr-1 space-y-1">
+                      {section.children?.map((child) => {
+                        const ChildIcon = child.icon
+                        const isActive = location.pathname.startsWith(child.to)
+
+                        return (
+                          <NavLink
+                            key={child.to}
+                            to={child.to}
+                            className={cn(
+                              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all',
+                              isActive
+                                ? 'bg-indigo-600 text-white font-semibold'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60',
+                            )}
+                          >
+                            <ChildIcon className="w-4 h-4 shrink-0" />
+                            <span>{child.label}</span>
+                          </NavLink>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Área Secundária / Administrativa */}
+          <div className="pt-3 border-t border-slate-800/80 space-y-1.5">
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Administração &amp; Suporte
+            </p>
+            {SECONDARY_AREAS.map((item) => {
+              const Icon = item.icon
+              const isActive = location.pathname.startsWith(item.to)
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={cn(
+                    'flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all',
+                    isActive
+                      ? 'bg-slate-800 text-white font-semibold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60',
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className="w-4 h-4 shrink-0 text-slate-400" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge && (
+                    <Badge variant="outline" className="text-[9px] text-slate-400 border-slate-700">
+                      {item.badge}
+                    </Badge>
+                  )}
+                </NavLink>
+              )
+            })}
+          </div>
         </nav>
 
         {/* Mobile User Profile & Logout */}
@@ -236,7 +424,7 @@ export const AppLayout: React.FC = () => {
         </div>
       </aside>
 
-      {/* Desktop & Tablet Sidebar (Fixed Navy/Slate-900 Premium) */}
+      {/* Desktop & Tablet Sidebar */}
       <aside
         className={cn(
           'fixed inset-y-0 left-0 bg-slate-900 text-slate-100 border-r border-slate-800/90 z-30 hidden lg:flex flex-col transition-all duration-200 ease-in-out shadow-lg',
@@ -291,36 +479,175 @@ export const AppLayout: React.FC = () => {
           </div>
         )}
 
-        {/* Navigation Items */}
-        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            const isActive =
-              item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
+        {/* Navigation Sections */}
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          {/* 5 Grandes Áreas */}
+          <div className="space-y-1">
+            {!isRailCollapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Principal
+              </p>
+            )}
 
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                title={isRailCollapsed ? item.label : undefined}
-                className={cn(
-                  'flex items-center rounded-xl text-sm font-medium transition-all duration-150 group relative',
-                  isRailCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-2.5',
-                  isActive
-                    ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
-                )}
-              >
-                <Icon
-                  className={cn(
-                    'w-5 h-5 shrink-0 transition-colors',
-                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200',
+            {PRIMARY_AREAS.map((section) => {
+              const Icon = section.icon
+              const hasChildren = section.children && section.children.length > 0
+
+              if (!hasChildren && section.to) {
+                const isActive =
+                  section.to === '/'
+                    ? location.pathname === '/'
+                    : location.pathname.startsWith(section.to)
+
+                return (
+                  <NavLink
+                    key={section.id}
+                    to={section.to}
+                    title={isRailCollapsed ? section.label : undefined}
+                    className={cn(
+                      'flex items-center rounded-xl text-sm font-medium transition-all duration-150 group relative',
+                      isRailCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2',
+                      isActive
+                        ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'w-5 h-5 shrink-0 transition-colors',
+                        isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200',
+                      )}
+                    />
+                    {!isRailCollapsed && <span className="truncate">{section.label}</span>}
+                  </NavLink>
+                )
+              }
+
+              // Grupo expansível com filhos
+              const isGroupActive = section.children?.some((child) =>
+                location.pathname.startsWith(child.to),
+              )
+              const isExpanded = expandedGroups[section.id] !== false
+
+              if (isRailCollapsed) {
+                // Modo Rail: renderiza primeiro filho ou link principal
+                const primaryChild = section.children?.[0]
+                return (
+                  <NavLink
+                    key={section.id}
+                    to={primaryChild?.to || '#'}
+                    title={section.label}
+                    className={cn(
+                      'flex items-center justify-center p-2.5 rounded-xl text-sm font-medium transition-all duration-150 group',
+                      isGroupActive
+                        ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white',
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'w-5 h-5 shrink-0 transition-colors',
+                        isGroupActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200',
+                      )}
+                    />
+                  </NavLink>
+                )
+              }
+
+              return (
+                <div key={section.id} className="space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(section.id)}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all',
+                      isGroupActive && 'text-indigo-300 font-semibold',
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon
+                        className={cn(
+                          'w-5 h-5 shrink-0',
+                          isGroupActive ? 'text-indigo-400' : 'text-slate-400',
+                        )}
+                      />
+                      <span className="truncate">{section.label}</span>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        'w-4 h-4 text-slate-400 transition-transform duration-200',
+                        isExpanded ? 'rotate-180' : 'rotate-0',
+                      )}
+                    />
+                  </button>
+
+                  {isExpanded && (
+                    <div className="pl-7 pr-1 space-y-0.5 pt-0.5">
+                      {section.children?.map((child) => {
+                        const ChildIcon = child.icon
+                        const isActive = location.pathname.startsWith(child.to)
+
+                        return (
+                          <NavLink
+                            key={child.to}
+                            to={child.to}
+                            className={cn(
+                              'flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                              isActive
+                                ? 'bg-indigo-600 text-white font-semibold'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60',
+                            )}
+                          >
+                            <ChildIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{child.label}</span>
+                          </NavLink>
+                        )
+                      })}
+                    </div>
                   )}
-                />
-                {!isRailCollapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
-            )
-          })}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Área Secundária / Administrativa */}
+          <div className="pt-3 border-t border-slate-800/80 space-y-1">
+            {!isRailCollapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Área Administrativa
+              </p>
+            )}
+
+            {SECONDARY_AREAS.map((item) => {
+              const Icon = item.icon
+              const isActive = location.pathname.startsWith(item.to)
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  title={isRailCollapsed ? item.label : undefined}
+                  className={cn(
+                    'flex items-center rounded-xl text-xs font-medium transition-all duration-150 group',
+                    isRailCollapsed ? 'justify-center p-2.5' : 'justify-between px-3 py-2',
+                    isActive
+                      ? 'bg-slate-800 text-white font-semibold'
+                      : 'text-slate-400 hover:bg-slate-800/60 hover:text-white',
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Icon className="w-4 h-4 shrink-0 text-slate-400 group-hover:text-slate-200" />
+                    {!isRailCollapsed && <span className="truncate">{item.label}</span>}
+                  </div>
+                  {!isRailCollapsed && item.badge && (
+                    <Badge variant="outline" className="text-[9px] text-slate-400 border-slate-700">
+                      {item.badge}
+                    </Badge>
+                  )}
+                </NavLink>
+              )
+            })}
+          </div>
         </nav>
 
         {/* Desktop User info & Logout */}
@@ -440,3 +767,5 @@ export const AppLayout: React.FC = () => {
     </div>
   )
 }
+
+export default AppLayout

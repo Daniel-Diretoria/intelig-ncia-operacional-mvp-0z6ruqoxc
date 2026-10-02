@@ -8,7 +8,9 @@ import { AppLayout } from '@/layouts/AppLayout'
 
 // Pages
 import { LoginPage } from '@/pages/Login'
+import { CentralDeTrabalhoPage } from '@/pages/CentralDeTrabalho'
 import { DashboardPage } from '@/pages/Dashboard'
+import { IndustriasPage } from '@/pages/Industrias'
 import { ValidadesPage } from '@/pages/Validades'
 import { LojasPage } from '@/pages/Lojas'
 import { StoreDetailPage } from '@/pages/StoreDetailPage'
@@ -39,7 +41,9 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<CentralDeTrabalhoPage />} />
+            <Route path="/visao-geral" element={<DashboardPage />} />
+            <Route path="/industrias" element={<IndustriasPage />} />
             <Route path="/validades" element={<ValidadesPage />} />
             <Route path="/lojas" element={<LojasPage />} />
             <Route path="/lojas/:storeId" element={<StoreDetailPage />} />
