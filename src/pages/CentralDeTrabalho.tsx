@@ -249,7 +249,7 @@ export const CentralDeTrabalhoPage: React.FC = () => {
         alvo: storeDisplay,
         motivo,
         subtexto: `${formatCityUf(st.city, st.uf)} • ${st.network}`,
-        severidade: st.criticasCount > 0 || st.rupturasCount > 0 ? 'critica' : 'atencao',
+        severidade: st.criticasCount > 0 ? 'critica' : 'atencao',
         targetAction: () =>
           setPanelTarget({
             type: 'store',
@@ -274,7 +274,7 @@ export const CentralDeTrabalhoPage: React.FC = () => {
         alvo: pr.productName,
         motivo,
         subtexto: `Marca: ${pr.brand} • ${pr.lojasSet.size} loja(s) afetada(s)`,
-        severidade: pr.criticasCount > 0 || pr.rupturasCount > 0 ? 'critica' : 'atencao',
+        severidade: pr.criticasCount > 0 ? 'critica' : 'atencao',
         targetAction: () =>
           setPanelTarget({
             type: 'product',
@@ -308,7 +308,7 @@ export const CentralDeTrabalhoPage: React.FC = () => {
                 Central de Trabalho
               </h1>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Operação em tempo real
+                Visão operacional atual
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
@@ -371,8 +371,8 @@ export const CentralDeTrabalhoPage: React.FC = () => {
               </div>
 
               <div className="mt-3.5 p-2.5 rounded-lg bg-red-50/60 border border-red-100 text-[11px] text-red-800 leading-relaxed">
-                <strong>Por que importa:</strong> Produtos com menos de 15 dias exigem liquidação,
-                troca ou reposicionamento imediato em gôndola para evitar perda financeira.
+                <strong>Por que importa:</strong> Produtos nessa faixa exigem acompanhamento e
+                avaliação da tratativa adequada para reduzir risco de perda.
               </div>
             </div>
 

@@ -128,10 +128,12 @@ export const IndustriasPage: React.FC = () => {
 
     for (const entry of map.values()) {
       let situacao: 'Crítica' | 'Atenção' | 'Normal' = 'Normal'
-      if (entry.validadesCriticas > 0 || entry.rupturasAtivas > 0) {
+      if (entry.validadesCriticas > 0) {
         situacao = 'Crítica'
-      } else if (entry.validadesAtencao > 0) {
+      } else if (entry.validadesAtencao > 0 || entry.rupturasAtivas > 0) {
         situacao = 'Atenção'
+      } else {
+        situacao = 'Normal'
       }
 
       list.push({
@@ -248,7 +250,7 @@ export const IndustriasPage: React.FC = () => {
             </div>
           </div>
           <p className="text-2xl font-bold text-red-600 mt-2">{kpis.criticas}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Validades 0–15d ou Rupturas</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Validades críticas (0–15d)</p>
         </div>
 
         <div
