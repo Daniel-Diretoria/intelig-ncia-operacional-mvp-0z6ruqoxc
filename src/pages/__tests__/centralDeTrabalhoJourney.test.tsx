@@ -105,6 +105,7 @@ describe('Fase 1: Central de Trabalho & Indústrias', () => {
       expect(screen.getByText('Gestão de Indústrias & Fornecedores')).toBeTruthy()
       expect(screen.getByText('PIRACANJUBA')).toBeTruthy()
       expect(screen.getByText('Total de Indústrias')).toBeTruthy()
+      expect(screen.getByText('Nova Indústria')).toBeTruthy()
     })
   })
 })

@@ -13,8 +13,8 @@ export const IndustryDetailPage: React.FC = () => {
   const navigate = useNavigate()
 
   const operational = useIndustryOperational(id)
-  const { items: validades } = useValidades()
-  const { rupturas } = useRupturas()
+  const { data: validades } = useValidades()
+  const { data: rupturas } = useRupturas()
 
   const { industry, isLoading, error, refetch } = operational
 

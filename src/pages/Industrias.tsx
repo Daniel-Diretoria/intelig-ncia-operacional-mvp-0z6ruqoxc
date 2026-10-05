@@ -1,21 +1,32 @@
 import React, { useState, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Factory,
   Search,
   RotateCcw,
   AlertOctagon,
   AlertTriangle,
-  Store,
-  Package,
   ChevronRight,
+  Plus,
   ExternalLink,
+  Loader2,
 } from 'lucide-react'
 import { useValidades } from '@/services/useValidades'
 import { useRupturas } from '@/services/useRupturas'
+import { useIndustryRegistriesList } from '@/services/useIndustryOperational'
+import { saveIndustryRegistry, type SaveIndustryInput } from '@/services/industryService'
+import { useToast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { formatStoreIdentityTable } from '@/lib/format/storeIdentity'
 import { ContextPanel, type ContextPanelTarget } from '@/components/common/ContextPanel'
 
@@ -36,11 +47,35 @@ export const IndustriasPage: React.FC = () => {
   const [searchParams] = useSearchParams()
   const initialMarcaQuery = searchParams.get('marca') || ''
 
+  const navigate = useNavigate()
+  const { toast } = useToast()
+
   const [search, setSearch] = useState(initialMarcaQuery)
   const [situacaoFilter, setSituacaoFilter] = useState<'Todas' | 'Crítica' | 'Atenção' | 'Normal'>(
     'Todas',
   )
   const [panelTarget, setPanelTarget] = useState<ContextPanelTarget | null>(null)
+
+  // Estado do modal de criação de nova indústria
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createForm, setCreateForm] = useState<SaveIndustryInput>({
+    nome: '',
+    razao_social: '',
+    cnpj: '',
+    status: 'ativa',
+    segmento: '',
+    contato_nome: '',
+    contato_email: '',
+    contato_telefone: '',
+    observacoes: '',
+  })
+
+  const {
+    registries,
+    isLoading: isLoadingRegistries,
+    refetch: refetchRegistries,
+  } = useIndustryRegistriesList()
 
   const {
     data: validades,
@@ -54,7 +89,21 @@ export const IndustriasPage: React.FC = () => {
     refetch: refetchRupturas,
   } = useRupturas()
 
-  const isLoading = isLoadingValidades || isLoadingRupturas
+  const isLoading = isLoadingValidades || isLoadingRupturas || isLoadingRegistries
+
+  // Mapeamento de nome canônico para o ID da indústria no registry (se houver)
+  const registryByNameKey = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const reg of registries) {
+      if (reg.nome_chave) {
+        map.set(reg.nome_chave, reg.id)
+      }
+      if (reg.nome) {
+        map.set(reg.nome.trim().toUpperCase(), reg.id)
+      }
+    }
+    return map
+  }, [registries])
 
   // Agregação real por Marca / Indústria diretamente dos registros canônicos
   const industrias = useMemo(() => {
@@ -193,6 +242,56 @@ export const IndustriasPage: React.FC = () => {
     setSituacaoFilter('Todas')
   }, [])
 
+  // Criação de nova indústria
+  const handleOpenCreateModal = () => {
+    setCreateForm({
+      nome: '',
+      razao_social: '',
+      cnpj: '',
+      status: 'ativa',
+      segmento: '',
+      contato_nome: '',
+      contato_email: '',
+      contato_telefone: '',
+      observacoes: '',
+    })
+    setIsCreateModalOpen(true)
+  }
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!createForm.nome.trim()) {
+      toast({
+        title: 'Nome obrigatório',
+        description: 'Informe o nome da indústria ou fornecedor.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const created = await saveIndustryRegistry(createForm)
+      toast({
+        title: 'Indústria cadastrada com sucesso',
+        description: `Indústria "${created.nome}" adicionada ao cadastro operacional.`,
+      })
+      setIsCreateModalOpen(false)
+      await refetchRegistries()
+      // Redireciona opcionalmente para os detalhes da indústria recém criada
+      navigate(`/industrias/${created.id}`)
+    } catch (err) {
+      console.error('Erro ao cadastrar indústria:', err)
+      toast({
+        title: 'Erro ao cadastrar indústria',
+        description: err instanceof Error ? err.message : 'Não foi possível salvar o cadastro.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in pb-12">
       {/* Header */}
@@ -215,6 +314,17 @@ export const IndustriasPage: React.FC = () => {
               e rupturas.
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <Button
+            size="sm"
+            onClick={handleOpenCreateModal}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nova Indústria</span>
+          </Button>
         </div>
       </div>
 
@@ -383,100 +493,133 @@ export const IndustriasPage: React.FC = () => {
                   </th>
                   <th className="py-3 px-4 text-center min-w-[120px]">Rupturas Ativas</th>
                   <th className="py-3 px-4 text-center min-w-[100px]">Situação</th>
-                  <th className="py-3 px-4 text-right min-w-[80px]">Contexto</th>
+                  <th className="py-3 px-4 text-right min-w-[80px]">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredIndustrias.map((ind) => (
-                  <tr
-                    key={ind.name}
-                    onClick={() =>
-                      setPanelTarget({
-                        type: 'industry',
-                        id: ind.name,
-                        label: ind.name,
-                      })
-                    }
-                    className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                          <Factory className="w-3.5 h-3.5" />
+                {filteredIndustrias.map((ind) => {
+                  const targetId = registryByNameKey.get(ind.name) || encodeURIComponent(ind.name)
+                  return (
+                    <tr
+                      key={ind.name}
+                      onClick={() =>
+                        setPanelTarget({
+                          type: 'industry',
+                          id: ind.name,
+                          label: ind.name,
+                        })
+                      }
+                      className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                            <Factory className="w-3.5 h-3.5" />
+                          </div>
+                          <span
+                            role="link"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/industrias/${targetId}`)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.stopPropagation()
+                                navigate(`/industrias/${targetId}`)
+                              }
+                            }}
+                            className="font-semibold text-slate-900 hover:text-indigo-600 hover:underline transition-colors"
+                            title={`Ver cadastro operacional de ${ind.name}`}
+                          >
+                            {ind.name}
+                          </span>
                         </div>
-                        <span className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                          {ind.name}
-                        </span>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="py-3 px-4 text-center tabular-nums text-slate-700 font-medium">
-                      {ind.totalProdutos}
-                    </td>
+                      <td className="py-3 px-4 text-center tabular-nums text-slate-700 font-medium">
+                        {ind.totalProdutos}
+                      </td>
 
-                    <td className="py-3 px-4 text-center tabular-nums text-slate-700 font-medium">
-                      {ind.totalLojas}
-                    </td>
+                      <td className="py-3 px-4 text-center tabular-nums text-slate-700 font-medium">
+                        {ind.totalLojas}
+                      </td>
 
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <Badge
-                        variant="outline"
-                        className={
-                          ind.validadesCriticas > 0
-                            ? 'bg-red-50 text-red-700 border-red-200 font-bold'
-                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                        }
-                      >
-                        {ind.validadesCriticas}
-                      </Badge>
-                    </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <Badge
+                          variant="outline"
+                          className={
+                            ind.validadesCriticas > 0
+                              ? 'bg-red-50 text-red-700 border-red-200 font-bold'
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }
+                        >
+                          {ind.validadesCriticas}
+                        </Badge>
+                      </td>
 
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <Badge
-                        variant="outline"
-                        className={
-                          ind.validadesAtencao > 0
-                            ? 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
-                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                        }
-                      >
-                        {ind.validadesAtencao}
-                      </Badge>
-                    </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <Badge
+                          variant="outline"
+                          className={
+                            ind.validadesAtencao > 0
+                              ? 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }
+                        >
+                          {ind.validadesAtencao}
+                        </Badge>
+                      </td>
 
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <Badge
-                        variant="outline"
-                        className={
-                          ind.rupturasAtivas > 0
-                            ? 'bg-amber-50 text-amber-800 border-amber-200 font-bold'
-                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                        }
-                      >
-                        {ind.rupturasAtivas}
-                      </Badge>
-                    </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <Badge
+                          variant="outline"
+                          className={
+                            ind.rupturasAtivas > 0
+                              ? 'bg-amber-50 text-amber-800 border-amber-200 font-bold'
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }
+                        >
+                          {ind.rupturasAtivas}
+                        </Badge>
+                      </td>
 
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <Badge
-                        variant="outline"
-                        className={
-                          ind.situacao === 'Crítica'
-                            ? 'bg-red-50 text-red-700 border-red-200 font-semibold'
-                            : ind.situacao === 'Atenção'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold'
-                        }
-                      >
-                        {ind.situacao}
-                      </Badge>
-                    </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <Badge
+                          variant="outline"
+                          className={
+                            ind.situacao === 'Crítica'
+                              ? 'bg-red-50 text-red-700 border-red-200 font-semibold'
+                              : ind.situacao === 'Atenção'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold'
+                          }
+                        >
+                          {ind.situacao}
+                        </Badge>
+                      </td>
 
-                    <td className="py-3 px-4 text-right">
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all inline-block" />
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/industrias/${targetId}`)
+                            }}
+                            title="Abrir página completa da indústria"
+                            aria-label={`Ver detalhes de ${ind.name}`}
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all inline-block" />
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -490,6 +633,144 @@ export const IndustriasPage: React.FC = () => {
         validades={validades}
         rupturas={rupturas}
       />
+
+      {/* Modal: Nova Indústria */}
+      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nova Indústria / Fornecedor</DialogTitle>
+            <DialogDescription className="text-xs">
+              Cadastre uma nova indústria no sistema operacional de trade marketing.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateSubmit} className="space-y-3.5 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Nome da Indústria / Marca *</label>
+                <Input
+                  required
+                  placeholder="Ex: PIRACANJUBA"
+                  value={createForm.nome}
+                  onChange={(e) => setCreateForm({ ...createForm, nome: e.target.value })}
+                  className="h-8 text-xs"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Status Operacional</label>
+                <select
+                  value={createForm.status}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, status: e.target.value as 'ativa' | 'inativa' })
+                  }
+                  className="w-full h-8 px-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-800"
+                >
+                  <option value="ativa">Ativa</option>
+                  <option value="inativa">Inativa</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Razão Social</label>
+                <Input
+                  placeholder="Ex: Laticínios Bela Vista S.A."
+                  value={createForm.razao_social}
+                  onChange={(e) => setCreateForm({ ...createForm, razao_social: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">CNPJ</label>
+                <Input
+                  placeholder="00.000.000/0000-00"
+                  value={createForm.cnpj}
+                  onChange={(e) => setCreateForm({ ...createForm, cnpj: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Segmento</label>
+                <Input
+                  placeholder="Ex: Laticínios / Bebidas"
+                  value={createForm.segmento}
+                  onChange={(e) => setCreateForm({ ...createForm, segmento: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Nome do Contato</label>
+                <Input
+                  placeholder="Ex: Roberto Silva"
+                  value={createForm.contato_nome}
+                  onChange={(e) => setCreateForm({ ...createForm, contato_nome: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">Telefone</label>
+                <Input
+                  placeholder="(00) 00000-0000"
+                  value={createForm.contato_telefone}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, contato_telefone: e.target.value })
+                  }
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">E-mail de Contato</label>
+              <Input
+                type="email"
+                placeholder="contato@industria.com.br"
+                value={createForm.contato_email}
+                onChange={(e) => setCreateForm({ ...createForm, contato_email: e.target.value })}
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Observações Operacionais</label>
+              <textarea
+                rows={2}
+                placeholder="Informações contratuais, SLAs ou peculiaridades de abastecimento..."
+                value={createForm.observacoes}
+                onChange={(e) => setCreateForm({ ...createForm, observacoes: e.target.value })}
+                className="w-full p-2 bg-white border border-slate-300 rounded-md text-xs placeholder:text-slate-400"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCreateModalOpen(false)}
+                disabled={isSubmitting}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5"
+              >
+                {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmitting ? 'Salvando...' : 'Cadastrar Indústria'}</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -208,7 +208,7 @@ export const AppLayout: React.FC = () => {
   const getPageTitle = () => {
     if (location.pathname === '/') return 'Central de Trabalho'
     if (location.pathname === '/visao-geral') return 'Visão Estratégica'
-    if (location.pathname === '/industrias') return 'Indústrias & Fornecedores'
+    if (location.pathname.startsWith('/industrias')) return 'Indústrias & Fornecedores'
     if (location.pathname === '/validades') return 'Validades'
     if (location.pathname === '/rupturas') return 'Rupturas'
     if (location.pathname.startsWith('/lojas')) return 'Gestão de Lojas'
