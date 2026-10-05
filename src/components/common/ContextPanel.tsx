@@ -371,17 +371,27 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                   {/* Dimensão 3: Atualização */}
                   <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      Atualização
+                      Atualizações
                     </span>
                     <div className="mt-1.5 flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-800 truncate">
                         {formatDisplayDate(storeContext.lastDate, 'Sem dados')}
                       </span>
-                      <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-semibold">
-                        Base Atual
-                      </Badge>
+                      {storeContext.lastDate ? (
+                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
+                          Normal
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold">
+                          Atenção
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-1">Confronto consolidado</p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {storeContext.lastDate
+                        ? 'Pesquisas em acompanhamento'
+                        : 'Aguardando atualização'}
+                    </p>
                   </div>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T20:27:57.125Z",
+  "generatedAt": "2026-10-05T20:54:31.219Z",
   "collections": [
     {
       "name": "users",
@@ -2933,6 +2933,146 @@
       "indexes": [
         "CREATE INDEX idx_store_mix_ind_store ON industry_store_product_mix (industry_id, store_name)",
         "CREATE INDEX idx_store_mix_prod ON industry_store_product_mix (industry_id, nome_produto)"
+      ]
+    },
+    {
+      "name": "industry_tracking_tratativas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "product_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "product_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resultado",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "atualizacao_solicitada",
+            "aguardando_retorno",
+            "produto_vendido_zerado",
+            "ruptura_confirmada",
+            "produto_nao_trabalha_mais",
+            "mix_loja_precisa_atualizar",
+            "pesquisa_inconsistente",
+            "situacao_regularizada",
+            "observacao_manual"
+          ]
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resposta",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_identificacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultimo_estado_conhecido_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_identificacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_regularizacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_tratativa",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["aberto", "em_andamento", "regularizado", "cancelado"]
+        },
+        {
+          "name": "sugestao_mix_loja",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_track_trat_ind_store ON industry_tracking_tratativas (industry_name, store_name)",
+        "CREATE INDEX idx_track_trat_prod ON industry_tracking_tratativas (product_name)",
+        "CREATE INDEX idx_track_trat_status ON industry_tracking_tratativas (status_tratativa)"
       ]
     }
   ]
