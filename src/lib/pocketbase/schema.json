@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-02T19:21:50.908Z",
+  "generatedAt": "2026-10-05T20:11:18.799Z",
   "collections": [
     {
       "name": "users",
@@ -2319,6 +2319,533 @@
       "indexes": [
         "CREATE INDEX idx_tradepro_sync_jobs_user ON tradepro_sync_jobs (requested_by, created DESC)",
         "CREATE INDEX idx_tradepro_sync_jobs_status ON tradepro_sync_jobs (status)"
+      ]
+    },
+    {
+      "name": "industry_registry",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nome_chave",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativa", "inativa"]
+        },
+        {
+          "name": "segmento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contato_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contato_email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contato_telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_industry_reg_nome_chave ON industry_registry (nome_chave)"
+      ]
+    },
+    {
+      "name": "industry_store_coverage",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "network_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "city",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_relacao",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["detectada", "confirmada", "ativa", "inativa"]
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_deteccao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_cov_ind_store ON industry_store_coverage (industry_id, store_code)"
+      ]
+    },
+    {
+      "name": "industry_product_mix",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cod_barras",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_produto",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "categoria",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_mix",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["oficial_industria", "observado_operacional"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "descontinuado", "em_avaliacao"]
+        },
+        {
+          "name": "shelf_life_dias",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_code_restrito",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_mix_ind_prod ON industry_product_mix (industry_id, nome_produto)"
+      ]
+    },
+    {
+      "name": "industry_research_config",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "tipo_pesquisa",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["validades", "rupturas"]
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "frequencia",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["diaria", "semanal", "quinzenal", "mensal"]
+        },
+        {
+          "name": "dia_esperado",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "segunda",
+            "terca",
+            "quarta",
+            "quinta",
+            "sexta",
+            "sabado",
+            "domingo",
+            "qualquer"
+          ]
+        },
+        {
+          "name": "horario_limite",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tolerancia_dias",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "instrucoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_research_ind_tipo ON industry_research_config (industry_id, tipo_pesquisa)"
+      ]
+    },
+    {
+      "name": "industry_validity_policy",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "nivel_regra",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["sistema", "industria", "produto_excecao"]
+        },
+        {
+          "name": "produto_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo_produto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dias_critico",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "dias_atencao",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "dias_moderado",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shelf_life_padrao_dias",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "justificativa",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_pol_ind_nivel ON industry_validity_policy (industry_id, nivel_regra)"
+      ]
+    },
+    {
+      "name": "industry_config_audit",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "modulo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["identificacao", "cobertura", "mix", "pesquisas", "politica_validade"]
+        },
+        {
+          "name": "acao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "detalhes_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_alteracao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_audit_ind_created ON industry_config_audit (industry_id, created DESC)"
       ]
     }
   ]
