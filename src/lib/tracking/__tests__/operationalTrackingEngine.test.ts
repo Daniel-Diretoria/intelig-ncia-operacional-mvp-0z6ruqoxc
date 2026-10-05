@@ -444,4 +444,188 @@ describe('Motor de Acompanhamento Operacional do SKIP', () => {
     const depois = calculateCyclesMissed('2026-10-06', cycles)
     expect(depois.ciclosSemAtualizacao).toBe(0)
   })
+
+  // =========================================================================
+  // 15. TESTE INTEGRADO 1: CENÁRIO ANÔMALO (QUEDA BRUSCA DE VOLUME NA LOJA)
+  // Ciclo 1 -> 35 produtos distintos
+  // Ciclo 2 -> 33 produtos distintos
+  // Ciclo 3 -> 37 produtos distintos
+  // Ciclo atual -> 1 produto distinto
+  // Cada produto possui múltiplos registros para provar que conta distintos, não linhas.
+  // O motor deve identificar a anomalia da loja antes de gerar alertas individuais indevidos.
+  // =========================================================================
+  it('teste integrado: identifica anomalia da loja por queda brusca de produtos distintos sem gerar alertas individuais indevidos', () => {
+    // Configuração de pesquisa: semanal, terça-feira
+    // Ciclos esperados:
+    // Ciclo atual (0): 2026-09-29 (terça)
+    // Ciclo 1: 2026-09-22 (terça)
+    // Ciclo 2: 2026-09-15 (terça)
+    // Ciclo 3: 2026-09-08 (terça)
+    const refDate = new Date(2026, 8, 29, 12, 0, 0) // 29/09/2026
+
+    const validades: ValidadeItem[] = []
+    const lojaNome = 'Fort Aventureiro 165'
+    const codigoLoja = '165'
+    const cliente = 'FRUTAP'
+
+    // Função auxiliar para gerar registros com múltiplos lotes/linhas por produto
+    const addCycleRecords = (data: string, qtdProdutosDistintos: number) => {
+      for (let p = 1; p <= qtdProdutosDistintos; p++) {
+        const prodName = `Iogurte Frutap Sabor ${p}`
+        // Inserir 2 registros para o mesmo produto no mesmo ciclo (ex: lotes diferentes)
+        validades.push({
+          id: `val-${data}-p${p}-lote1`,
+          sku: `SKU-${p}`,
+          lote: `LOTE-A-${p}`,
+          category: 'Laticínios',
+          status: 'Normal',
+          unidade: 'un',
+          cliente,
+          loja: lojaNome,
+          codigoLoja,
+          product: prodName,
+          quantidade: 10,
+          estoque: 10,
+          realizado: data,
+          validade: '2026-11-30',
+          diasRestantes: 62,
+        })
+        validades.push({
+          id: `val-${data}-p${p}-lote2`,
+          sku: `SKU-${p}`,
+          lote: `LOTE-B-${p}`,
+          category: 'Laticínios',
+          status: 'Normal',
+          unidade: 'un',
+          cliente,
+          loja: lojaNome,
+          codigoLoja,
+          product: prodName,
+          quantidade: 15,
+          estoque: 15,
+          realizado: data,
+          validade: '2026-12-15',
+          diasRestantes: 77,
+        })
+      }
+    }
+
+    // Ciclo 3 (08/09): 37 produtos distintos (37 * 2 = 74 registros)
+    addCycleRecords('2026-09-08', 37)
+    // Ciclo 2 (15/09): 33 produtos distintos (33 * 2 = 66 registros)
+    addCycleRecords('2026-09-15', 33)
+    // Ciclo 1 (22/09): 35 produtos distintos (35 * 2 = 70 registros)
+    addCycleRecords('2026-09-22', 35)
+    // Ciclo Atual (29/09): apenas 1 produto distinto (1 * 2 = 2 registros)
+    addCycleRecords('2026-09-29', 1)
+
+    const result = runOperationalTrackingEngine({
+      industryName: cliente,
+      validades,
+      rupturas: [],
+      researchConfig: { frequencia: 'semanal', dia_esperado: 'terca' },
+      referenceDate: refDate,
+    })
+
+    // 1. O motor deve ter avaliado o volume histórico da loja como [35, 33, 37] e atual 1
+    // A média histórica deve ser (35 + 33 + 37) / 3 = 35 produtos distintos
+    expect(result.items.length).toBeGreaterThanOrEqual(37)
+
+    const firstItem = result.items[0]
+    expect(firstItem.qualidadeCiclo.isInconsistent).toBe(true)
+    expect(firstItem.qualidadeCiclo.isPesquisaNaoRealizada).toBe(false)
+    expect(firstItem.qualidadeCiclo.volumeAtual).toBe(1)
+    expect(firstItem.qualidadeCiclo.volumeHistoricoEsperado).toBe(35)
+    expect(firstItem.qualidadeCiclo.percentualQueda).toBeGreaterThanOrEqual(90)
+    expect(firstItem.qualidadeCiclo.motivoInconsistencia).toContain('inconsistência na pesquisa')
+
+    // 2. Abordagem conservadora do usuário:
+    // "Se houver forte suspeita de pesquisa incompleta ou inconsistente, primeiro gere uma pendência
+    // relacionada à qualidade da pesquisa/loja e evite transformar automaticamente todas as ausências daquele ciclo em dezenas de alertas individuais."
+    // Produtos ausentes não devem ser rotulados com acompanhamentoStatus='critico'
+    const criticosCount = result.items.filter((i) => i.acompanhamentoStatus === 'critico').length
+    expect(criticosCount).toBe(0)
+
+    // Os itens ausentes devem ter situacao 'possivel_inconsistencia_dados' com acompanhamento 'atencao'
+    const inconsistencias = result.items.filter(
+      (i) => i.situacaoAcompanhamento === 'possivel_inconsistencia_dados',
+    )
+    expect(inconsistencias.length).toBeGreaterThan(0)
+    expect(result.summary.ciclosComInconsistencia).toBeGreaterThan(0)
+  })
+
+  // =========================================================================
+  // 16. TESTE INTEGRADO 2: CENÁRIO SAUDÁVEL (VOLUME CONSISTENTE)
+  // Ciclo 1 -> 35 produtos distintos
+  // Ciclo 2 -> 33 produtos distintos
+  // Ciclo 3 -> 37 produtos distintos
+  // Ciclo atual -> 31 produtos distintos
+  // A pesquisa deve ser considerada suficientemente consistente para permitir a análise normal.
+  // =========================================================================
+  it('teste integrado: reconhece cenário saudável (volume consistente) e permite análise operacional normal', () => {
+    const refDate = new Date(2026, 8, 29, 12, 0, 0) // 29/09/2026
+    const validades: ValidadeItem[] = []
+    const lojaNome = 'Fort Aventureiro 165'
+    const codigoLoja = '165'
+    const cliente = 'FRUTAP'
+
+    const addCycleRecords = (data: string, qtdProdutosDistintos: number) => {
+      for (let p = 1; p <= qtdProdutosDistintos; p++) {
+        const prodName = `Iogurte Frutap Sabor ${p}`
+        validades.push({
+          id: `val-${data}-p${p}-lote1`,
+          sku: `SKU-${p}`,
+          lote: `LOTE-A-${p}`,
+          category: 'Laticínios',
+          status: 'Normal',
+          unidade: 'un',
+          cliente,
+          loja: lojaNome,
+          codigoLoja,
+          product: prodName,
+          quantidade: 10,
+          estoque: 10,
+          realizado: data,
+          validade: '2026-11-30',
+          diasRestantes: 62,
+        })
+      }
+    }
+
+    // Ciclo 3 (08/09): 37 produtos
+    addCycleRecords('2026-09-08', 37)
+    // Ciclo 2 (15/09): 33 produtos
+    addCycleRecords('2026-09-15', 33)
+    // Ciclo 1 (22/09): 35 produtos
+    addCycleRecords('2026-09-22', 35)
+    // Ciclo Atual (29/09): 31 produtos (volume normal e consistente)
+    addCycleRecords('2026-09-29', 31)
+
+    const result = runOperationalTrackingEngine({
+      industryName: cliente,
+      validades,
+      rupturas: [],
+      researchConfig: { frequencia: 'semanal', dia_esperado: 'terca' },
+      referenceDate: refDate,
+    })
+
+    // 1. Pesquisa deve ser considerada saudável e consistente
+    const sampleItem = result.items[0]
+    expect(sampleItem.qualidadeCiclo.isInconsistent).toBe(false)
+    expect(sampleItem.qualidadeCiclo.isPesquisaNaoRealizada).toBe(false)
+    expect(sampleItem.qualidadeCiclo.volumeAtual).toBe(31)
+    expect(sampleItem.qualidadeCiclo.volumeHistoricoEsperado).toBe(35)
+    expect(result.summary.ciclosComInconsistencia).toBe(0)
+
+    // 2. Os 31 produtos presentes no ciclo atual devem estar marcados como Atualizado normalmente
+    const atualizados = result.items.filter((i) => i.acompanhamentoStatus === 'atualizado')
+    expect(atualizados.length).toBe(31)
+
+    // 3. Os produtos que estavam presentes nos ciclos anteriores mas não no ciclo atual (37 - 31 = 6)
+    // são analisados individualmente de forma normal (ausência de 1 ciclo -> Atenção)
+    const ausentes1Ciclo = result.items.filter(
+      (i) => i.situacaoAcompanhamento === 'um_ciclo_sem_atualizacao',
+    )
+    expect(ausentes1Ciclo.length).toBe(6)
+  })
 })

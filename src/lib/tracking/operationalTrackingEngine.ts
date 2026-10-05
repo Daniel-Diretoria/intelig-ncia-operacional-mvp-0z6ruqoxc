@@ -19,6 +19,7 @@ import { resolveValidityPolicy } from '@/services/industryService'
 import {
   generateExpectedCycles,
   calculateCyclesMissed,
+  mapDateToCycle,
   parseIsoDateOnly,
   formatIsoDateOnly,
 } from './cycleCalculator'
@@ -167,6 +168,13 @@ export function computeOperationalPriority(
 
 /**
  * MOTOR DE ACOMPANHAMENTO OPERACIONAL DO SKIP
+ *
+ * NOTA DE ARQUITETURA E REGRA OPERACIONAL (TAREFA 2):
+ * - O acompanhamento automático atual usa a configuração de pesquisa de VALIDADES como fonte principal dos ciclos.
+ * - Rupturas entram exclusivamente como evidência de cruzamento e explicação operacional de ausência.
+ * - Esta lógica NÃO vale ainda para pesquisas obrigatórias de Ruptura (módulo a ser desenvolvido em etapa posterior).
+ * - O volume por ciclo avaliado para qualidade da pesquisa/loja considera estritamente a contagem de PRODUTOS DISTINTOS
+ *   atualizados naquele ciclo na pesquisa de Validades, eliminando duplicidades causadas por múltiplos lotes do mesmo produto.
  */
 export function runOperationalTrackingEngine(input: OperationalTrackingEngineInput): {
   items: OperationalTrackingItem[]
@@ -207,7 +215,16 @@ export function runOperationalTrackingEngine(input: OperationalTrackingEngineInp
   })
 
   // 2. Determinar ciclos esperados da pesquisa
-  // Frequência e dia esperado vêm de industry_research_config, nunca fixados no código.
+  // =========================================================================================
+  // DOCUMENTAÇÃO EXPLÍCITA DA FONTE DOS CICLOS:
+  // O acompanhamento automático atual utiliza a configuração da pesquisa de VALIDADES como fonte
+  // principal dos ciclos operacionais (frequência, dia da semana esperado, tolerância).
+  // As RUPTURAS entram exclusivamente como evidência de cruzamento operacional e explicação
+  // de possíveis ausências nos ciclos (ex: ausência explicada por ruptura ativa).
+  // NÃO GENERALIZAR silenciosamente essa mesma lógica para pesquisas obrigatórias de Rupturas ainda.
+  // O comportamento e ciclos específicos das pesquisas obrigatórias de Ruptura serão desenvolvidos
+  // e validados posteriormente.
+  // =========================================================================================
   const configValidades: Partial<IndustryResearchConfig> = {
     tipo_pesquisa: 'validades',
     frequencia: researchConfig.frequencia || 'semanal',
@@ -225,8 +242,8 @@ export function runOperationalTrackingEngine(input: OperationalTrackingEngineInp
     if (validDates.length > 0) {
       validDates.sort().reverse()
       const maxDate = parseIsoDateOnly(validDates[0])
-      // Se a data de referência padrão (hoje) for muito superior a data do dataset (ex: > 30 dias),
-      // usa o último ciclo próximo aos dados reais
+      // Se a data de referência padrão (hoje) for superior à data do dataset (ex: > 30 dias),
+      // usa a data mais recente dos dados para que o ciclo mais recente alinhe com a base histórica
       if (Math.abs(referenceDate.getTime() - maxDate.getTime()) > 30 * 24 * 60 * 60 * 1000) {
         effectiveRefDate = maxDate
       }
@@ -339,27 +356,75 @@ export function runOperationalTrackingEngine(input: OperationalTrackingEngineInp
   }
 
   // 7. Agrupar volumes por Loja para avaliar a QUALIDADE DO CICLO
-  // Lojas com volume histórico vs volume no ciclo atual
+  // ATENÇÃO / REGRA DO NEGÓCIO (TAREFA 1 & TAREFA 2):
+  // - O acompanhamento automático atual usa a configuração de pesquisa de VALIDADES como fonte principal dos ciclos;
+  //   Rupturas entram apenas como evidência de cruzamento e explicação operacional.
+  //   A lógica NÃO vale ainda para pesquisas obrigatórias de Ruptura (a serem desenvolvidas depois).
+  // - Volume do ciclo = número de PRODUTOS DISTINTOS atualizados naquele ciclo para a combinação:
+  //   Indústria + Loja + Pesquisa de Validades.
+  //   Se o mesmo produto tem múltiplos registros/lotes no mesmo ciclo (ex: 3 lotes com validades distintas), CONTA 1.
+  //   Exemplo do usuário (Fort Aventureiro 165 / Frutap / Pesquisa de Validades):
+  //   ciclos 08/09→36, 15/09→34, 22/09→38, 29/09→1; histórico=[36,34,38], atual=1.
+  // - Comportamento conservador: forte suspeita de pesquisa incompleta/inconsistente -> gerar pendência de
+  //   qualidade da pesquisa/loja e NÃO transformar todas as ausências do ciclo em dezenas de alertas individuais.
+  //
+  // Estrutura:
+  // storeCycleDistinctProducts: Map<storeKey, Map<cycleId, Set<productName>>>
+  const storeCycleDistinctProducts = new Map<string, Map<string, Set<string>>>()
+
+  for (const v of industryValidades) {
+    const storeCode = (v.codigoLoja || '').trim().toUpperCase()
+    const storeName = (v.loja || '').trim().toUpperCase()
+    const prodName = (v.product || '').trim().toUpperCase()
+    if (!prodName) continue
+
+    const storeKey = `${storeCode || 'SEM_COD'}|${storeName}`.toUpperCase()
+    const recDate =
+      v.realizado || v.dataEntrada || v.ultimaAtualizacao || formatIsoDateOnly(new Date())
+
+    const matchedCycle = mapDateToCycle(recDate, cycles)
+    if (!matchedCycle) continue
+
+    let cycleMap = storeCycleDistinctProducts.get(storeKey)
+    if (!cycleMap) {
+      cycleMap = new Map<string, Set<string>>()
+      storeCycleDistinctProducts.set(storeKey, cycleMap)
+    }
+
+    let productSet = cycleMap.get(matchedCycle.cicloId)
+    if (!productSet) {
+      productSet = new Set<string>()
+      cycleMap.set(matchedCycle.cicloId, productSet)
+    }
+
+    // Garante contagem distinta por produto naquele ciclo
+    productSet.add(prodName)
+  }
+
+  // A partir do mapa de ciclos e produtos distintos por loja, extraímos:
+  // - volumeCicloAtual: contagem de PRODUTOS DISTINTOS no ciclo mais recente (cycles[0])
+  // - volumeCiclosAnteriores: array com o número de PRODUTOS DISTINTOS em cada ciclo anterior (cycles[1], cycles[2], ...)
   const storeVolumesCicloAtual = new Map<string, number>()
   const storeVolumesHistoricos = new Map<string, number[]>()
 
-  for (const [key, hist] of storeProductHistories.entries()) {
-    const storeKey = `${hist.lojaCodigo}|${hist.lojaNome}`.toUpperCase()
+  const currentCycleId = cycles[0]?.cicloId
 
-    // Ordenar registros por data desc
-    hist.registros.sort((a, b) => b.data.localeCompare(a.data))
-    const newest = hist.registros[0]
+  for (const [storeKey, cycleMap] of storeCycleDistinctProducts.entries()) {
+    const volAtual = currentCycleId ? cycleMap.get(currentCycleId)?.size || 0 : 0
+    storeVolumesCicloAtual.set(storeKey, volAtual)
 
-    // Verifica se a data mais recente cai no ciclo atual
-    const { ciclosSemAtualizacao } = calculateCyclesMissed(newest?.data, cycles)
-    if (ciclosSemAtualizacao === 0) {
-      storeVolumesCicloAtual.set(storeKey, (storeVolumesCicloAtual.get(storeKey) || 0) + 1)
+    // Ciclos anteriores ordenados do mais recente (ciclo 1) para o mais antigo (ciclo 2, 3...)
+    const histList: number[] = []
+    for (let c = 1; c < cycles.length; c++) {
+      const cId = cycles[c].cicloId
+      const pSet = cycleMap.get(cId)
+      // Se a loja teve registros nesse ciclo anterior, adicionamos o volume de produtos distintos
+      if (pSet && pSet.size > 0) {
+        histList.push(pSet.size)
+      }
     }
 
-    // Histórico de volumes
-    const prevList = storeVolumesHistoricos.get(storeKey) || []
-    prevList.push(hist.registros.length)
-    storeVolumesHistoricos.set(storeKey, prevList)
+    storeVolumesHistoricos.set(storeKey, histList)
   }
 
   // 8. Construir itens de acompanhamento para todas as combinações loja+produto esperadas
@@ -396,9 +461,30 @@ export function runOperationalTrackingEngine(input: OperationalTrackingEngineInp
     const hasDefinedMix = definedMixList.length > 0
 
     // Avaliação da qualidade do ciclo para esta loja
-    const storeKeyMatch = Array.from(storeVolumesHistoricos.keys()).find((k) =>
-      k.includes(storeName),
-    )
+    // Localiza a chave da loja correspondente no storeVolumesCicloAtual / storeVolumesHistoricos
+    const storeKeyMatch =
+      Array.from(storeCycleDistinctProducts.keys()).find((k) => {
+        const parts = k.split('|')
+        const code = parts[0]
+        const name = parts[1] || ''
+        return (
+          k === storeName ||
+          name === storeName ||
+          k.includes(storeName) ||
+          (code && code !== 'SEM_COD' && storeName.includes(code))
+        )
+      }) ||
+      Array.from(storeVolumesHistoricos.keys()).find((k) => {
+        const parts = k.split('|')
+        const code = parts[0]
+        const name = parts[1] || ''
+        return (
+          k === storeName ||
+          name === storeName ||
+          k.includes(storeName) ||
+          (code && code !== 'SEM_COD' && storeName.includes(code))
+        )
+      })
     const volAtual = storeKeyMatch ? storeVolumesCicloAtual.get(storeKeyMatch) || 0 : 0
     const histVolumes = storeKeyMatch ? storeVolumesHistoricos.get(storeKeyMatch) || [] : []
 

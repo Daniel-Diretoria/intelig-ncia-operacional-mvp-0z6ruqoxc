@@ -513,9 +513,15 @@ export const CentralDeTrabalhoPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-1 text-xs">
               <span className="text-indigo-600 font-semibold inline-flex items-center gap-1">
-                <span>Ciclos da pesquisa: {selectedIndustry || 'Geral'}</span>
+                <span>
+                  Ciclos baseados na pesquisa de Validades ({selectedIndustry || 'Geral'})
+                </span>
+              </span>
+              <span className="text-[10px] text-slate-400 leading-tight">
+                Fonte principal: pesquisa de Validades. Rupturas atuam apenas como evidência de
+                cruzamento operacional. Não se aplica a pesquisas de Ruptura obrigatórias.
               </span>
             </div>
           </div>

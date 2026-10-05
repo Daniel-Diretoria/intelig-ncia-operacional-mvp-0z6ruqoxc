@@ -1738,7 +1738,7 @@ export const IndustryDetailTabs: React.FC<IndustryDetailTabsProps> = ({
               <div
                 className={`p-5 rounded-2xl border transition-all ${
                   rupturasConfig?.ativo
-                    ? 'border-indigo-200 bg-indigo-50/20'
+                    ? 'border-amber-200 bg-amber-50/15'
                     : 'border-slate-200 bg-slate-50/50 opacity-75'
                 }`}
               >
@@ -1812,11 +1812,20 @@ export const IndustryDetailTabs: React.FC<IndustryDetailTabsProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-2.5 rounded-lg bg-white/80 border border-slate-200 text-[11px] text-slate-600">
-                    <span className="font-semibold text-slate-800 block">Regra Configurada:</span>
-                    A pesquisa de rupturas deve ser realizada com frequência{' '}
-                    <strong>{rupturasConfig?.frequencia || 'semanal'}</strong> com execução prevista
-                    em <strong>{rupturasConfig?.dia_esperado || 'terca'}-feira</strong>.
+                  <div className="p-2.5 rounded-lg bg-white/80 border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Regra Configurada:</span>
+                      A pesquisa de rupturas deve ser realizada com frequência{' '}
+                      <strong>{rupturasConfig?.frequencia || 'semanal'}</strong> com execução
+                      prevista em <strong>{rupturasConfig?.dia_esperado || 'terca'}-feira</strong>.
+                    </div>
+                    <div className="p-2 rounded bg-amber-50/80 border border-amber-200 text-[10px] text-amber-900 mt-2">
+                      <strong>Nota Operacional:</strong> O acompanhamento automático atual utiliza a
+                      pesquisa de <strong>Validades</strong> como fonte principal dos ciclos. As
+                      rupturas atuam como evidência de cruzamento e explicação operacional. A
+                      pesquisa obrigatória de Rupturas terá comportamento próprio validado em versão
+                      futura.
+                    </div>
                   </div>
                 </div>
               </div>
