@@ -4,6 +4,7 @@ import {
   getIndustryRegistryByIdOrKey,
   getIndustryStoreCoverages,
   getIndustryProductMix,
+  getIndustryStoreProductMixes,
   getIndustryResearchConfigs,
   getIndustryValidityPolicies,
   getIndustryConfigAudits,
@@ -12,6 +13,8 @@ import {
   deleteStoreCoverage,
   saveProductMixItem,
   deleteProductMixItem,
+  saveStoreProductMixItem,
+  deleteStoreProductMixItem,
   saveResearchConfig,
   saveValidityPolicy,
   deleteValidityPolicy,
@@ -19,6 +22,7 @@ import {
   type SaveIndustryInput,
   type SaveStoreCoverageInput,
   type SaveProductMixInput,
+  type SaveStoreProductMixInput,
   type SaveResearchConfigInput,
   type SaveValidityPolicyInput,
 } from '@/services/industryService'
@@ -26,6 +30,7 @@ import type {
   IndustryRegistry,
   IndustryStoreCoverage,
   IndustryProductMix,
+  IndustryStoreProductMix,
   IndustryResearchConfig,
   IndustryValidityPolicy,
   IndustryConfigAudit,
@@ -36,6 +41,7 @@ export interface UseIndustryOperationalResult {
   industry: IndustryRegistry | null
   coverages: IndustryStoreCoverage[]
   mix: IndustryProductMix[]
+  storeMixes: IndustryStoreProductMix[]
   researchConfigs: IndustryResearchConfig[]
   validityPolicies: IndustryValidityPolicy[]
   audits: IndustryConfigAudit[]
@@ -47,6 +53,11 @@ export interface UseIndustryOperationalResult {
   removeCoverage: (id: string) => Promise<boolean>
   saveMixItem: (input: SaveProductMixInput) => Promise<IndustryProductMix>
   removeMixItem: (id: string) => Promise<boolean>
+  saveStoreMixItem: (
+    input: SaveStoreProductMixInput,
+    userName?: string,
+  ) => Promise<IndustryStoreProductMix>
+  removeStoreMixItem: (id: string) => Promise<boolean>
   saveResearch: (input: SaveResearchConfigInput) => Promise<IndustryResearchConfig>
   savePolicy: (input: SaveValidityPolicyInput) => Promise<IndustryValidityPolicy>
   removePolicy: (id: string) => Promise<boolean>
@@ -57,6 +68,7 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
   const [industry, setIndustry] = useState<IndustryRegistry | null>(null)
   const [coverages, setCoverages] = useState<IndustryStoreCoverage[]>([])
   const [mix, setMix] = useState<IndustryProductMix[]>([])
+  const [storeMixes, setStoreMixes] = useState<IndustryStoreProductMix[]>([])
   const [researchConfigs, setResearchConfigs] = useState<IndustryResearchConfig[]>([])
   const [validityPolicies, setValidityPolicies] = useState<IndustryValidityPolicy[]>([])
   const [audits, setAudits] = useState<IndustryConfigAudit[]>([])
@@ -84,10 +96,11 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
 
       setIndustry(reg)
 
-      // Carrega em paralelo todos os contextos operacionais
-      const [covList, mixList, resList, polList, auditList] = await Promise.all([
+      // Carrega em paralelo todos os contextos operacionais incluindo Mix Definido da Loja
+      const [covList, mixList, storeMixList, resList, polList, auditList] = await Promise.all([
         getIndustryStoreCoverages(reg.id),
         getIndustryProductMix(reg.id),
+        getIndustryStoreProductMixes(reg.id),
         getIndustryResearchConfigs(reg.id),
         getIndustryValidityPolicies(reg.id),
         getIndustryConfigAudits(reg.id),
@@ -96,6 +109,7 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
       if (isMounted.current) {
         setCoverages(covList)
         setMix(mixList)
+        setStoreMixes(storeMixList)
         setResearchConfigs(resList)
         setValidityPolicies(polList)
         setAudits(auditList)
@@ -151,6 +165,19 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
     return ok
   }
 
+  const handleSaveStoreMix = async (input: SaveStoreProductMixInput, userName?: string) => {
+    const res = await saveStoreProductMixItem(input, userName)
+    await fetchData()
+    return res
+  }
+
+  const handleRemoveStoreMix = async (id: string) => {
+    if (!industry) return false
+    const ok = await deleteStoreProductMixItem(id, industry.id)
+    if (ok) await fetchData()
+    return ok
+  }
+
   const handleSaveResearch = async (input: SaveResearchConfigInput) => {
     const res = await saveResearchConfig(input)
     await fetchData()
@@ -177,6 +204,7 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
     industry,
     coverages,
     mix,
+    storeMixes,
     researchConfigs,
     validityPolicies,
     audits,
@@ -188,6 +216,8 @@ export function useIndustryOperational(idOrKey?: string): UseIndustryOperational
     removeCoverage: handleRemoveCoverage,
     saveMixItem: handleSaveMix,
     removeMixItem: handleRemoveMix,
+    saveStoreMixItem: handleSaveStoreMix,
+    removeStoreMixItem: handleRemoveStoreMix,
     saveResearch: handleSaveResearch,
     savePolicy: handleSavePolicy,
     removePolicy: handleRemovePolicy,

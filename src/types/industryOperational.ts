@@ -51,6 +51,51 @@ export interface IndustryProductMix {
   updated?: string
 }
 
+export type StoreProductMixStatus = 'ativo' | 'inativo' | 'em_avaliacao'
+
+export interface IndustryStoreProductMix {
+  id: string
+  industry_id: string
+  store_code?: string
+  store_name: string
+  codigo_produto?: string
+  cod_barras?: string
+  nome_produto: string
+  status: StoreProductMixStatus
+  origem_inclusao?: string // ex: "manual", "aprovacao_observado", "acordo_comercial"
+  observacao?: string
+  created?: string
+  updated?: string
+}
+
+export interface StoreMixProductComparison {
+  nome_produto: string
+  codigo_produto?: string
+  cod_barras?: string
+  categoria?: string
+  // Os três conceitos:
+  isMixOficial: boolean // Mix Oficial da Indústria
+  isMixDefinidoLoja: boolean // Mix Definido da Loja
+  isObservadoOperacional: boolean // Mix Operacional Observado (histórico recente)
+  storeMixRecordId?: string
+  mixOficialRecordId?: string
+  storeMixStatus?: StoreProductMixStatus
+  // Estados operacionais solicitados:
+  // 1: pertence ao Mix Definido da loja
+  // 2: não pertence ao Mix Definido da loja
+  // 3: possui presença operacional recente
+  // 4: não possui presença recente
+  // 5: foi observado operacionalmente, mas não está cadastrado no Mix Definido
+  temPresencaRecente: boolean
+  observadoSemDefinido: boolean
+  descricaoEstado: string
+  codigoEstado:
+    | 'definido_com_presenca'
+    | 'definido_sem_presenca'
+    | 'observado_nao_cadastrado'
+    | 'nao_definido'
+}
+
 export type ResearchType = 'validades' | 'rupturas'
 export type ResearchFrequency = 'diaria' | 'semanal' | 'quinzenal' | 'mensal'
 export type ResearchDay =

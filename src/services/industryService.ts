@@ -3,6 +3,7 @@ import type {
   IndustryRegistry,
   IndustryStoreCoverage,
   IndustryProductMix,
+  IndustryStoreProductMix,
   IndustryResearchConfig,
   IndustryValidityPolicy,
   IndustryConfigAudit,
@@ -46,6 +47,19 @@ export interface SaveProductMixInput {
   tipo_mix: 'oficial_industria' | 'observado_operacional'
   status: 'ativo' | 'descontinuado' | 'em_avaliacao'
   shelf_life_dias?: number
+}
+
+export interface SaveStoreProductMixInput {
+  id?: string
+  industry_id: string
+  store_code?: string
+  store_name: string
+  codigo_produto?: string
+  cod_barras?: string
+  nome_produto: string
+  status: 'ativo' | 'inativo' | 'em_avaliacao'
+  origem_inclusao?: string
+  observacao?: string
 }
 
 export interface SaveResearchConfigInput {
@@ -356,6 +370,90 @@ export async function deleteProductMixItem(
     return true
   } catch (err) {
     console.warn('[industryService] Erro ao deletar produto do mix:', err)
+    return false
+  }
+}
+
+/** 3.1 MIX DEFINIDO DA LOJA (industry_store_product_mix) */
+export async function getIndustryStoreProductMixes(
+  industryId: string,
+  storeName?: string,
+): Promise<IndustryStoreProductMix[]> {
+  try {
+    let filter = `industry_id = '${industryId}'`
+    if (storeName) {
+      filter += ` && store_name = '${storeName.replace(/'/g, "\\'")}'`
+    }
+    return await pb.collection('industry_store_product_mix').getFullList<IndustryStoreProductMix>({
+      filter,
+      sort: 'nome_produto',
+    })
+  } catch (err) {
+    console.warn('[industryService] Erro ao carregar mix definido da loja:', err)
+    return []
+  }
+}
+
+export async function saveStoreProductMixItem(
+  input: SaveStoreProductMixInput,
+  userName = 'Operador',
+): Promise<IndustryStoreProductMix> {
+  const payload: Record<string, unknown> = {
+    industry_id: input.industry_id,
+    store_code: input.store_code?.trim() || '',
+    store_name: input.store_name.trim(),
+    codigo_produto: input.codigo_produto?.trim() || '',
+    cod_barras: input.cod_barras?.trim() || '',
+    nome_produto: input.nome_produto.trim(),
+    status: input.status,
+    origem_inclusao: input.origem_inclusao || 'manual',
+    observacao: input.observacao?.trim() || '',
+  }
+
+  let result: IndustryStoreProductMix
+  if (input.id) {
+    result = await pb
+      .collection('industry_store_product_mix')
+      .update<IndustryStoreProductMix>(input.id, payload)
+    await recordConfigAudit({
+      industry_id: input.industry_id,
+      modulo: 'mix',
+      acao: 'atualizacao_mix_definido_loja',
+      usuario_nome: userName,
+      detalhes_json: { ...payload, store_mix_id: input.id },
+    })
+  } else {
+    result = await pb
+      .collection('industry_store_product_mix')
+      .create<IndustryStoreProductMix>(payload)
+    await recordConfigAudit({
+      industry_id: input.industry_id,
+      modulo: 'mix',
+      acao: 'inclusao_mix_definido_loja',
+      usuario_nome: userName,
+      detalhes_json: payload,
+    })
+  }
+  return result
+}
+
+export async function deleteStoreProductMixItem(
+  id: string,
+  industryId: string,
+  userName = 'Operador',
+): Promise<boolean> {
+  try {
+    await pb.collection('industry_store_product_mix').delete(id)
+    await recordConfigAudit({
+      industry_id: industryId,
+      modulo: 'mix',
+      acao: 'remocao_mix_definido_loja',
+      usuario_nome: userName,
+      detalhes_json: { store_mix_id: id },
+    })
+    return true
+  } catch (err) {
+    console.warn('[industryService] Erro ao deletar produto do mix da loja:', err)
     return false
   }
 }
