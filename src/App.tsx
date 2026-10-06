@@ -44,20 +44,111 @@ const App = () => (
             }
           >
             <Route path="/" element={<CentralDeTrabalhoPage />} />
-            <Route path="/visao-geral" element={<DashboardPage />} />
-            <Route path="/industrias" element={<IndustriasPage />} />
-            <Route path="/industrias/:id" element={<IndustryDetailPage />} />
-            <Route path="/validades" element={<ValidadesPage />} />
-            <Route path="/devolucoes" element={<DevolucoesPage />} />
-            <Route path="/lojas" element={<LojasPage />} />
-            <Route path="/lojas/:storeId" element={<StoreDetailPage />} />
-            <Route path="/rupturas" element={<RupturasPage />} />
-            <Route path="/alertas" element={<AlertasPage />} />
-            <Route path="/auditoria" element={<AuditoriaPage />} />
-            <Route path="/relatorios" element={<RelatoriosPage />} />
+            <Route
+              path="/visao-geral"
+              element={
+                <ProtectedRoute requiredPermission="inteligencia:visualizar">
+                  <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/industrias"
+              element={
+                <ProtectedRoute requiredPermission="industrias:visualizar">
+                  <IndustriasPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/industrias/:id"
+              element={
+                <ProtectedRoute requiredPermission="industrias:visualizar">
+                  <IndustryDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/validades"
+              element={
+                <ProtectedRoute requiredPermission="validades:visualizar">
+                  <ValidadesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/devolucoes"
+              element={
+                <ProtectedRoute requiredPermission="devolucoes:visualizar">
+                  <DevolucoesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/lojas"
+              element={
+                <ProtectedRoute requiredPermission="rede:visualizar">
+                  <LojasPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/lojas/:storeId"
+              element={
+                <ProtectedRoute requiredPermission="rede:visualizar">
+                  <StoreDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/rupturas"
+              element={
+                <ProtectedRoute requiredPermission="rupturas:visualizar">
+                  <RupturasPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/alertas"
+              element={
+                <ProtectedRoute requiredPermission="inteligencia:visualizar">
+                  <AlertasPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/auditoria"
+              element={
+                <ProtectedRoute requiredPermission="inteligencia:visualizar">
+                  <AuditoriaPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/relatorios"
+              element={
+                <ProtectedRoute requiredPermission="inteligencia:visualizar">
+                  <RelatoriosPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/configuracoes" element={<ConfiguracoesPage />} />
-            <Route path="/assistente" element={<AssistantPage />} />
-            <Route path="/importacao" element={<ImportacaoPage />} />
+            <Route
+              path="/assistente"
+              element={
+                <ProtectedRoute requiredPermission="inteligencia:visualizar">
+                  <AssistantPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/importacao"
+              element={
+                <ProtectedRoute requiredPermission="integracoes:visualizar">
+                  <ImportacaoPage />
+                </ProtectedRoute>
+              }
+            />
           </Route>
 
           {/* Fallback */}

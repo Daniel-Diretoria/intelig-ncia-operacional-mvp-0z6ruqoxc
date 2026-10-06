@@ -24,6 +24,7 @@ import {
 } from '@/services/industryService'
 import type { UnlinkedTradeProClient } from '@/types/industryOperational'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/services/authContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,6 +58,9 @@ export const IndustriasPage: React.FC = () => {
 
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { can, allowedIndustries } = useAuth()
+
+  const canEditIndustry = can('industrias:editar_cadastro')
 
   const [search, setSearch] = useState(initialMarcaQuery)
   const [situacaoFilter, setSituacaoFilter] = useState<'Todas' | 'Crítica' | 'Atenção' | 'Normal'>(
@@ -172,6 +176,13 @@ export const IndustriasPage: React.FC = () => {
     // Processa Validades
     for (const v of validades) {
       const brand = v.cliente || v.industria || 'Não informada'
+      // Escopo de indústria
+      if (allowedIndustries && allowedIndustries.length > 0) {
+        const allowed = allowedIndustries.map((i) => i.trim().toUpperCase())
+        if (!allowed.includes(brand.trim().toUpperCase())) {
+          continue
+        }
+      }
       const entry = getOrCreate(brand)
       entry.totalValidades++
       if (v.diasRestantes <= 15) {
@@ -192,6 +203,13 @@ export const IndustriasPage: React.FC = () => {
     // Processa Rupturas
     for (const r of rupturas) {
       const brand = r.cliente || 'Não informada'
+      // Escopo de indústria
+      if (allowedIndustries && allowedIndustries.length > 0) {
+        const allowed = allowedIndustries.map((i) => i.trim().toUpperCase())
+        if (!allowed.includes(brand.trim().toUpperCase())) {
+          continue
+        }
+      }
       const entry = getOrCreate(brand)
       entry.rupturasAtivas++
       if (r.produto && r.produto.trim()) {
@@ -243,7 +261,7 @@ export const IndustriasPage: React.FC = () => {
     })
 
     return list
-  }, [validades, rupturas])
+  }, [validades, rupturas, allowedIndustries])
 
   // Filtragem
   const filteredIndustrias = useMemo(() => {
@@ -348,14 +366,16 @@ export const IndustriasPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-          <Button
-            size="sm"
-            onClick={handleOpenCreateModal}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nova Indústria</span>
-          </Button>
+          {canEditIndustry && (
+            <Button
+              size="sm"
+              onClick={handleOpenCreateModal}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nova Indústria</span>
+            </Button>
+          )}
         </div>
       </div>
 

@@ -887,12 +887,24 @@ export async function carregarCasoDetalhes(casoId: string): Promise<DevolucaoCas
 /**
  * Lista todos os casos com suporte a filtros e agrupamento na fila operacional (Regra 16 e 17)
  */
-export async function listarCasosOperacionais(filtros?: DevolucoesFiltros): Promise<{
+export async function listarCasosOperacionais(
+  filtros?: DevolucoesFiltros,
+  allowedIndustries?: string[],
+): Promise<{
   todos: DevolucaoCaso[]
   fila: FilaOperacionalAgrupada
 }> {
   try {
     const filterClauses: string[] = []
+
+    // Escopo restrito de indústrias no backend / query
+    if (allowedIndustries && allowedIndustries.length > 0) {
+      const allowedConditions = allowedIndustries.map(
+        (ind) =>
+          `industry_name = '${ind.replace(/'/g, "\\'")}' || industry_id = '${ind.replace(/'/g, "\\'")}'`,
+      )
+      filterClauses.push(`(${allowedConditions.join(' || ')})`)
+    }
 
     if (filtros?.industria && filtros.industria !== 'todas') {
       filterClauses.push(`industry_name = '${filtros.industria.replace(/'/g, "\\'")}'`)

@@ -143,7 +143,7 @@ const SECONDARY_AREAS: NavChildItem[] = [
 ]
 
 export const AppLayout: React.FC = () => {
-  const { user, signOut } = useAuth()
+  const { user, signOut, role, can, allowedIndustries } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -230,6 +230,7 @@ export const AppLayout: React.FC = () => {
 
   const pageTitle = getPageTitle()
   const userName = user?.name || user?.email?.split('@')[0] || 'Usuário'
+  const isScopeRestricted = allowedIndustries && allowedIndustries.length > 0
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col antialiased text-slate-900 font-sans selection:bg-indigo-500 selection:text-white">
@@ -287,6 +288,12 @@ export const AppLayout: React.FC = () => {
             {PRIMARY_AREAS.map((section) => {
               const Icon = section.icon
               const hasChildren = section.children && section.children.length > 0
+
+              // Filtrar itens por permissão
+              if (section.id === 'industrias' && !can('industrias:visualizar')) return null
+              if (section.id === 'operacao' && !can('operacao:visualizar')) return null
+              if (section.id === 'rede' && !can('rede:visualizar')) return null
+              if (section.id === 'inteligencia' && !can('inteligencia:visualizar')) return null
 
               if (!hasChildren && section.to) {
                 const isActive =
@@ -352,6 +359,10 @@ export const AppLayout: React.FC = () => {
                         const ChildIcon = child.icon
                         const isActive = location.pathname.startsWith(child.to)
 
+                        if (child.to === '/validades' && !can('validades:visualizar')) return null
+                        if (child.to === '/rupturas' && !can('rupturas:visualizar')) return null
+                        if (child.to === '/devolucoes' && !can('devolucoes:visualizar')) return null
+
                         return (
                           <NavLink
                             key={child.to}
@@ -383,6 +394,9 @@ export const AppLayout: React.FC = () => {
             {SECONDARY_AREAS.map((item) => {
               const Icon = item.icon
               const isActive = location.pathname.startsWith(item.to)
+
+              if (item.to === '/importacao' && !can('integracoes:visualizar')) return null
+              if (item.to === '/assistente' && !can('inteligencia:visualizar')) return null
 
               return (
                 <NavLink
@@ -500,6 +514,12 @@ export const AppLayout: React.FC = () => {
               const Icon = section.icon
               const hasChildren = section.children && section.children.length > 0
 
+              // Filtrar por permissão
+              if (section.id === 'industrias' && !can('industrias:visualizar')) return null
+              if (section.id === 'operacao' && !can('operacao:visualizar')) return null
+              if (section.id === 'rede' && !can('rede:visualizar')) return null
+              if (section.id === 'inteligencia' && !can('inteligencia:visualizar')) return null
+
               if (!hasChildren && section.to) {
                 const isActive =
                   section.to === '/'
@@ -594,6 +614,10 @@ export const AppLayout: React.FC = () => {
                         const ChildIcon = child.icon
                         const isActive = location.pathname.startsWith(child.to)
 
+                        if (child.to === '/validades' && !can('validades:visualizar')) return null
+                        if (child.to === '/rupturas' && !can('rupturas:visualizar')) return null
+                        if (child.to === '/devolucoes' && !can('devolucoes:visualizar')) return null
+
                         return (
                           <NavLink
                             key={child.to}
@@ -628,6 +652,9 @@ export const AppLayout: React.FC = () => {
             {SECONDARY_AREAS.map((item) => {
               const Icon = item.icon
               const isActive = location.pathname.startsWith(item.to)
+
+              if (item.to === '/importacao' && !can('integracoes:visualizar')) return null
+              if (item.to === '/assistente' && !can('inteligencia:visualizar')) return null
 
               return (
                 <NavLink
@@ -739,6 +766,17 @@ export const AppLayout: React.FC = () => {
 
           {/* Contextual Action Area */}
           <div className="flex items-center gap-2">
+            {isScopeRestricted && (
+              <Badge
+                variant="outline"
+                className="hidden sm:flex text-[10px] bg-amber-50 text-amber-700 border-amber-200"
+              >
+                Escopo: {allowedIndustries.join(', ')}
+              </Badge>
+            )}
+            <Badge variant="secondary" className="text-[10px] uppercase font-bold text-slate-600">
+              {role}
+            </Badge>
             <Button
               variant="outline"
               size="sm"

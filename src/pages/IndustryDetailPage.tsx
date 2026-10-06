@@ -1,8 +1,17 @@
 import React, { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Factory, RefreshCw, ExternalLink, ShieldCheck, AlertCircle } from 'lucide-react'
+import {
+  ArrowLeft,
+  Factory,
+  RefreshCw,
+  ExternalLink,
+  ShieldCheck,
+  AlertCircle,
+  ShieldAlert,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useAuth } from '@/services/authContext'
 import { useIndustryOperational } from '@/services/useIndustryOperational'
 import { useValidades } from '@/services/useValidades'
 import { useRupturas } from '@/services/useRupturas'
@@ -11,6 +20,7 @@ import { IndustryDetailTabs } from '@/components/industrias/IndustryDetailTabs'
 export const IndustryDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { canAccessIndustry } = useAuth()
 
   const operational = useIndustryOperational(id)
   const { data: validades } = useValidades()
@@ -50,6 +60,30 @@ export const IndustryDetailPage: React.FC = () => {
             Voltar para Indústrias
           </Button>
         </div>
+      </div>
+    )
+  }
+
+  // Escopo de indústrias
+  if (!canAccessIndustry({ id: industry.id, name: industry.nome })) {
+    return (
+      <div className="min-h-[50vh] flex flex-col items-center justify-center text-center p-6 max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mb-4">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900">Acesso Restrito à Indústria</h2>
+        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+          Seu perfil possui escopo restrito de indústrias e não tem autorização para visualizar
+          dados de {industry.nome}.
+        </p>
+        <Button
+          onClick={() => navigate('/industrias')}
+          variant="outline"
+          size="sm"
+          className="mt-6 text-xs"
+        >
+          Voltar para Indústrias Autorizadas
+        </Button>
       </div>
     )
   }

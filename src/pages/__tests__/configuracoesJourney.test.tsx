@@ -22,8 +22,16 @@ describe('ConfiguracoesPage Journey', () => {
       token: 'fake-jwt-token',
       isLoading: false,
       isAuthenticated: true,
+      role: 'admin',
+      status: 'ativo',
+      userType: 'humano',
+      allowedIndustries: [],
+      effectivePermissions: new Set(['admin:gerenciar_usuarios']),
+      can: vi.fn().mockReturnValue(true),
+      canAccessIndustry: vi.fn().mockReturnValue(true),
       signIn: vi.fn(),
       signOut: vi.fn(),
+      refreshUser: vi.fn(),
     })
   })
 

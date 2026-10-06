@@ -16,8 +16,16 @@ describe('LoginPage Journey', () => {
       token: null,
       isLoading: false,
       isAuthenticated: false,
+      role: 'admin',
+      status: 'ativo',
+      userType: 'humano',
+      allowedIndustries: [],
+      effectivePermissions: new Set(),
+      can: vi.fn().mockReturnValue(false),
+      canAccessIndustry: vi.fn().mockReturnValue(true),
       signIn: mockSignIn,
       signOut: mockSignOut,
+      refreshUser: vi.fn(),
     })
   })
 

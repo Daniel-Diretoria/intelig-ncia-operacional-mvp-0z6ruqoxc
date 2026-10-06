@@ -24,6 +24,7 @@ import {
 import { formatarDataBr, extrairDataIso } from '@/lib/engine/devolucoesAuditEngine'
 import { gerarMensagemSolicitacaoIndustria } from '@/services/devolucoesService'
 import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/services/authContext'
 import {
   ShieldAlert,
   Clock,
@@ -43,6 +44,7 @@ import {
   Factory,
   User,
   HelpCircle,
+  Lock,
 } from 'lucide-react'
 
 interface CasoDetalheModalProps {
@@ -104,8 +106,15 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
   onSalvarNFDescarte,
   onAnexarEvidencia,
 }) => {
+  const { can } = useAuth()
   const [activeTab, setActiveTab] = useState('auditoria')
   const [isProcessing, setIsProcessing] = useState(false)
+
+  const canViewDocuments = can('devolucoes:visualizar_documentos')
+  const canViewFinancial = can('devolucoes:visualizar_financeiro')
+  const canExecuteDecision = can('devolucoes:executar_decisao')
+  const canRegisterAuth = can('devolucoes:registrar_autorizacao')
+  const canAttachDocs = can('devolucoes:anexar_documentos')
 
   // Estado para decisão por item
   const [decisaoItemModalOpen, setDecisaoItemModalOpen] = useState(false)
@@ -460,14 +469,16 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
                               {decConf.label}
                             </Badge>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleOpenDecisaoItem(item)}
-                            className="h-7 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 border-indigo-200"
-                          >
-                            Decidir este Item
-                          </Button>
+                          {canExecuteDecision && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenDecisaoItem(item)}
+                              className="h-7 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 border-indigo-200"
+                            >
+                              Decidir este Item
+                            </Button>
+                          )}
                         </div>
                       </div>
 
@@ -599,257 +610,302 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
 
           {/* 3. ABA EVIDÊNCIAS (Regra 15) */}
           <TabsContent value="evidencias" className="space-y-4 pt-3">
-            {/* Formulário para Anexar Nova Evidência */}
-            <form
-              onSubmit={handleAnexarNovaEvidencia}
-              className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3"
-            >
-              <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                <Camera className="w-3.5 h-3.5 text-indigo-600" />
-                Anexar Nova Foto ou Documento de Evidência
-              </h5>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <Label className="text-xs">Tipo de Evidência</Label>
-                  <Select
-                    value={novaEvidTipo}
-                    onValueChange={(val) => setNovaEvidTipo(val as EvidenciaTipo)}
+            {!canViewDocuments ? (
+              <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <Lock className="w-8 h-8 text-slate-400 mx-auto" />
+                <h4 className="font-bold text-sm text-slate-800">
+                  Visualização de Evidências Restrita
+                </h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Seu perfil de acesso não possui permissão para visualizar evidências internas ou
+                  fotos de descarte. Solicite autorização caso necessário.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Formulário para Anexar Nova Evidência */}
+                {canAttachDocs && (
+                  <form
+                    onSubmit={handleAnexarNovaEvidencia}
+                    className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3"
                   >
-                    <SelectTrigger className="h-8 text-xs mt-1 bg-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="foto_produto">Foto do Produto</SelectItem>
-                      <SelectItem value="foto_validade">Foto da Validade</SelectItem>
-                      <SelectItem value="foto_lote">Foto do Lote</SelectItem>
-                      <SelectItem value="nf_documento">Documento NF</SelectItem>
-                      <SelectItem value="nf_assinada">NF Assinada</SelectItem>
-                      <SelectItem value="comprovante_descarte">Comprovante de Descarte</SelectItem>
-                      <SelectItem value="outro">Outro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                    <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                      <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                      Anexar Nova Foto ou Documento de Evidência
+                    </h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <Label className="text-xs">Tipo de Evidência</Label>
+                        <Select
+                          value={novaEvidTipo}
+                          onValueChange={(val) => setNovaEvidTipo(val as EvidenciaTipo)}
+                        >
+                          <SelectTrigger className="h-8 text-xs mt-1 bg-white">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="foto_produto">Foto do Produto</SelectItem>
+                            <SelectItem value="foto_validade">Foto da Validade</SelectItem>
+                            <SelectItem value="foto_lote">Foto do Lote</SelectItem>
+                            <SelectItem value="nf_documento">Documento NF</SelectItem>
+                            <SelectItem value="nf_assinada">NF Assinada</SelectItem>
+                            <SelectItem value="comprovante_descarte">
+                              Comprovante de Descarte
+                            </SelectItem>
+                            <SelectItem value="outro">Outro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                <div>
-                  <Label className="text-xs">Título / Identificador *</Label>
-                  <Input
-                    type="text"
-                    placeholder="Ex: Foto do lote e vencimento"
-                    value={novaEvidTitulo}
-                    onChange={(e) => setNovaEvidTitulo(e.target.value)}
-                    required
-                    className="h-8 text-xs mt-1 bg-white"
-                  />
-                </div>
+                      <div>
+                        <Label className="text-xs">Título / Identificador *</Label>
+                        <Input
+                          type="text"
+                          placeholder="Ex: Foto do lote e vencimento"
+                          value={novaEvidTitulo}
+                          onChange={(e) => setNovaEvidTitulo(e.target.value)}
+                          required
+                          className="h-8 text-xs mt-1 bg-white"
+                        />
+                      </div>
 
-                <div>
-                  <Label className="text-xs">Associar a Produto (opcional)</Label>
-                  <Select value={novaEvidItem} onValueChange={setNovaEvidItem}>
-                    <SelectTrigger className="h-8 text-xs mt-1 bg-white">
-                      <SelectValue placeholder="Geral do caso" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="geral">Geral do Caso</SelectItem>
-                      {caso.itens?.map((it) => (
-                        <SelectItem key={it.id} value={it.id}>
-                          {it.produto_nome_oficial || it.produto_nome_informado}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">URL da Foto / Arquivo</Label>
-                  <Input
-                    type="text"
-                    placeholder="https://... ou caminho da foto"
-                    value={novaEvidUrl}
-                    onChange={(e) => setNovaEvidUrl(e.target.value)}
-                    className="h-8 text-xs mt-1 bg-white"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Descrição Operacional</Label>
-                  <Input
-                    type="text"
-                    placeholder="Detalhes visíveis na foto..."
-                    value={novaEvidDesc}
-                    onChange={(e) => setNovaEvidDesc(e.target.value)}
-                    className="h-8 text-xs mt-1 bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={isProcessing}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
-                >
-                  Salvar Evidência
-                </Button>
-              </div>
-            </form>
-
-            {/* Lista de Evidências */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {caso.evidencias && caso.evidencias.length > 0 ? (
-                caso.evidencias.map((ev) => (
-                  <div
-                    key={ev.id}
-                    className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 text-xs shadow-2xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-700">
-                        {ev.tipo.replace('_', ' ')}
-                      </Badge>
-                      <span className="text-[10px] text-slate-400">
-                        {formatarDataBr(ev.created)}
-                      </span>
+                      <div>
+                        <Label className="text-xs">Associar a Produto (opcional)</Label>
+                        <Select value={novaEvidItem} onValueChange={setNovaEvidItem}>
+                          <SelectTrigger className="h-8 text-xs mt-1 bg-white">
+                            <SelectValue placeholder="Geral do caso" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="geral">Geral do Caso</SelectItem>
+                            {caso.itens?.map((it) => (
+                              <SelectItem key={it.id} value={it.id}>
+                                {it.produto_nome_oficial || it.produto_nome_informado}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <h5 className="font-bold text-slate-900">{ev.titulo}</h5>
-                    {ev.descricao && <p className="text-slate-600 text-[11px]">{ev.descricao}</p>}
-                    {ev.url_arquivo && (
-                      <a
-                        href={ev.url_arquivo}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center text-indigo-600 hover:underline text-[11px] pt-1"
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">URL da Foto / Arquivo</Label>
+                        <Input
+                          type="text"
+                          placeholder="https://... ou caminho da foto"
+                          value={novaEvidUrl}
+                          onChange={(e) => setNovaEvidUrl(e.target.value)}
+                          className="h-8 text-xs mt-1 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Descrição Operacional</Label>
+                        <Input
+                          type="text"
+                          placeholder="Detalhes visíveis na foto..."
+                          value={novaEvidDesc}
+                          onChange={(e) => setNovaEvidDesc(e.target.value)}
+                          className="h-8 text-xs mt-1 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={isProcessing}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
                       >
-                        <ExternalLink className="w-3 h-3 mr-1" />
-                        Ver Evidência
-                      </a>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="col-span-full text-center py-8 text-xs text-slate-500">
-                  Nenhuma foto ou evidência anexada a este caso ainda.
+                        Salvar Evidência
+                      </Button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Lista de Evidências */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {caso.evidencias && caso.evidencias.length > 0 ? (
+                    caso.evidencias.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 text-xs shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-slate-50 text-slate-700"
+                          >
+                            {ev.tipo.replace('_', ' ')}
+                          </Badge>
+                          <span className="text-[10px] text-slate-400">
+                            {formatarDataBr(ev.created)}
+                          </span>
+                        </div>
+                        <h5 className="font-bold text-slate-900">{ev.titulo}</h5>
+                        {ev.descricao && (
+                          <p className="text-slate-600 text-[11px]">{ev.descricao}</p>
+                        )}
+                        {ev.url_arquivo && (
+                          <a
+                            href={ev.url_arquivo}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center text-indigo-600 hover:underline text-[11px] pt-1"
+                          >
+                            <ExternalLink className="w-3 h-3 mr-1" />
+                            Ver Evidência
+                          </a>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full text-center py-8 text-xs text-slate-500">
+                      Nenhuma foto ou evidência anexada a este caso ainda.
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </TabsContent>
 
           {/* 4. ABA AUTORIZAÇÃO, NF E DESCARTE (Regra 20) */}
           <TabsContent value="nf_descarte" className="space-y-4 pt-3">
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 text-xs">
-              <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs">
-                Controle de Autorização da Indústria, Emissão de NF e Descarte
-              </h4>
+            {!canViewDocuments ? (
+              <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <Lock className="w-8 h-8 text-slate-400 mx-auto" />
+                <h4 className="font-bold text-sm text-slate-800">
+                  Visualização de Documentos e NFs Restrita
+                </h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Seu perfil não possui permissão para visualizar dados de notas fiscais, evidências
+                  de descarte ou documentos internos. Solicite autorização caso necessário.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 text-xs">
+                <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs">
+                  Controle de Autorização da Indústria, Emissão de NF e Descarte
+                </h4>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Bloco Autorização */}
-                <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
-                  <h5 className="font-bold text-indigo-700 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                    1. Autorização da Indústria
-                  </h5>
-                  <div>
-                    <Label className="text-xs">Número de Protocolo / Autorização</Label>
-                    <Input
-                      type="text"
-                      placeholder="Ex: AUT-FRUTAP-8841"
-                      value={autorizacaoProtocolo}
-                      onChange={(e) => setAutorizacaoProtocolo(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Data da Autorização</Label>
-                    <Input
-                      type="date"
-                      value={autorizacaoData}
-                      onChange={(e) => setAutorizacaoData(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Bloco Nota Fiscal */}
-                <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
-                  <h5 className="font-bold text-purple-700 flex items-center gap-1.5">
-                    <FileText className="w-4 h-4" />
-                    2. Dados da Nota Fiscal
-                  </h5>
-                  <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Bloco Autorização */}
+                  <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
+                    <h5 className="font-bold text-indigo-700 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" />
+                      1. Autorização da Indústria
+                    </h5>
                     <div>
-                      <Label className="text-xs">Número da NF</Label>
+                      <Label className="text-xs">Número de Protocolo / Autorização</Label>
                       <Input
                         type="text"
-                        placeholder="Ex: 014529"
-                        value={nfNumero}
-                        onChange={(e) => setNfNumero(e.target.value)}
+                        placeholder="Ex: AUT-FRUTAP-8841"
+                        value={autorizacaoProtocolo}
+                        onChange={(e) => setAutorizacaoProtocolo(e.target.value)}
                         className="mt-1 h-8 text-xs"
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">Data da NF</Label>
+                      <Label className="text-xs">Data da Autorização</Label>
                       <Input
                         type="date"
-                        value={nfData}
-                        onChange={(e) => setNfData(e.target.value)}
+                        value={autorizacaoData}
+                        onChange={(e) => setAutorizacaoData(e.target.value)}
                         className="mt-1 h-8 text-xs"
                       />
                     </div>
                   </div>
-                  <div>
-                    <Label className="text-xs">Valor da NF (R$)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="R$ 0,00"
-                      value={nfValor}
-                      onChange={(e) => setNfValor(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                    />
+
+                  {/* Bloco Nota Fiscal */}
+                  <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
+                    <h5 className="font-bold text-purple-700 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4" />
+                      2. Dados da Nota Fiscal
+                    </h5>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Número da NF</Label>
+                        <Input
+                          type="text"
+                          placeholder="Ex: 014529"
+                          value={nfNumero}
+                          onChange={(e) => setNfNumero(e.target.value)}
+                          className="mt-1 h-8 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Data da NF</Label>
+                        <Input
+                          type="date"
+                          value={nfData}
+                          onChange={(e) => setNfData(e.target.value)}
+                          className="mt-1 h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Valor da NF (R$)</Label>
+                      {canViewFinancial ? (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="R$ 0,00"
+                          value={nfValor}
+                          onChange={(e) => setNfValor(e.target.value)}
+                          className="mt-1 h-8 text-xs"
+                        />
+                      ) : (
+                        <div className="mt-1 h-8 px-2.5 rounded border border-slate-200 bg-slate-50 flex items-center text-xs text-slate-400 italic">
+                          Oculto (permissão restrita)
+                        </div>
+                      )}{' '}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Bloco Comprovantes e Descarte */}
-              <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
-                <h5 className="font-bold text-teal-700 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
-                  3. NF Assinada e Evidência de Descarte
-                </h5>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Referência / Arquivo NF Assinada</Label>
-                    <Input
-                      type="text"
-                      placeholder="Ex: nf_assinada_014529.pdf"
-                      value={nfAssinadaNome}
-                      onChange={(e) => setNfAssinadaNome(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Referência / Foto do Descarte Realizado</Label>
-                    <Input
-                      type="text"
-                      placeholder="Ex: foto_descarte_loja405.jpg"
-                      value={descarteAnexoNome}
-                      onChange={(e) => setDescarteAnexoNome(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                    />
+                {/* Bloco Comprovantes e Descarte */}
+                <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-3">
+                  <h5 className="font-bold text-teal-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    3. NF Assinada e Evidência de Descarte
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Referência / Arquivo NF Assinada</Label>
+                      <Input
+                        type="text"
+                        placeholder="Ex: nf_assinada_014529.pdf"
+                        value={nfAssinadaNome}
+                        onChange={(e) => setNfAssinadaNome(e.target.value)}
+                        className="mt-1 h-8 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Referência / Foto do Descarte Realizado</Label>
+                      <Input
+                        type="text"
+                        placeholder="Ex: foto_descarte_loja405.jpg"
+                        value={descarteAnexoNome}
+                        onChange={(e) => setDescarteAnexoNome(e.target.value)}
+                        className="mt-1 h-8 text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex justify-end pt-2">
-                <Button
-                  onClick={handleSalvarNF}
-                  disabled={isProcessing}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs"
-                >
-                  Salvar Dados de NF &amp; Descarte
-                </Button>
+                {canRegisterAuth && (
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      onClick={handleSalvarNF}
+                      disabled={isProcessing}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs"
+                    >
+                      Salvar Dados de NF &amp; Descarte
+                    </Button>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </TabsContent>
 
           {/* 5. ABA MENSAGEM WHATSAPP (Regra 18) */}

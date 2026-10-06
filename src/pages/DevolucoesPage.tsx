@@ -44,8 +44,10 @@ import {
   ListFilter,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/services/authContext'
 
 export const DevolucoesPage: React.FC = () => {
+  const { can, allowedIndustries } = useAuth()
   const [abaAtiva, setAbaAtiva] = useState<'fila' | 'arquivo'>('fila')
   const [filtros, setFiltros] = useState<DevolucoesFiltros>({})
   const [fila, setFila] = useState<FilaOperacionalAgrupada>({
@@ -115,7 +117,7 @@ export const DevolucoesPage: React.FC = () => {
       else setIsRefreshing(true)
 
       try {
-        const res = await listarCasosOperacionais(filtros)
+        const res = await listarCasosOperacionais(filtros, allowedIndustries)
         setFila(res.fila)
       } catch (err) {
         console.error('[DevolucoesPage] Erro ao listar casos:', err)
@@ -272,28 +274,32 @@ export const DevolucoesPage: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Dicionário de Produtos */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsDicionarioOpen(true)}
-            className="text-xs h-9 text-slate-700 hover:text-indigo-600 border-slate-200"
-            title="Dicionário de Produtos & Aliases"
-          >
-            <BookOpen className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
-            Dicionário de Produtos
-          </Button>
+          {can('industrias:editar_cadastro') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDicionarioOpen(true)}
+              className="text-xs h-9 text-slate-700 hover:text-indigo-600 border-slate-200"
+              title="Dicionário de Produtos & Aliases"
+            >
+              <BookOpen className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+              Dicionário de Produtos
+            </Button>
+          )}
 
           {/* Importar conversa do WhatsApp */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsWhatsAppOpen(true)}
-            className="text-xs h-9 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
-            title="Importar conversa do WhatsApp"
-          >
-            <Upload className="w-3.5 h-3.5 mr-1.5 text-emerald-700" />
-            Importar WhatsApp
-          </Button>
+          {can('devolucoes:importar_whatsapp') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsWhatsAppOpen(true)}
+              className="text-xs h-9 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+              title="Importar conversa do WhatsApp"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1.5 text-emerald-700" />
+              Importar WhatsApp
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -306,12 +312,14 @@ export const DevolucoesPage: React.FC = () => {
             Atualizar
           </Button>
 
-          <Button
-            onClick={() => setIsNovaSolicitacaoOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs h-9 shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />+ Nova Solicitação
-          </Button>
+          {can('devolucoes:criar') && (
+            <Button
+              onClick={() => setIsNovaSolicitacaoOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs h-9 shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />+ Nova Solicitação
+            </Button>
+          )}
         </div>
       </div>
 

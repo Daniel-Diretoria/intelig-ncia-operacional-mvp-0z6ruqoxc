@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-10-06T14:12:29.960Z",
+  "generatedAt": "2026-10-06T18:32:02.587Z",
   "collections": [
     {
       "name": "users",
       "type": "auth",
       "apiRules": {
-        "list": "id = @request.auth.id",
-        "view": "id = @request.auth.id",
-        "create": "",
-        "update": "id = @request.auth.id",
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
         "delete": "id = @request.auth.id"
       },
       "fields": [
@@ -37,6 +37,52 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "role",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "admin",
+            "gestao",
+            "operacao",
+            "supervisao",
+            "desenvolvedor",
+            "industria"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ativo", "inativo"]
+        },
+        {
+          "name": "user_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["humano", "integracao"]
+        },
+        {
+          "name": "allowed_industries",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "custom_permissions",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_access_at",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -4143,6 +4189,97 @@
         "CREATE UNIQUE INDEX idx_dev_msg_hash ON devolucoes_mensagens_importadas (hash_mensagem)",
         "CREATE INDEX idx_dev_msg_batch ON devolucoes_mensagens_importadas (batch_id)",
         "CREATE INDEX idx_dev_msg_file_hash ON devolucoes_mensagens_importadas (file_hash)"
+      ]
+    },
+    {
+      "name": "user_audit_log",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "target_user_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "target_user_email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "acao",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "usuario_criado",
+            "usuario_ativado",
+            "usuario_desativado",
+            "perfil_alterado",
+            "permissao_concedida",
+            "permissao_removida",
+            "escopo_industria_alterado",
+            "login_efetuado",
+            "outro"
+          ]
+        },
+        {
+          "name": "detalhes_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "executor_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "executor_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_acao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_user_audit_target ON user_audit_log (target_user_id)",
+        "CREATE INDEX idx_user_audit_acao ON user_audit_log (acao)",
+        "CREATE INDEX idx_user_audit_created ON user_audit_log (created DESC)"
       ]
     }
   ]
