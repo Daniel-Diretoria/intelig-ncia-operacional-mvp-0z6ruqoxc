@@ -20,9 +20,14 @@ import {
 import {
   SolicitacaoIdentificadaWhatsApp,
   CriarDevolucaoCasoInput,
-  CandidatoProdutoSugerido,
+  CriarDevolucaoItemInput,
 } from '@/types/devolucoes'
-import { extrairMensagensArquivoWhatsApp, parseConversaWhatsApp } from '@/lib/import/whatsappParser'
+import {
+  extrairMensagensArquivoWhatsApp,
+  parseConversaWhatsApp,
+  InformacoesReconciliacaoCabecalho,
+} from '@/lib/import/whatsappParser'
+import { processarZipWhatsApp } from '@/lib/import/zipReader'
 import { calcularHashArquivo } from '@/lib/data/tradeProPipeline'
 import { verificarHashesConhecidos, persistirLoteWhatsApp } from '@/services/devolucoesDedupService'
 import {
@@ -46,6 +51,11 @@ import {
   Sparkles,
   RefreshCw,
   FolderOpen,
+  FileArchive,
+  Image as ImageIcon,
+  Plus,
+  Trash2,
+  Info,
 } from 'lucide-react'
 
 interface ImportarWhatsAppModalProps {
@@ -56,6 +66,14 @@ interface ImportarWhatsAppModalProps {
   lojasDisponiveis: Array<{ codigo: string; nome: string }>
 }
 
+interface SolicitacaoEnriquecidaUI extends SolicitacaoIdentificadaWhatsApp {
+  reconciliacaoCabecalho?: InformacoesReconciliacaoCabecalho
+  temMidiaOcultada?: boolean
+  midiaOcultadaDescricao?: string
+  ambiguidadePosicional?: boolean
+  trechoOriginalWhatsapp?: string
+}
+
 export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   isOpen,
   onClose,
@@ -64,12 +82,17 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   lojasDisponiveis,
 }) => {
   const [etapa, setEtapa] = useState<'upload' | 'revisao' | 'concluido'>('upload')
-  const [arquivoTxt, setArquivoTxt] = useState<File | null>(null)
-  const [arquivosMidia, setArquivosMidia] = useState<File[]>([])
+  const [arquivoSelecionado, setArquivoSelecionado] = useState<File | null>(null)
+  const [arquivosMidiaManuais, setArquivosMidiaManuais] = useState<File[]>([])
   const [isProcessando, setIsProcessando] = useState(false)
 
+  // Metadados do arquivo processado
+  const [arquivoConversaOrigem, setArquivoConversaOrigem] = useState<string>('')
+  const [formatoFonte, setFormatoFonte] = useState<string>('txt')
+  const [totalMidiasExtraidas, setTotalMidiasExtraidas] = useState<number>(0)
+
   // Resultados da importação
-  const [solicitacoes, setSolicitacoes] = useState<SolicitacaoIdentificadaWhatsApp[]>([])
+  const [solicitacoes, setSolicitacoes] = useState<SolicitacaoEnriquecidaUI[]>([])
   const [resumoImportacao, setResumoImportacao] = useState<{
     totalEncontradas: number
     jaConhecidas: number
@@ -77,12 +100,18 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     possiveisSolicitacoes: number
     precisamRevisao: number
     incompletas: number
+    comMidiaOcultada: number
+    comMidiaRealAnexa: number
   } | null>(null)
 
-  // Estado para modal secundário de edição de solicitação incompleta ou escolha de produto
-  const [solicitacaoEmEdicao, setSolicitacaoEmEdicao] =
-    useState<SolicitacaoIdentificadaWhatsApp | null>(null)
+  // Estado para modal secundário de revisão humana
+  const [solicitacaoEmEdicao, setSolicitacaoEmEdicao] = useState<SolicitacaoEnriquecidaUI | null>(
+    null,
+  )
   const [modalEdicaoOpen, setModalEdicaoOpen] = useState(false)
+
+  // Item ativo em edição dentro da solicitação (para gerenciar múltiplos produtos)
+  const [itemIndexEdicao, setItemIndexEdicao] = useState<number>(0)
 
   // Catálogo completo carregado para busca manual
   const [catalogoCompleto, setCatalogoCompleto] = useState<CatalogoProdutoContexto[]>([])
@@ -92,19 +121,21 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   // Resetar ao fechar
   const handleClose = () => {
     setEtapa('upload')
-    setArquivoTxt(null)
-    setArquivosMidia([])
+    setArquivoSelecionado(null)
+    setArquivosMidiaManuais([])
     setSolicitacoes([])
     setResumoImportacao(null)
+    setArquivoConversaOrigem('')
+    setTotalMidiasExtraidas(0)
     onClose()
   }
 
-  // Upload e leitura do arquivo
+  // Upload e leitura do arquivo (aceita .zip ou .txt)
   const handleLerArquivo = async () => {
-    if (!arquivoTxt) {
+    if (!arquivoSelecionado) {
       toast({
         title: 'Selecione um arquivo',
-        description: 'Faça upload do arquivo .txt exportado pelo WhatsApp.',
+        description: 'Faça upload do arquivo .zip ou .txt exportado pelo WhatsApp.',
         variant: 'destructive',
       })
       return
@@ -113,36 +144,79 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     try {
       setIsProcessando(true)
 
-      const texto = await arquivoTxt.text()
+      let textoConversa = ''
+      let midiasDisponiveis: Array<{ nome: string; arquivo?: File | Blob }> = []
+      let nomeArquivoOrigem = arquivoSelecionado.name
+      let formatoDetectado = 'txt'
+
+      const isZip =
+        arquivoSelecionado.name.toLowerCase().endsWith('.zip') ||
+        arquivoSelecionado.type === 'application/zip' ||
+        arquivoSelecionado.type === 'application/x-zip-compressed'
+
+      if (isZip) {
+        // Extrair pacote ZIP determinístico
+        const arrayBuffer = await arquivoSelecionado.arrayBuffer()
+        const pacote = await processarZipWhatsApp(arrayBuffer)
+        textoConversa = pacote.arquivoConversaConteudo
+        nomeArquivoOrigem = pacote.arquivoConversaNome
+        formatoDetectado = pacote.formatoConversa
+
+        // Mídias contidas no ZIP
+        midiasDisponiveis = pacote.midias.map((m) => ({
+          nome: m.nome,
+          arquivo: m.blob,
+        }))
+        setTotalMidiasExtraidas(pacote.midias.length)
+      } else {
+        // Arquivo TXT direto
+        textoConversa = await arquivoSelecionado.text()
+        midiasDisponiveis = arquivosMidiaManuais.map((f) => ({
+          nome: f.name,
+          arquivo: f,
+        }))
+        setTotalMidiasExtraidas(arquivosMidiaManuais.length)
+      }
+
+      setArquivoConversaOrigem(nomeArquivoOrigem)
+      setFormatoFonte(formatoDetectado)
 
       // 1. Extrair mensagens para obter previamente seus hashes determinísticos
-      const mensagensBrutas = extrairMensagensArquivoWhatsApp(texto)
+      const mensagensBrutas = extrairMensagensArquivoWhatsApp(textoConversa)
       const hashesDoArquivo = mensagensBrutas.map((m) => m.hashDeterminista)
 
-      // 2. Buscar hashes já conhecidos de forma persistente e escalável (sem janela de 50 lotes)
+      // 2. Buscar hashes já conhecidos de forma persistente e escalável (deduplicação v0.0.117)
       const hashesJaConhecidos = await verificarHashesConhecidos(hashesDoArquivo)
 
-      // Preparar mídias disponíveis
-      const midiasObj = arquivosMidia.map((f) => ({
-        nome: f.name,
-        arquivo: f,
-      }))
+      // 3. Executar parser com os cenários A a J
+      const parseResult = await parseConversaWhatsApp(
+        textoConversa,
+        hashesJaConhecidos,
+        midiasDisponiveis,
+        industriasDisponiveis,
+      )
 
-      // 3. Executar parser determinístico com tolerância a variações
-      const parseResult = await parseConversaWhatsApp(texto, hashesJaConhecidos, midiasObj)
-
-      setSolicitacoes(parseResult.solicitacoes)
+      setSolicitacoes(parseResult.solicitacoes as SolicitacaoEnriquecidaUI[])
       setResumoImportacao(parseResult.resumo)
       setEtapa('revisao')
 
-      // 4. Calcular file_hash determinístico baseado no CONTEÚDO do arquivo (SHA-256)
-      const fileHash = await calcularHashArquivo(arquivoTxt, arquivoTxt.name, arquivoTxt.size)
+      // 4. Calcular file_hash determinístico baseado no CONTEÚDO normalizado da conversa
+      // Regra 7: O hash do arquivo opera sobre a conversa normalizada, garantindo que
+      // o mesmo chat em TXT ou ZIP reconheça o mesmo hash de conteúdo
+      const arquivoParaHash = new File([textoConversa], nomeArquivoOrigem, {
+        type: 'text/plain',
+      })
+      const fileHash = await calcularHashArquivo(
+        arquivoParaHash,
+        nomeArquivoOrigem,
+        arquivoParaHash.size,
+      )
 
       // 5. Registrar lote e persistir mensagens individuais com unicidade estrita
       try {
         const user = pb.authStore.model
         await persistirLoteWhatsApp({
-          fileName: arquivoTxt.name,
+          fileName: arquivoSelecionado.name,
           fileHash,
           totalMensagens: parseResult.totalMensagens,
           mensagensConhecidas: parseResult.mensagensConhecidas,
@@ -157,14 +231,17 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       }
 
       toast({
-        title: 'Conversa processada!',
-        description: `${parseResult.solicitacoes.length} solicitação(ões) identificada(s) para revisão humana.`,
+        title: 'Conversa WhatsApp processada com sucesso!',
+        description: `${parseResult.solicitacoes.length} solicitação(ões) identificada(s) para conferência.`,
       })
     } catch (err) {
       console.error(err)
       toast({
         title: 'Erro ao processar conversa',
-        description: 'Não foi possível ler o arquivo de exportação.',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível ler o arquivo de exportação do WhatsApp.',
         variant: 'destructive',
       })
     } finally {
@@ -197,8 +274,9 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   }
 
   // Abrir modal de edição/completar informações
-  const handleAbrirEdicao = async (sol: SolicitacaoIdentificadaWhatsApp) => {
+  const handleAbrirEdicao = async (sol: SolicitacaoEnriquecidaUI) => {
     setSolicitacaoEmEdicao(JSON.parse(JSON.stringify(sol)))
+    setItemIndexEdicao(0)
     setSalvarNoDicionario(false)
     setBuscaCatalogoTexto('')
 
@@ -217,18 +295,55 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     setModalEdicaoOpen(true)
   }
 
-  // Salvar edições de uma solicitação incompleta ou produto escolhido
+  // Adicionar novo produto manualmente na solicitação em edição
+  const handleAdicionarItem = () => {
+    if (!solicitacaoEmEdicao) return
+    const novoIdx = solicitacaoEmEdicao.produtos.length
+    const novoItem = {
+      id: `prod_manual_${Date.now()}_${novoIdx}`,
+      textoProdutoInformado: '',
+      quantidadeInformada: 1,
+      validadeAusente: true,
+      motivoInformado: 'Troca operacional',
+    }
+    setSolicitacaoEmEdicao({
+      ...solicitacaoEmEdicao,
+      produtos: [...solicitacaoEmEdicao.produtos, novoItem],
+    })
+    setItemIndexEdicao(novoIdx)
+  }
+
+  // Remover item indevido da solicitação em edição
+  const handleRemoverItem = (idxRemover: number) => {
+    if (!solicitacaoEmEdicao || solicitacaoEmEdicao.produtos.length <= 1) {
+      toast({
+        title: 'Não é possível remover',
+        description: 'A solicitação deve conter ao menos um item de produto.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const novosProds = solicitacaoEmEdicao.produtos.filter((_, idx) => idx !== idxRemover)
+    setSolicitacaoEmEdicao({
+      ...solicitacaoEmEdicao,
+      produtos: novosProds,
+    })
+    setItemIndexEdicao(0)
+  }
+
+  // Salvar edições de uma solicitação incompleta ou produtos ajustados
   const handleSalvarEdicao = async () => {
     if (!solicitacaoEmEdicao) return
 
-    // Se marcou para salvar no dicionário
-    if (salvarNoDicionario && solicitacaoEmEdicao.produtos[0]?.produtoConfirmado) {
-      const prod = solicitacaoEmEdicao.produtos[0]
+    // Se marcou para salvar no dicionário o item ativo
+    const prodAtivo = solicitacaoEmEdicao.produtos[itemIndexEdicao]
+    if (salvarNoDicionario && prodAtivo?.produtoConfirmado && prodAtivo.textoProdutoInformado) {
       try {
         await salvarProductAlias({
-          alias: prod.textoProdutoInformado,
-          produto_oficial_nome: prod.produtoConfirmado.nome,
-          produto_oficial_codigo: prod.produtoConfirmado.codigo,
+          alias: prodAtivo.textoProdutoInformado,
+          produto_oficial_nome: prodAtivo.produtoConfirmado.nome,
+          produto_oficial_codigo: prodAtivo.produtoConfirmado.codigo,
           industria_nome:
             solicitacaoEmEdicao.industriaResolvida?.nome ||
             solicitacaoEmEdicao.industriaInformada ||
@@ -238,24 +353,34 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         })
         toast({
           title: 'Correspondência salva no Dicionário!',
-          description: `O termo "${prod.textoProdutoInformado}" agora será reconhecido automaticamente.`,
+          description: `O termo "${prodAtivo.textoProdutoInformado}" agora será reconhecido automaticamente.`,
         })
       } catch (err) {
         console.warn('Erro ao salvar alias:', err)
       }
     }
 
-    // Recalcular faltantes
+    // Recalcular faltantes da solicitação inteira
     const faltantes: string[] = []
     if (!solicitacaoEmEdicao.lojaResolvida?.nome && !solicitacaoEmEdicao.lojaInformada)
       faltantes.push('Loja')
     if (!solicitacaoEmEdicao.industriaResolvida?.nome && !solicitacaoEmEdicao.industriaInformada)
       faltantes.push('Indústria')
-    const p0 = solicitacaoEmEdicao.produtos[0]
-    if (!p0?.produtoConfirmado && !p0?.textoProdutoInformado) faltantes.push('Produto')
-    if (p0?.quantidadeInformada === undefined || p0?.quantidadeInformada <= 0)
-      faltantes.push('Quantidade')
-    if (!p0?.validadeInformada && !p0?.validadeAusente) faltantes.push('Validade')
+
+    const prodsInvalidos = solicitacaoEmEdicao.produtos.some(
+      (p) => !p.produtoConfirmado && !p.textoProdutoInformado,
+    )
+    if (prodsInvalidos) faltantes.push('Produto')
+
+    const qtdsInvalidas = solicitacaoEmEdicao.produtos.some(
+      (p) => p.quantidadeInformada === undefined || p.quantidadeInformada <= 0,
+    )
+    if (qtdsInvalidas) faltantes.push('Quantidade')
+
+    const validadesAusentes = solicitacaoEmEdicao.produtos.some(
+      (p) => !p.validadeInformada && !p.validadeAusente,
+    )
+    if (validadesAusentes) faltantes.push('Validade')
 
     const incompleta = faltantes.length > 0
 
@@ -276,6 +401,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   }
 
   // Finalizar importação: agrupar por grupoCasoSugeridoId e enviar para criação
+  // REGRA 4: Múltiplos produtos da mesma solicitação compõem UM ÚNICO Caso de Devolução
   const handleCriarCasosConfirmados = async () => {
     const confirmadas = solicitacoes.filter((s) => s.statusRevisao === 'confirmada')
     if (confirmadas.length === 0) {
@@ -288,7 +414,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     }
 
     // Agrupar por grupoCasoSugeridoId
-    const grupos = new Map<string, SolicitacaoIdentificadaWhatsApp[]>()
+    const grupos = new Map<string, SolicitacaoEnriquecidaUI[]>()
     for (const sol of confirmadas) {
       const gid = sol.grupoCasoSugeridoId || sol.id
       const lista = grupos.get(gid) || []
@@ -305,8 +431,8 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       const indNome =
         ref.industriaResolvida?.nome || ref.industriaInformada || 'Indústria a identificar'
 
-      // Unificar todos os produtos das mensagens do grupo
-      const itensCaso = solsDoGrupo.flatMap((s) =>
+      // Unificar todos os produtos das mensagens do grupo (Regra 4: UM caso com N produtos)
+      const itensCaso: CriarDevolucaoItemInput[] = solsDoGrupo.flatMap((s) =>
         s.produtos.map((p) => ({
           produto_nome_informado: p.textoProdutoInformado,
           produto_codigo: p.produtoConfirmado?.codigo,
@@ -320,15 +446,25 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         })),
       )
 
-      // Evidências
+      // Evidências reais anexas (Regra 2: nunca criar arquivo falso)
       const evidenciasCaso = solsDoGrupo.flatMap((s) =>
-        s.evidenciasDisponiveis.map((ev) => ({
-          tipo: ev.tipo,
-          titulo: ev.nome,
-          url_arquivo: ev.url,
-          arquivo: ev.arquivo instanceof File ? ev.arquivo : undefined,
-        })),
+        s.evidenciasDisponiveis
+          .filter((ev) => ev.arquivo) // SOMENTE arquivos reais recebidos
+          .map((ev) => ({
+            tipo: ev.tipo,
+            titulo: ev.nome,
+            url_arquivo: ev.url,
+            arquivo: ev.arquivo instanceof File ? ev.arquivo : undefined,
+          })),
       )
+
+      // Se houver menção a mídia mas o arquivo não veio, registrar nas observações
+      const teveMidiaOcultada = solsDoGrupo.some((s) => s.temMidiaOcultada)
+      let observacoesGerais = `Importado de exportação WhatsApp (${arquivoConversaOrigem || 'Arquivo'}). Total de mensagens agrupadas: ${solsDoGrupo.length}.`
+      if (teveMidiaOcultada && evidenciasCaso.length === 0) {
+        observacoesGerais +=
+          ' NOTA: Esta solicitação possuía evidência no WhatsApp, mas o arquivo de imagem não foi incluído nesta exportação.'
+      }
 
       casosParaCriar.push({
         data_solicitacao: new Date().toISOString().slice(0, 10),
@@ -337,7 +473,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         store_name: lojaNome,
         promotor_nome: ref.autor || 'Promotor WhatsApp',
         motivo_geral: ref.produtos[0]?.motivoInformado || 'Troca operacional via WhatsApp',
-        observacoes: `Importado de exportação WhatsApp. Total de mensagens agrupadas: ${solsDoGrupo.length}.`,
+        observacoes: observacoesGerais,
         itens: itensCaso,
         evidencias: evidenciasCaso,
       })
@@ -349,7 +485,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       setEtapa('concluido')
       toast({
         title: 'Casos Criados!',
-        description: `${casosParaCriar.length} Caso(s) de Devolução criado(s) e submetido(s) ao Motor de Auditoria.`,
+        description: `${casosParaCriar.length} Caso(s) de Devolução criado(s) com sucesso.`,
       })
       setTimeout(() => {
         handleClose()
@@ -376,88 +512,94 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
             </span>
             <div>
               <DialogTitle className="text-lg font-bold text-slate-900">
-                Importar Conversa do WhatsApp — Devoluções / NF
+                Importar WhatsApp — Devoluções / NF
               </DialogTitle>
               <p className="text-xs text-slate-500">
-                Lê a exportação nativa em .txt do WhatsApp, identifica solicitações, resolve
-                produtos pelo catálogo oficial e permite revisão humana antes de criar o Caso.
+                Aceita arquivo <strong>.zip</strong> direto (com ou sem mídia) ou{' '}
+                <strong>.txt</strong>. Interpreta o bloco inteiro da solicitação, múltiplos produtos
+                e reconcilia cabeçalho × corpo.
               </p>
             </div>
           </div>
         </DialogHeader>
 
-        {/* ETAPA 1: UPLOAD DO ARQUIVO */}
+        {/* ETAPA 1: UPLOAD DO ARQUIVO (.ZIP OU .TXT) */}
         {etapa === 'upload' && (
           <div className="space-y-5 py-4">
             <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 hover:bg-slate-100/70 transition-colors">
-              <FileText className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+              <FileArchive className="w-10 h-10 text-indigo-500 mx-auto mb-3" />
               <h4 className="text-sm font-bold text-slate-800">
-                Selecione o arquivo de texto exportado pelo WhatsApp
+                Selecione o arquivo ZIP ou TXT exportado pelo WhatsApp
               </h4>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                No WhatsApp, use a opção <em>"Exportar conversa"</em>. O SKIP processará mensagens
-                com o formato "TROCA / SOLICITAÇÃO" e possíveis solicitações operacionais.
+              <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
+                Você pode anexar diretamente o arquivo compactado <strong>.zip</strong> (ex: "GRUPO
+                02 — TROCAS E SOLICITAÇÕES.zip") ou o arquivo <strong>.txt</strong> descompactado. O
+                SKIP abre o pacote, localiza a conversa e relaciona as mídias anexas.
               </p>
 
               <div className="mt-4 flex flex-col items-center gap-2">
                 <input
                   type="file"
-                  accept=".txt"
-                  id="arquivo-txt-whatsapp"
+                  accept=".zip,.txt"
+                  id="arquivo-whatsapp-upload"
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      setArquivoTxt(e.target.files[0])
+                      setArquivoSelecionado(e.target.files[0])
                     }
                   }}
                 />
                 <label
-                  htmlFor="arquivo-txt-whatsapp"
+                  htmlFor="arquivo-whatsapp-upload"
                   className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs"
                 >
                   <FolderOpen className="w-4 h-4" />
-                  {arquivoTxt ? arquivoTxt.name : 'Escolher arquivo .txt'}
+                  {arquivoSelecionado ? arquivoSelecionado.name : 'Selecionar arquivo ZIP ou TXT'}
                 </label>
-                {arquivoTxt && (
+                {arquivoSelecionado && (
                   <span className="text-xs text-emerald-600 font-semibold">
-                    ✓ Arquivo selecionado ({Math.round(arquivoTxt.size / 1024)} KB)
+                    ✓ {arquivoSelecionado.name} ({Math.round(arquivoSelecionado.size / 1024)} KB)
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Upload opcional de mídias anexas */}
-            <div className="bg-white border border-slate-200 rounded-xl p-4 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h5 className="font-bold text-slate-800">
-                    Fotos e Mídias Anexas da Conversa (opcional)
-                  </h5>
-                  <p className="text-[11px] text-slate-500">
-                    Se você exportou a conversa com mídia, selecione as imagens para associação
-                    segura automática com as mensagens correspondentes.
-                  </p>
+            {/* Upload opcional de fotos se o usuário estiver usando TXT avulso */}
+            {arquivoSelecionado && !arquivoSelecionado.name.toLowerCase().endsWith('.zip') && (
+              <div className="bg-white border border-slate-200 rounded-xl p-4 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h5 className="font-bold text-slate-800">
+                      Fotos e Mídias Anexas Avulsas (opcional para .txt)
+                    </h5>
+                    <p className="text-[11px] text-slate-500">
+                      Como você selecionou um arquivo .txt avulso, você pode anexar as fotos
+                      correspondentes aqui.
+                    </p>
+                  </div>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    id="arquivos-midia-manual"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        setArquivosMidiaManuais(Array.from(e.target.files))
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="arquivos-midia-manual"
+                    className="cursor-pointer px-3 py-1.5 border border-slate-300 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {arquivosMidiaManuais.length > 0
+                      ? `${arquivosMidiaManuais.length} foto(s)`
+                      : 'Adicionar fotos'}
+                  </label>
                 </div>
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  id="arquivos-midia-whatsapp"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setArquivosMidia(Array.from(e.target.files))
-                    }
-                  }}
-                />
-                <label
-                  htmlFor="arquivos-midia-whatsapp"
-                  className="cursor-pointer px-3 py-1.5 border border-slate-300 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {arquivosMidia.length > 0 ? `${arquivosMidia.length} foto(s)` : 'Adicionar fotos'}
-                </label>
               </div>
-            </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={handleClose}>
@@ -466,40 +608,53 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
               <Button
                 size="sm"
                 onClick={handleLerArquivo}
-                disabled={!arquivoTxt || isProcessando}
+                disabled={!arquivoSelecionado || isProcessando}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs"
               >
                 {isProcessando ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    Processando conversa...
+                    Processando conversa e mídias...
                   </>
                 ) : (
-                  'Identificar Solicitações'
+                  'Processar Arquivo'
                 )}
               </Button>
             </div>
           </div>
         )}
 
-        {/* ETAPA 2: CAIXA DE IMPORTAÇÃO (REVISÃO HUMANA ANTES DA CRIAÇÃO) */}
+        {/* ETAPA 2: CAIXA DE IMPORTAÇÃO DIDÁTICA (ORIGINAL × INTERPRETAÇÃO × ITENS × EVIDÊNCIAS × PENDÊNCIAS) */}
         {etapa === 'revisao' && (
           <div className="space-y-4 py-3">
             {/* Resumo da Importação e Deduplicação */}
             {resumoImportacao && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700">
-                <div className="flex items-center justify-between font-bold text-slate-800 pb-2 border-b border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-bold text-slate-800 pb-2 border-b border-slate-200">
                   <span className="flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-indigo-600" />
-                    Resumo do Processamento da Conversa
+                    Resumo da Leitura ({arquivoConversaOrigem || 'Arquivo'} • Formato{' '}
+                    {formatoFonte.toUpperCase()})
                   </span>
-                  <Badge variant="outline" className="bg-white">
-                    {resumoImportacao.novas} mensagens novas
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {totalMidiasExtraidas > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="bg-white text-emerald-700 border-emerald-300 text-[10px]"
+                      >
+                        {totalMidiasExtraidas} mídia(s) no pacote
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="bg-white text-[10px]">
+                      {resumoImportacao.novas} msgs novas / {resumoImportacao.jaConhecidas}{' '}
+                      conhecidas
+                    </Badge>
+                  </div>
                 </div>
+
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-[11px]">
                   <div>
-                    <span className="text-slate-400">Total de Mensagens:</span>{' '}
+                    <span className="text-slate-400">Total Mensagens:</span>{' '}
                     <strong>{resumoImportacao.totalEncontradas}</strong>
                   </div>
                   <div>
@@ -513,78 +668,100 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                     </strong>
                   </div>
                   <div>
-                    <span className="text-slate-400">Incompletas / Revisão:</span>{' '}
-                    <strong className="text-amber-600">{resumoImportacao.incompletas}</strong>
+                    <span className="text-slate-400">Precisam Revisão:</span>{' '}
+                    <strong className="text-amber-600">{resumoImportacao.precisamRevisao}</strong>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Lista de Cards da Caixa de Importação */}
-            <div className="space-y-3">
+            {/* Lista Didática de Solicitações */}
+            <div className="space-y-4">
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
                 <span>
                   Solicitações Identificadas para Revisão (
                   {solicitacoes.filter((s) => s.statusRevisao !== 'ignorada').length})
                 </span>
                 <span className="text-[11px] text-slate-400 normal-case font-normal">
-                  A importação NÃO cria Caso automaticamente sem sua confirmação.
+                  Confira: ORIGINAL WhatsApp × INTERPRETAÇÃO SKIP antes de aprovar
                 </span>
               </h4>
 
               {solicitacoes.length === 0 ? (
                 <div className="text-center py-10 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
-                  Nenhuma solicitação ou padrão de troca foi identificado neste trecho da conversa.
+                  Nenhuma solicitação ou padrão de troca foi identificado neste arquivo.
                 </div>
               ) : (
-                solicitacoes.map((sol) => {
+                solicitacoes.map((sol, solIdx) => {
                   const isIgnorada = sol.statusRevisao === 'ignorada'
                   const isConfirmada = sol.statusRevisao === 'confirmada'
-                  const p0 = sol.produtos[0]
-                  const resProd = p0?.resolucaoProduto
+                  const recon = sol.reconciliacaoCabecalho
+
+                  // Pendências didáticas
+                  const pendencias: string[] = []
+                  if (sol.incompleta) {
+                    pendencias.push(`${sol.camposFaltantes.join(', ')} não informado(s)`)
+                  }
+                  if (recon?.divergenciaLoja) {
+                    pendencias.push('Divergência entre loja do cabeçalho e corpo')
+                  }
+                  if (sol.ambiguidadePosicional) {
+                    pendencias.push('Associação ambígua entre produtos e quantidades')
+                  }
+                  const prodsPrecisamConfirmacao = sol.produtos.filter(
+                    (p) => !p.produtoConfirmado && p.resolucaoProduto?.precisaConfirmacaoHumana,
+                  ).length
+                  if (prodsPrecisamConfirmacao > 0) {
+                    pendencias.push(
+                      `${prodsPrecisamConfirmacao} produto(s) precisam de confirmação humana`,
+                    )
+                  }
+                  const prodsValidadeAusente = sol.produtos.filter((p) => p.validadeAusente).length
+                  if (prodsValidadeAusente > 0) {
+                    pendencias.push(`${prodsValidadeAusente} validade(s) não informada(s)`)
+                  }
+                  if (
+                    sol.temMidiaOcultada &&
+                    sol.evidenciasDisponiveis.filter((e) => e.arquivo).length === 0
+                  ) {
+                    pendencias.push(
+                      'Mídia mencionada no WhatsApp, mas não incluída nesta exportação',
+                    )
+                  }
 
                   return (
                     <div
                       key={sol.id}
-                      className={`border rounded-xl p-3.5 transition-colors ${
+                      className={`border rounded-xl p-4 transition-colors space-y-3 ${
                         isIgnorada
                           ? 'opacity-40 bg-slate-50 border-slate-200'
                           : isConfirmada
-                            ? 'bg-emerald-50/40 border-emerald-300'
-                            : sol.incompleta
-                              ? 'bg-amber-50/30 border-amber-300'
+                            ? 'bg-emerald-50/30 border-emerald-300'
+                            : pendencias.length > 0
+                              ? 'bg-amber-50/20 border-amber-300'
                               : 'bg-white border-slate-200 shadow-2xs'
                       }`}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              className={`text-[10px] font-bold ${
-                                sol.incompleta
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-indigo-100 text-indigo-800'
-                              }`}
-                            >
-                              {sol.incompleta ? 'POSSÍVEL SOLICITAÇÃO' : 'SOLICITAÇÃO IDENTIFICADA'}
-                            </Badge>
-                            <span className="text-xs font-bold text-slate-800">
-                              {sol.lojaInformada || 'Loja não identificada'}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              • {sol.dataHoraMsg} • {sol.autor}
-                            </span>
-                          </div>
-
-                          {/* Campos Faltantes em Incompletas */}
-                          {sol.incompleta && sol.camposFaltantes.length > 0 && (
-                            <p className="text-[11px] text-amber-800 mt-1 font-medium">
-                              ⚠ Campos faltantes: <strong>{sol.camposFaltantes.join(', ')}</strong>
-                            </p>
-                          )}
+                      {/* Top Bar da Solicitação */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge
+                            className={`text-[10px] font-bold ${
+                              pendencias.length > 0
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-indigo-100 text-indigo-800'
+                            }`}
+                          >
+                            SOLICITAÇÃO #{solIdx + 1}
+                          </Badge>
+                          <span className="text-xs font-bold text-slate-800">
+                            {sol.lojaInformada || 'Loja não identificada'}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            • {sol.dataHoraMsg} • {sol.autor}
+                          </span>
                         </div>
 
-                        {/* Ações por solicitação */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           {isIgnorada ? (
                             <Button
@@ -609,7 +786,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                                 onClick={() => handleAbrirEdicao(sol)}
                                 className="text-xs h-7 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                               >
-                                {sol.incompleta ? 'Completar' : 'Revisar'}
+                                {pendencias.length > 0 ? 'Revisar / Ajustar' : 'Editar'}
                               </Button>
                               <Button
                                 size="sm"
@@ -635,103 +812,175 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Informações dos Produtos */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
-                        <div className="space-y-1">
-                          <p className="text-slate-500">
-                            <strong>Indústria:</strong>{' '}
-                            {sol.industriaInformada || (
-                              <span className="text-amber-700 italic">Não identificada</span>
-                            )}
-                          </p>
-                          <p className="text-slate-500">
-                            <strong>Produto Informado:</strong>{' '}
-                            <em className="text-slate-800">
-                              "{p0?.textoProdutoInformado || 'Não informado'}"
-                            </em>
-                          </p>
-                          <p className="text-slate-500">
-                            <strong>Quantidade:</strong>{' '}
-                            {p0?.quantidadeInformada > 0 ? (
-                              <span>{p0.quantidadeInformada} un.</span>
-                            ) : (
-                              <span className="text-amber-700 italic">Não informada</span>
-                            )}
-                            {' | '}
-                            <strong>Validade:</strong>{' '}
-                            {p0?.validadeAusente ? (
-                              <span className="text-amber-700 italic">Não informada</span>
-                            ) : (
-                              p0?.validadeInformada || '-'
-                            )}
-                          </p>
-                        </div>
-
-                        {/* Resolvedor de Produtos Oficial Sugerido */}
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/80 space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-indigo-700 flex items-center gap-1">
-                              <Sparkles className="w-3 h-3" />
-                              Resolvedor de Produtos SKIP
-                            </span>
-                            {resProd && (
-                              <Badge
-                                variant="outline"
-                                className={`text-[9px] ${
-                                  resProd.nivel === 'correspondencia_segura'
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                    : resProd.nivel === 'muito_provavel'
-                                      ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
-                                      : 'bg-amber-50 text-amber-800 border-amber-200'
-                                }`}
-                              >
-                                {resProd.nivel.replace('_', ' ')}
-                              </Badge>
-                            )}
-                          </div>
-
-                          {p0?.produtoConfirmado ? (
-                            <p className="text-xs font-bold text-emerald-800">
-                              ✓ {p0.produtoConfirmado.nome}
-                            </p>
-                          ) : resProd?.produtoOficial ? (
-                            <p className="text-xs font-semibold text-slate-800">
-                              Sugerido: <strong>{resProd.produtoOficial.nome}</strong>
-                            </p>
-                          ) : (
-                            <p className="text-[11px] text-amber-700 italic">
-                              Produto não associado automaticamente. Clique em "Revisar" para
-                              selecionar no catálogo.
-                            </p>
-                          )}
-
-                          {resProd?.explicacao && (
-                            <p className="text-[10px] text-slate-500 line-clamp-2">
-                              {resProd.explicacao}
-                            </p>
-                          )}
-                        </div>
+                      {/* SEÇÃO 1: ORIGINAL WHATSAPP (O que o promotor escreveu) */}
+                      <div className="bg-slate-50/80 rounded-lg p-2.5 border border-slate-200/70 text-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          1. Original (Mensagem no WhatsApp)
+                        </span>
+                        <pre className="text-[11px] text-slate-700 whitespace-pre-wrap font-sans bg-white p-2 rounded border border-slate-200">
+                          {sol.trechoOriginalWhatsapp || 'Trecho não preservado'}
+                        </pre>
                       </div>
 
-                      {/* Associação de Mídias e Agrupamento */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 mt-2 border-t border-slate-100 text-[11px] text-slate-500">
-                        <div className="flex items-center gap-2">
-                          <span>
-                            Evidência:{' '}
-                            {sol.evidenciasDisponiveis.length > 0 ? (
-                              <strong className="text-emerald-700">
-                                Disponível ({sol.evidenciasDisponiveis[0].nome})
-                              </strong>
-                            ) : (
-                              <span className="text-slate-400">Não anexada</span>
-                            )}
+                      {/* SEÇÃO 2: INTERPRETAÇÃO DO SKIP (Indústria, Loja, Promotor, Reconciliação) */}
+                      <div className="bg-indigo-50/30 rounded-lg p-2.5 border border-indigo-100 text-xs space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900 block">
+                          2. Interpretação do SKIP
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-slate-500">Indústria:</span>{' '}
+                            <strong>{sol.industriaInformada || 'Não informada'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Loja Identificada:</span>{' '}
+                            <strong>{sol.lojaInformada || 'Não informada'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Promotor / Repositor:</span>{' '}
+                            <strong>{sol.autor}</strong>
+                          </div>
+                        </div>
+
+                        {/* Alerta de Divergência Cabeçalho × Corpo (Cenário G) */}
+                        {recon?.divergenciaLoja && (
+                          <div className="bg-amber-100 border border-amber-300 text-amber-900 p-2 rounded text-[11px] flex items-start gap-1.5 mt-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                            <div>
+                              <strong>Atenção (Divergência Cabeçalho × Corpo):</strong>{' '}
+                              {recon.divergenciaLojaMensagem}
+                            </div>
+                          </div>
+                        )}
+
+                        {recon?.consistenciaLoja && recon.codigoLojaCabecalho && (
+                          <div className="text-[10px] text-emerald-700 font-medium">
+                            ✓ Cabeçalho e corpo consistentes na Loja {recon.codigoLojaCabecalho}.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* SEÇÃO 3: ITENS IDENTIFICADOS (Produtos múltiplos mapeados individualmente) */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                            3. Itens Identificados ({sol.produtos.length} produto(s) no mesmo caso)
                           </span>
                         </div>
 
-                        {/* Ação de Vincular ao mesmo caso */}
+                        <div className="space-y-1.5">
+                          {sol.produtos.map((p, pIdx) => {
+                            const res = p.resolucaoProduto
+                            return (
+                              <div
+                                key={p.id || pIdx}
+                                className="bg-white border border-slate-200 rounded-lg p-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                              >
+                                <div className="space-y-0.5 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-slate-800">
+                                      #{pIdx + 1} "
+                                      {p.textoProdutoInformado || 'Produto não informado'}"
+                                    </span>
+                                    <Badge variant="outline" className="text-[10px] bg-slate-50">
+                                      {p.quantidadeInformada > 0
+                                        ? `${p.quantidadeInformada} un.`
+                                        : 'Qtd não informada'}
+                                    </Badge>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[10px] ${
+                                        p.validadeAusente
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : 'bg-slate-50 text-slate-700'
+                                      }`}
+                                    >
+                                      {p.validadeAusente
+                                        ? 'Validade não informada'
+                                        : `Val: ${p.validadeInformada}`}
+                                    </Badge>
+                                  </div>
+
+                                  {/* Resolução do SKU Oficial */}
+                                  <div className="text-[11px] pt-1">
+                                    {p.produtoConfirmado ? (
+                                      <span className="text-emerald-700 font-bold">
+                                        ✓ Oficial Confirmado: {p.produtoConfirmado.nome}
+                                      </span>
+                                    ) : res?.produtoOficial ? (
+                                      <span className="text-indigo-700">
+                                        Sugerido: <strong>{res.produtoOficial.nome}</strong>{' '}
+                                        <em className="text-slate-400">
+                                          ({res.nivel.replace('_', ' ')})
+                                        </em>
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-700 italic">
+                                        Nenhum SKU associado com alta confiança.
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* SEÇÃO 4: EVIDÊNCIAS (Cenário H: Mídia Ocultada vs Cenário I: Mídia Real) */}
+                      <div className="text-xs pt-1 border-t border-slate-100">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          4. Evidências da Mensagem
+                        </span>
+                        {sol.evidenciasDisponiveis.filter((e) => e.arquivo).length > 0 ? (
+                          <div className="flex items-center gap-2 text-emerald-800 bg-emerald-50 p-2 rounded-lg border border-emerald-200 text-[11px]">
+                            <ImageIcon className="w-4 h-4 text-emerald-600" />
+                            <span>
+                              <strong>Foto recebida na exportação:</strong>{' '}
+                              {sol.evidenciasDisponiveis.map((e) => e.nome).join(', ')} (Salva com o
+                              caso)
+                            </span>
+                          </div>
+                        ) : sol.temMidiaOcultada ? (
+                          <div className="flex items-start gap-2 text-slate-700 bg-slate-100 p-2 rounded-lg border border-slate-200 text-[11px]">
+                            <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                            <div>
+                              <strong>Mídia mencionada, mas não incluída na exportação.</strong>
+                              <p className="text-[10px] text-slate-500">
+                                O WhatsApp indicou (
+                                {sol.midiaOcultadaDescricao || '<imagem ocultada>'}), mas a
+                                exportação foi gerada sem mídia. Nenhuma evidência falsa foi criada;
+                                você poderá anexar o arquivo posteriormente.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">
+                            Nenhuma foto mencionada nesta mensagem.
+                          </span>
+                        )}
+                      </div>
+
+                      {/* SEÇÃO 5: PENDÊNCIAS CLARAS */}
+                      {pendencias.length > 0 && (
+                        <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900 space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            5. Pendências para Atenção do Operador
+                          </span>
+                          <ul className="list-disc list-inside text-[11px] space-y-0.5 pl-1">
+                            {pendencias.map((pend, pIdx) => (
+                              <li key={pIdx}>{pend}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Agrupamento com outro caso */}
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100">
                         <div className="flex items-center gap-1">
                           <LinkIcon className="w-3 h-3 text-slate-400" />
-                          <span className="text-slate-400">Agrupamento:</span>
+                          <span>Agrupar no Caso:</span>
                           <Select
                             value={sol.grupoCasoSugeridoId || sol.id}
                             onValueChange={(val) => handleVincularAoMesmoCaso(sol.id, val)}
@@ -806,13 +1055,13 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
           </div>
         )}
 
-        {/* MODAL SECUNDÁRIO: COMPLETAR INFORMAÇÕES OU ESCOLHER CANDIDATO */}
+        {/* MODAL SECUNDÁRIO: REVISÃO DE ITENS, SEPARAÇÃO DE PRODUTOS E ESCOLHA DE CANDIDATO */}
         {modalEdicaoOpen && solicitacaoEmEdicao && (
           <Dialog open={modalEdicaoOpen} onOpenChange={setModalEdicaoOpen}>
-            <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="text-sm font-bold text-slate-900">
-                  Revisar Solicitação &amp; Associar Produto
+                  Revisar Itens &amp; Resolver Produtos — Solicitação WhatsApp
                 </DialogTitle>
               </DialogHeader>
 
@@ -873,24 +1122,99 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                   </div>
                 </div>
 
-                {/* Dados do Produto */}
-                {solicitacaoEmEdicao.produtos[0] && (
+                {/* Seleção do Item da Solicitação para Edição */}
+                <div className="border-t border-b border-slate-200 py-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs font-bold text-slate-800">
+                      Produtos desta Solicitação ({solicitacaoEmEdicao.produtos.length})
+                    </Label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAdicionarItem}
+                      className="h-6 text-[10px] text-indigo-700 border-indigo-200"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Adicionar Produto
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {solicitacaoEmEdicao.produtos.map((p, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setItemIndexEdicao(idx)}
+                        className={`px-2.5 py-1 rounded text-xs font-medium border flex items-center gap-1 ${
+                          itemIndexEdicao === idx
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>
+                          Item {idx + 1}: {p.textoProdutoInformado || 'Novo'}
+                        </span>
+                        {solicitacaoEmEdicao.produtos.length > 1 && (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleRemoverItem(idx)
+                            }}
+                            className="ml-1 text-slate-300 hover:text-rose-500 cursor-pointer"
+                            title="Remover este item"
+                          >
+                            ×
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dados do Item Ativo Selecionado */}
+                {solicitacaoEmEdicao.produtos[itemIndexEdicao] && (
                   <div className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <h5 className="font-bold text-slate-800">Dados do Produto Solicitado</h5>
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-slate-800">
+                        Editando Item #{itemIndexEdicao + 1}
+                      </h5>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Texto Informado pelo Promotor</Label>
+                      <Input
+                        type="text"
+                        value={
+                          solicitacaoEmEdicao.produtos[itemIndexEdicao].textoProdutoInformado || ''
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setSolicitacaoEmEdicao((prev) => {
+                            if (!prev) return null
+                            const p = [...prev.produtos]
+                            p[itemIndexEdicao].textoProdutoInformado = val
+                            return { ...prev, produtos: p }
+                          })
+                        }}
+                        className="h-8 text-xs mt-1"
+                      />
+                    </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <Label className="text-xs">Quantidade Solicitada *</Label>
+                        <Label className="text-xs">Quantidade *</Label>
                         <Input
                           type="number"
                           min={1}
-                          value={solicitacaoEmEdicao.produtos[0].quantidadeInformada || ''}
+                          value={
+                            solicitacaoEmEdicao.produtos[itemIndexEdicao].quantidadeInformada || ''
+                          }
                           onChange={(e) => {
                             const val = parseInt(e.target.value, 10) || 0
                             setSolicitacaoEmEdicao((prev) => {
                               if (!prev) return null
                               const p = [...prev.produtos]
-                              p[0].quantidadeInformada = val
+                              p[itemIndexEdicao].quantidadeInformada = val
                               return { ...prev, produtos: p }
                             })
                           }}
@@ -902,14 +1226,16 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                         <Label className="text-xs">Validade (YYYY-MM-DD)</Label>
                         <Input
                           type="date"
-                          value={solicitacaoEmEdicao.produtos[0].validadeInformada || ''}
+                          value={
+                            solicitacaoEmEdicao.produtos[itemIndexEdicao].validadeInformada || ''
+                          }
                           onChange={(e) => {
                             const val = e.target.value
                             setSolicitacaoEmEdicao((prev) => {
                               if (!prev) return null
                               const p = [...prev.produtos]
-                              p[0].validadeInformada = val
-                              p[0].validadeAusente = !val
+                              p[itemIndexEdicao].validadeInformada = val
+                              p[itemIndexEdicao].validadeAusente = !val
                               return { ...prev, produtos: p }
                             })
                           }}
@@ -918,65 +1244,67 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Candidatos Próximos Sugeridos pelo Resolvedor */}
+                    {/* Candidatos do Catálogo Sugeridos pelo Resolvedor */}
                     <div className="pt-2">
                       <Label className="text-xs font-bold text-indigo-900">
                         Candidatos do Catálogo Sugeridos:
                       </Label>
                       <div className="space-y-1.5 mt-1">
-                        {solicitacaoEmEdicao.produtos[0].resolucaoProduto?.candidatos &&
-                        solicitacaoEmEdicao.produtos[0].resolucaoProduto.candidatos.length > 0 ? (
-                          solicitacaoEmEdicao.produtos[0].resolucaoProduto.candidatos.map(
-                            (cand, cIdx) => (
-                              <div
-                                key={cIdx}
-                                className="flex items-center justify-between p-2 rounded-md bg-white border border-slate-200 hover:border-indigo-300 text-xs"
-                              >
-                                <div>
-                                  <span className="font-bold text-slate-900">{cand.nome}</span>
-                                  <div className="flex flex-wrap gap-1 text-[10px] text-slate-500 mt-0.5">
-                                    {cand.sinais
-                                      .filter((s) => s.presente)
-                                      .map((s, sIdx) => (
-                                        <Badge
-                                          key={sIdx}
-                                          variant="outline"
-                                          className="text-[9px] bg-slate-50 text-slate-600"
-                                        >
-                                          {s.rotulo} ✓
-                                        </Badge>
-                                      ))}
-                                  </div>
+                        {solicitacaoEmEdicao.produtos[itemIndexEdicao].resolucaoProduto
+                          ?.candidatos &&
+                        solicitacaoEmEdicao.produtos[itemIndexEdicao].resolucaoProduto!.candidatos
+                          .length > 0 ? (
+                          solicitacaoEmEdicao.produtos[
+                            itemIndexEdicao
+                          ].resolucaoProduto!.candidatos.map((cand, cIdx) => (
+                            <div
+                              key={cIdx}
+                              className="flex items-center justify-between p-2 rounded-md bg-white border border-slate-200 hover:border-indigo-300 text-xs"
+                            >
+                              <div>
+                                <span className="font-bold text-slate-900">{cand.nome}</span>
+                                <div className="flex flex-wrap gap-1 text-[10px] text-slate-500 mt-0.5">
+                                  {cand.sinais
+                                    .filter((s) => s.presente)
+                                    .map((s, sIdx) => (
+                                      <Badge
+                                        key={sIdx}
+                                        variant="outline"
+                                        className="text-[9px] bg-slate-50 text-slate-600"
+                                      >
+                                        {s.rotulo} ✓
+                                      </Badge>
+                                    ))}
                                 </div>
-                                <Button
-                                  size="sm"
-                                  onClick={() => {
-                                    setSolicitacaoEmEdicao((prev) => {
-                                      if (!prev) return null
-                                      const p = [...prev.produtos]
-                                      p[0].produtoConfirmado = {
-                                        codigo: cand.codigo,
-                                        nome: cand.nome,
-                                      }
-                                      return { ...prev, produtos: p }
-                                    })
-                                  }}
-                                  className="h-6 text-[10px] px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
-                                >
-                                  Selecionar
-                                </Button>
                               </div>
-                            ),
-                          )
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setSolicitacaoEmEdicao((prev) => {
+                                    if (!prev) return null
+                                    const p = [...prev.produtos]
+                                    p[itemIndexEdicao].produtoConfirmado = {
+                                      codigo: cand.codigo,
+                                      nome: cand.nome,
+                                    }
+                                    return { ...prev, produtos: p }
+                                  })
+                                }}
+                                className="h-6 text-[10px] px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                              >
+                                Selecionar
+                              </Button>
+                            </div>
+                          ))
                         ) : (
                           <p className="text-slate-400 italic text-[11px]">
-                            Nenhum candidato sugerido com alta confiança.
+                            Nenhum candidato sugerido automaticamente com alta confiança.
                           </p>
                         )}
                       </div>
                     </div>
 
-                    {/* Busca Manual como Fallback */}
+                    {/* Busca Manual no Catálogo Completo */}
                     <div className="pt-2 border-t border-slate-200">
                       <Label className="text-xs font-bold text-slate-700">
                         Busca Manual no Catálogo Completo:
@@ -991,7 +1319,6 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                         />
                       </div>
 
-                      {/* Lista de Resultados da Busca Manual */}
                       {buscaCatalogoTexto.trim().length > 1 && (
                         <div className="max-h-36 overflow-y-auto mt-1 border border-slate-200 rounded-md bg-white p-1 space-y-1">
                           {catalogoCompleto
@@ -1012,7 +1339,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                                     setSolicitacaoEmEdicao((prev) => {
                                       if (!prev) return null
                                       const p = [...prev.produtos]
-                                      p[0].produtoConfirmado = {
+                                      p[itemIndexEdicao].produtoConfirmado = {
                                         codigo: c.codigo,
                                         nome: c.nome,
                                       }
@@ -1030,16 +1357,16 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                     </div>
 
                     {/* Produto Selecionado Atualmente */}
-                    {solicitacaoEmEdicao.produtos[0].produtoConfirmado && (
+                    {solicitacaoEmEdicao.produtos[itemIndexEdicao].produtoConfirmado && (
                       <div className="bg-emerald-50 border border-emerald-300 p-2 rounded-md text-xs text-emerald-900 flex items-center justify-between">
                         <div>
                           <strong>Produto Oficial Selecionado:</strong>{' '}
-                          {solicitacaoEmEdicao.produtos[0].produtoConfirmado.nome}
+                          {solicitacaoEmEdicao.produtos[itemIndexEdicao].produtoConfirmado!.nome}
                         </div>
                       </div>
                     )}
 
-                    {/* Aprendizado por Confirmação: Salvar no Dicionário de Produtos */}
+                    {/* Salvar no Dicionário */}
                     <div className="flex items-center gap-2 pt-1">
                       <input
                         type="checkbox"
@@ -1068,7 +1395,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                   onClick={handleSalvarEdicao}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs"
                 >
-                  Confirmar Revisão
+                  Confirmar Revisão da Solicitação
                 </Button>
               </div>
             </DialogContent>
