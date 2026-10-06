@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T04:20:04.492Z",
+  "generatedAt": "2026-10-06T11:42:48.279Z",
   "collections": [
     {
       "name": "users",
@@ -3824,6 +3824,250 @@
       "indexes": [
         "CREATE INDEX idx_dev_audit_caso ON devolucoes_audit (caso_id, created DESC)",
         "CREATE INDEX idx_dev_audit_acao ON devolucoes_audit (acao)"
+      ]
+    },
+    {
+      "name": "product_aliases",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "alias",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "alias_normalizado",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "produto_oficial_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "produto_oficial_codigo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industria_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industria_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "familia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sabor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gramatura",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_alias",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "confirmado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "inativo"]
+        },
+        {
+          "name": "quantidade_utilizacoes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_utilizacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_prod_aliases_norm ON product_aliases (alias_normalizado)",
+        "CREATE INDEX idx_prod_aliases_ind ON product_aliases (industria_nome)",
+        "CREATE INDEX idx_prod_aliases_status ON product_aliases (status)"
+      ]
+    },
+    {
+      "name": "devolucoes_import_batches",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "file_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "file_hash",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "origem_canal",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_mensagens",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mensagens_conhecidas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mensagens_novas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacoes_identificadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacoes_revisadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacoes_importadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacoes_ignoradas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacoes_incompletas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resumo_processamento_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "hashes_mensagens_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_dev_batch_hash ON devolucoes_import_batches (file_hash)",
+        "CREATE INDEX idx_dev_batch_created ON devolucoes_import_batches (created DESC)"
       ]
     }
   ]

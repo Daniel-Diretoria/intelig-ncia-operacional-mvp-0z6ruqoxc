@@ -5,6 +5,9 @@ import { FilaOperacional } from '@/components/devolucoes/FilaOperacional'
 import { DevolucoesFiltrosBar } from '@/components/devolucoes/DevolucoesFiltrosBar'
 import { NovaSolicitacaoModal } from '@/components/devolucoes/NovaSolicitacaoModal'
 import { CasoDetalheModal } from '@/components/devolucoes/CasoDetalheModal'
+import { ImportarWhatsAppModal } from '@/components/devolucoes/ImportarWhatsAppModal'
+import { DicionarioProdutosModal } from '@/components/devolucoes/DicionarioProdutosModal'
+import { ArquivoDocumentalView } from '@/components/devolucoes/ArquivoDocumentalView'
 import {
   listarCasosOperacionais,
   criarCasoDevolucao,
@@ -35,10 +38,15 @@ import {
   FileCheck2,
   Clock,
   Sparkles,
+  Upload,
+  BookOpen,
+  Archive,
+  ListFilter,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 export const DevolucoesPage: React.FC = () => {
+  const [abaAtiva, setAbaAtiva] = useState<'fila' | 'arquivo'>('fila')
   const [filtros, setFiltros] = useState<DevolucoesFiltros>({})
   const [fila, setFila] = useState<FilaOperacionalAgrupada>({
     precisaDeAcao: [],
@@ -59,6 +67,8 @@ export const DevolucoesPage: React.FC = () => {
 
   // Modais
   const [isNovaSolicitacaoOpen, setIsNovaSolicitacaoOpen] = useState(false)
+  const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false)
+  const [isDicionarioOpen, setIsDicionarioOpen] = useState(false)
   const [casoSelecionado, setCasoSelecionado] = useState<DevolucaoCaso | null>(null)
   const [isDetalheOpen, setIsDetalheOpen] = useState(false)
 
@@ -260,7 +270,31 @@ export const DevolucoesPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Dicionário de Produtos */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsDicionarioOpen(true)}
+            className="text-xs h-9 text-slate-700 hover:text-indigo-600 border-slate-200"
+            title="Dicionário de Produtos & Aliases"
+          >
+            <BookOpen className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+            Dicionário de Produtos
+          </Button>
+
+          {/* Importar conversa do WhatsApp */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsWhatsAppOpen(true)}
+            className="text-xs h-9 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+            title="Importar conversa do WhatsApp"
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5 text-emerald-700" />
+            Importar WhatsApp
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -281,73 +315,122 @@ export const DevolucoesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Tiles Resumo da Fila Operacional (Regra 16) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Precisa de Ação</span>
-            <AlertTriangle className="w-4 h-4 text-rose-500" />
-          </div>
-          <p className="text-2xl font-black text-rose-600 mt-1">{fila.contagens.precisaDeAcao}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            {fila.contagens.divergencias} com divergência | {fila.contagens.aguardandoInformacao}{' '}
-            aguardando info
-          </p>
-        </div>
+      {/* Abas: Fila Operacional vs. Arquivo Documental */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('fila')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            abaAtiva === 'fila'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <ListFilter className="w-3.5 h-3.5" />
+          Fila Operacional ({fila.contagens.total})
+        </button>
 
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Em Andamento</span>
-            <Clock className="w-4 h-4 text-indigo-500" />
-          </div>
-          <p className="text-2xl font-black text-indigo-600 mt-1">{fila.contagens.emAndamento}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Tramitando com indústria ou NF</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Finalizadas</span>
-            <FileCheck2 className="w-4 h-4 text-teal-500" />
-          </div>
-          <p className="text-2xl font-black text-slate-800 mt-1">{fila.contagens.finalizadas}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Processos concluídos com NF</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Total de Casos</span>
-            <PackageCheck className="w-4 h-4 text-slate-400" />
-          </div>
-          <p className="text-2xl font-black text-slate-900 mt-1">{fila.contagens.total}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Volume histórico gerenciado</p>
-        </div>
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('arquivo')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+            abaAtiva === 'arquivo'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Archive className="w-3.5 h-3.5" />
+          Arquivo de Devoluções / NF (Ano → Mês → Loja → Caso)
+        </button>
       </div>
 
-      {/* Barra de Filtros */}
-      <DevolucoesFiltrosBar
-        filtros={filtros}
-        onFiltrosChange={setFiltros}
-        onLimparFiltros={() => setFiltros({})}
-        industriasDisponiveis={industrias}
-        lojasDisponiveis={lojas}
-      />
-
-      {/* Fila Operacional com Blocos */}
-      {isLoading ? (
-        <div className="py-20 text-center">
-          <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-3" />
-          <p className="text-xs font-semibold text-slate-600">
-            Carregando fila operacional de devoluções...
-          </p>
-        </div>
-      ) : (
-        <FilaOperacional
-          precisaDeAcao={fila.precisaDeAcao}
-          emAndamento={fila.emAndamento}
-          finalizadas={fila.finalizadas}
-          onSelecionarCaso={handleSelecionarCaso}
-          onNovaSolicitacao={() => setIsNovaSolicitacaoOpen(true)}
+      {abaAtiva === 'arquivo' ? (
+        <ArquivoDocumentalView
+          onAbrirCasoDetalhe={(casoId) => {
+            handleSelecionarCaso({ id: casoId } as DevolucaoCaso)
+          }}
         />
+      ) : (
+        <>
+          {/* KPI Tiles Resumo da Fila Operacional (Regra 16) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-bold uppercase tracking-wider">
+                  Precisa de Ação
+                </span>
+                <AlertTriangle className="w-4 h-4 text-rose-500" />
+              </div>
+              <p className="text-2xl font-black text-rose-600 mt-1">
+                {fila.contagens.precisaDeAcao}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {fila.contagens.divergencias} com divergência |{' '}
+                {fila.contagens.aguardandoInformacao} aguardando info
+              </p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Em Andamento</span>
+                <Clock className="w-4 h-4 text-indigo-500" />
+              </div>
+              <p className="text-2xl font-black text-indigo-600 mt-1">
+                {fila.contagens.emAndamento}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Tramitando com indústria ou NF</p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Finalizadas</span>
+                <FileCheck2 className="w-4 h-4 text-teal-500" />
+              </div>
+              <p className="text-2xl font-black text-slate-800 mt-1">
+                {fila.contagens.finalizadas}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Processos concluídos com NF</p>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-bold uppercase tracking-wider">
+                  Total de Casos
+                </span>
+                <PackageCheck className="w-4 h-4 text-slate-400" />
+              </div>
+              <p className="text-2xl font-black text-slate-900 mt-1">{fila.contagens.total}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Volume histórico gerenciado</p>
+            </div>
+          </div>
+
+          {/* Barra de Filtros */}
+          <DevolucoesFiltrosBar
+            filtros={filtros}
+            onFiltrosChange={setFiltros}
+            onLimparFiltros={() => setFiltros({})}
+            industriasDisponiveis={industrias}
+            lojasDisponiveis={lojas}
+          />
+
+          {/* Fila Operacional com Blocos */}
+          {isLoading ? (
+            <div className="py-20 text-center">
+              <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-3" />
+              <p className="text-xs font-semibold text-slate-600">
+                Carregando fila operacional de devoluções...
+              </p>
+            </div>
+          ) : (
+            <FilaOperacional
+              precisaDeAcao={fila.precisaDeAcao}
+              emAndamento={fila.emAndamento}
+              finalizadas={fila.finalizadas}
+              onSelecionarCaso={handleSelecionarCaso}
+              onNovaSolicitacao={() => setIsNovaSolicitacaoOpen(true)}
+            />
+          )}
+        </>
       )}
 
       {/* Modal Nova Solicitação */}
@@ -370,6 +453,31 @@ export const DevolucoesPage: React.FC = () => {
         onSalvarNFDescarte={handleSalvarNFDescarte}
         onAnexarEvidencia={handleAnexarEvidencia}
       />
+
+      {/* Modal Importar WhatsApp */}
+      {isWhatsAppOpen && (
+        <ImportarWhatsAppModal
+          isOpen={isWhatsAppOpen}
+          onClose={() => setIsWhatsAppOpen(false)}
+          onConfirmarCriacaoCasos={async (casosParaCriar) => {
+            for (const c of casosParaCriar) {
+              await criarCasoDevolucao(c)
+            }
+            await carregarCasos(true)
+          }}
+          industriasDisponiveis={industrias}
+          lojasDisponiveis={lojas}
+        />
+      )}
+
+      {/* Modal Dicionário de Produtos & Aliases */}
+      {isDicionarioOpen && (
+        <DicionarioProdutosModal
+          isOpen={isDicionarioOpen}
+          onClose={() => setIsDicionarioOpen(false)}
+          industriasDisponiveis={industrias}
+        />
+      )}
     </div>
   )
 }

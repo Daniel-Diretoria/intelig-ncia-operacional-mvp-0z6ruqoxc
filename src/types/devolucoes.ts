@@ -272,6 +272,195 @@ export interface DevolucoesFiltros {
   classificacaoAuditoria?: AuditoriaClassificacao | 'todos'
 }
 
+/** Níveis de correspondência explicáveis do Resolvedor de Produtos (sem falsa precisão) */
+export type NivelCorrespondenciaProduto =
+  | 'correspondencia_segura'
+  | 'muito_provavel'
+  | 'possivel'
+  | 'ambigua'
+  | 'nao_identificado'
+
+/** Sinal explicável de contexto para cada candidato */
+export interface SinalExplicavelCandidato {
+  rotulo: string
+  presente: boolean
+}
+
+/** Candidato sugerido pelo Resolvedor de Produtos */
+export interface CandidatoProdutoSugerido {
+  codigo?: string
+  nome: string
+  industria_nome: string
+  nivel: NivelCorrespondenciaProduto
+  sinais: SinalExplicavelCandidato[]
+  scoreOrdenacao: number
+  motivoPrincipal: string
+  aliasCorrespondente?: string
+}
+
+/** Entrada para o Resolvedor de Produtos */
+export interface ResolverProdutoInput {
+  textoInformado: string
+  industriaNome?: string
+  industriaId?: string
+  storeCode?: string
+  storeName?: string
+  permitirOutrasIndustrias?: boolean
+}
+
+/** Resultado retornado pelo Resolvedor de Produtos */
+export interface ResolverProdutoResultado {
+  termoNormalizado: string
+  nivel: NivelCorrespondenciaProduto
+  produtoOficial?: {
+    codigo?: string
+    nome: string
+    industria_nome: string
+  }
+  candidatos: CandidatoProdutoSugerido[]
+  aliasUtilizado?: string
+  precisaConfirmacaoHumana: boolean
+  explicacao: string
+}
+
+/** Alias / Dicionário de produtos persistido */
+export interface ProductAliasRegistro {
+  id?: string
+  alias: string
+  alias_normalizado: string
+  produto_oficial_nome: string
+  produto_oficial_codigo?: string
+  industria_id?: string
+  industria_nome: string
+  familia?: string
+  sabor?: string
+  gramatura?: string
+  tipo_alias?: 'sku_direto' | 'familia_generica'
+  confirmado_por?: string
+  origem?: string
+  status: 'ativo' | 'inativo'
+  quantidade_utilizacoes?: number
+  ultima_utilizacao?: string
+  observacao?: string
+  created?: string
+  updated?: string
+}
+
+/** Item de solicitação identificado em importação WhatsApp */
+export interface SolicitacaoIdentificadaWhatsApp {
+  id: string
+  rawMensagemId?: string
+  timestamp?: string
+  dataHoraMsg?: string
+  autor?: string
+  lojaInformada?: string
+  lojaResolvida?: {
+    codigo: string
+    nome: string
+  }
+  industriaInformada?: string
+  industriaResolvida?: {
+    id?: string
+    nome: string
+  }
+  produtos: Array<{
+    id: string
+    textoProdutoInformado: string
+    quantidadeInformada: number
+    validadeInformada?: string
+    validadeAusente?: boolean
+    motivoInformado?: string
+    oQueEstaSendoSolicitado?: string
+    evidenciaDisponivel?: boolean
+    evidenciaNome?: string
+    evidenciaArquivo?: File | Blob
+    resolucaoProduto?: ResolverProdutoResultado
+    produtoConfirmado?: {
+      codigo?: string
+      nome: string
+    }
+  }>
+  incompleta: boolean
+  camposFaltantes: string[]
+  evidenciasDisponiveis: Array<{
+    nome: string
+    tipo: EvidenciaTipo
+    url?: string
+    arquivo?: File | Blob
+    segura: boolean
+  }>
+  grupoCasoSugeridoId?: string
+  statusRevisao: 'pendente' | 'confirmada' | 'ignorada'
+}
+
+/** Registro de histórico de importação WhatsApp */
+export interface DevolucoesImportBatchRegistro {
+  id?: string
+  file_name: string
+  file_hash: string
+  origem_canal: string
+  total_mensagens: number
+  mensagens_conhecidas: number
+  mensagens_novas: number
+  solicitacoes_identificadas: number
+  solicitacoes_revisadas: number
+  solicitacoes_importadas: number
+  solicitacoes_ignoradas: number
+  solicitacoes_incompletas: number
+  usuario_nome?: string
+  resumo_processamento_json?: Record<string, unknown>
+  hashes_mensagens_json?: string[]
+  created?: string
+}
+
+/** Documento do Arquivo de Devoluções / NF */
+export interface DocumentoArquivoDevolucao {
+  id: string
+  caso_id: string
+  codigo_caso: string
+  data_solicitacao: string
+  ano: number
+  mes: number // 1 a 12
+  mesNome: string // Ex: "Outubro"
+  loja_codigo: string
+  loja_nome: string
+  industria_nome: string
+  promotor_nome?: string
+  tipo: EvidenciaTipo
+  tipoRotulo: string
+  nomeOriginal: string
+  url?: string
+  usuarioQueAnexou?: string
+  dataEnvio?: string
+  itemIdRelacionado?: string
+  itemNomeRelacionado?: string
+  observacao?: string
+  nf_numero?: string
+  nf_assinada: boolean
+  descarte_realizado: boolean
+  casoStatus: DevolucaoStatus
+}
+
+/** Estrutura em Árvore Ano → Mês → Loja → Casos para o Arquivo Documental */
+export interface ArvoreArquivoNo {
+  chave: string // identificador único do nó
+  titulo: string
+  subtitulo?: string
+  tipo: 'ano' | 'mes' | 'loja' | 'caso'
+  contagemDocumentos: number
+  documentos: DocumentoArquivoDevolucao[]
+  filhos?: ArvoreArquivoNo[]
+  metadadosCaso?: {
+    codigo_caso: string
+    industry_name: string
+    status: DevolucaoStatus
+    nf_recebida: boolean
+    nf_assinada: boolean
+    descarte_recebido: boolean
+    completo: boolean
+  }
+}
+
 /** Agrupamento da Fila Operacional (Regra 16) */
 export interface FilaOperacionalAgrupada {
   precisaDeAcao: DevolucaoCaso[] // Aguardando análise, Com divergência, Aguardando informação
