@@ -376,8 +376,24 @@ Validade: 01/10/2026
     // Coleta dos hashes determinísticos wmsg_xxx
     const hashesConhecidos = new Set(res1.todosHashesMensagens)
 
+    // Com estado persistido como processada (ou vinculado a caso), a reimportação não gera solicitações
+    const mapaConhecidas = new Map<string, any>()
+    for (const sol of res1.solicitacoes) {
+      mapaConhecidas.set(sol.id, {
+        solicitacaoId: sol.id,
+        rawMensagemId: sol.rawMensagemId,
+        estadoOperacional: 'processada',
+      })
+    }
+
     // 2ª importação do mesmo ZIP
-    const res2 = await parseConversaWhatsApp(pacote.arquivoConversaConteudo, hashesConhecidos)
+    const res2 = await parseConversaWhatsApp(
+      pacote.arquivoConversaConteudo,
+      hashesConhecidos,
+      [],
+      [],
+      mapaConhecidas,
+    )
     expect(res2.solicitacoes.length).toBe(0) // ZERO solicitações duplicadas!
     expect(res2.mensagensNovas).toBe(0)
     expect(res2.mensagensConhecidas).toBe(1)

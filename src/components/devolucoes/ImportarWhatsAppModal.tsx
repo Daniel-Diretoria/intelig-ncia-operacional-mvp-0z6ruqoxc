@@ -115,6 +115,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     solicitacoesPendentes?: number
     solicitacoesProcessadas?: number
     solicitacoesIgnoradas?: number
+    solicitacoesRecuperadas?: number
   } | null>(null)
 
   // Estado para modal secundário de revisão humana
@@ -820,9 +821,9 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                     Mensagens Anteriores Recuperadas com Sucesso
                   </h4>
                   <p className="text-emerald-800 leading-relaxed">
-                    Encontramos{' '}
-                    <strong>{resumoImportacao.solicitacoesRecuperadas}</strong>{' '}
-                    mensagem(ns) já conhecida(s) que ainda não possuía(m) acompanhamento registrado. Elas foram recuperadas para revisão.
+                    Encontramos <strong>{resumoImportacao.solicitacoesRecuperadas}</strong>{' '}
+                    mensagem(ns) já conhecida(s) que ainda não possuía(m) acompanhamento registrado.
+                    Elas foram recuperadas para revisão.
                   </p>
                 </div>
               </div>

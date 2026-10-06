@@ -63,7 +63,10 @@ export async function carregarVinculosCasosExistentes(
       }
     }
   } catch (err) {
-    console.warn('[devolucoesDedup] Falha ao consultar vínculos em devolucoes_solicitacoes_importadas:', err)
+    console.warn(
+      '[devolucoesDedup] Falha ao consultar vínculos em devolucoes_solicitacoes_importadas:',
+      err,
+    )
   }
 
   // 2. Consultar devolucoes_casos diretamente por observacoes com menção determinística
@@ -71,14 +74,10 @@ export async function carregarVinculosCasosExistentes(
     const CHUNK_SIZE = 20
     for (let i = 0; i < hashesDoArquivo.length; i += CHUNK_SIZE) {
       const chunk = hashesDoArquivo.slice(i, i + CHUNK_SIZE)
-      const filterCasos = chunk
-        .map((h) => `observacoes ~ '${h.replace(/'/g, "\\'")}'`)
-        .join(' || ')
-      const resCasos = await pb
-        .collection('devolucoes_casos')
-        .getList(1, chunk.length * 2, {
-          filter: filterCasos,
-        })
+      const filterCasos = chunk.map((h) => `observacoes ~ '${h.replace(/'/g, "\\'")}'`).join(' || ')
+      const resCasos = await pb.collection('devolucoes_casos').getList(1, chunk.length * 2, {
+        filter: filterCasos,
+      })
       for (const c of resCasos.items) {
         const casoRecord = c as unknown as { id: string; codigo_caso: string; observacoes?: string }
         const obs = casoRecord.observacoes || ''
