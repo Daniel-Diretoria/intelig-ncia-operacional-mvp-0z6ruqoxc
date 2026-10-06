@@ -1701,13 +1701,17 @@ export const ImportacaoPage: React.FC = () => {
 
             {/* Formulário de Teste de Conexão */}
             <div className="bg-slate-50/70 rounded-xl p-5 border border-slate-200/80 space-y-4">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-indigo-600" />
-                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Parâmetros de Teste de Conexão
-                </h5>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-indigo-600" />
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Período para Sincronização de Rupturas
+                  </h5>
+                </div>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Preserva data da visita (data_visita) separada da sincronização • Sem duplicidade
+                </span>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
                 <div className="space-y-1.5">
                   <label
@@ -2727,13 +2731,18 @@ export const ImportacaoPage: React.FC = () => {
 
               {/* Parâmetros da Consulta de Prévia */}
               <div className="bg-slate-50/70 rounded-xl p-5 border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-4 h-4 text-emerald-600" />
-                  <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                    Período para Sincronização de Validades
-                  </h5>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-emerald-600" />
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      Período para Sincronização de Validades
+                    </h5>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    Preserva data da pesquisa (data_entrada/realizado) separada da sincronização •
+                    Sem duplicidade
+                  </span>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
                   <div className="space-y-1.5">
                     <label

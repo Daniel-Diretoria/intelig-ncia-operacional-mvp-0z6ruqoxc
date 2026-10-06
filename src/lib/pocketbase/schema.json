@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T21:41:22.111Z",
+  "generatedAt": "2026-10-06T22:11:23.349Z",
   "collections": [
     {
       "name": "users",
@@ -4290,7 +4290,10 @@
             "permissao_removida",
             "escopo_industria_alterado",
             "login_efetuado",
-            "outro"
+            "outro",
+            "limpeza_operacional_executada",
+            "backup_operacional_restaurado",
+            "limpeza_operacional_preparada"
           ]
         },
         {
@@ -4502,6 +4505,123 @@
         "CREATE INDEX idx_dev_sol_estado ON devolucoes_solicitacoes_importadas (estado_operacional)",
         "CREATE INDEX idx_dev_sol_raw_msg ON devolucoes_solicitacoes_importadas (raw_mensagem_id)",
         "CREATE INDEX idx_dev_sol_caso ON devolucoes_solicitacoes_importadas (caso_criado_id)"
+      ]
+    },
+    {
+      "name": "operational_data_backups",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "view": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "backup_code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "motivo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "executado_por_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "executado_por_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "executado_por_email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validades_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rupturas_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "derived_cross_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "derived_audit_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "snapshot_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "restaurado", "expirado"]
+        },
+        {
+          "name": "data_criacao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "restaurado_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "restaurado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_op_backup_code ON operational_data_backups (backup_code)",
+        "CREATE INDEX idx_op_backup_status ON operational_data_backups (status)",
+        "CREATE INDEX idx_op_backup_created ON operational_data_backups (created DESC)"
       ]
     }
   ]

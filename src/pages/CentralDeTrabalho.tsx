@@ -32,6 +32,7 @@ import {
 } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { ContextPanel, type ContextPanelTarget } from '@/components/common/ContextPanel'
+import { BaseEmReconstrucaoBanner } from '@/components/common/BaseEmReconstrucaoBanner'
 import type { ValidadeItem, Ruptura } from '@/types'
 
 export const CentralDeTrabalhoPage: React.FC = () => {
@@ -307,6 +308,9 @@ export const CentralDeTrabalhoPage: React.FC = () => {
 
   return (
     <div className="space-y-7 animate-fade-in pb-12">
+      {/* Banner de Base Operacional em Reconstrução (se vazia após limpeza controlada) */}
+      <BaseEmReconstrucaoBanner totalValidades={validades.length} totalRupturas={rupturas.length} />
+
       {/* 1. CABEÇALHO DA CENTRAL DE TRABALHO */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
@@ -353,6 +357,18 @@ export const CentralDeTrabalhoPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Aviso no Motor se base estiver em reconstrução */}
+        {validades.length === 0 && rupturas.length === 0 && (
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2">
+            <Info className="w-4 h-4 text-slate-400 shrink-0" />
+            <span>
+              A base operacional está sem registros após a limpeza controlada. Nenhuma ruptura ou
+              atraso falso foi gerado no Motor. Após sincronizar o histórico, os ciclos serão
+              calculados normalmente.
+            </span>
+          </div>
+        )}
 
         {/* Seletor de Indústria para o Motor de Acompanhamento Operacional */}
         {industries.length > 1 && (

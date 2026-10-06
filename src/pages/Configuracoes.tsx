@@ -21,6 +21,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { UsuariosAcessosTab } from '@/components/configuracoes/UsuariosAcessosTab'
+import { AdministracaoDadosTab } from '@/components/configuracoes/AdministracaoDadosTab'
+import { Database } from 'lucide-react'
 
 export const ConfiguracoesPage: React.FC = () => {
   const { user, can } = useAuth()
@@ -55,6 +57,7 @@ export const ConfiguracoesPage: React.FC = () => {
   const userRole = (user as any)?.role || 'Administrador'
 
   const canViewUsersTab = can('admin:gerenciar_usuarios') || (user as any)?.role === 'admin'
+  const canViewAdminDados = (user as any)?.role === 'admin'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -172,11 +175,26 @@ export const ConfiguracoesPage: React.FC = () => {
               Usuários e Acessos
             </TabsTrigger>
           )}
+          {canViewAdminDados && (
+            <TabsTrigger
+              value="administracao-dados"
+              className="gap-2 text-xs font-semibold text-red-700 data-[state=active]:text-red-800"
+            >
+              <Database className="w-4 h-4" />
+              Administração de Dados
+            </TabsTrigger>
+          )}
           <TabsTrigger value="seguranca" className="gap-2 text-xs font-semibold">
             <Lock className="w-4 h-4" />
             Minha Conta &amp; Segurança
           </TabsTrigger>
         </TabsList>
+
+        {canViewAdminDados && (
+          <TabsContent value="administracao-dados" className="space-y-6">
+            <AdministracaoDadosTab />
+          </TabsContent>
+        )}
 
         {canViewUsersTab && (
           <TabsContent value="usuarios" className="space-y-6">

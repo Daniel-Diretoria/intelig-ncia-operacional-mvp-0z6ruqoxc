@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { useAlertas } from '@/services'
+import { useAlertas, useValidades, useRupturas } from '@/services'
 import type { AlertasFilter } from '@/types'
+import { Info } from 'lucide-react'
 import { FilterBar, type FilterField } from '@/components/ui/filter-bar'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { AlertBanner } from '@/components/ui/alert-banner'
@@ -37,6 +38,9 @@ export const AlertasPage: React.FC = () => {
     toggleRead,
     markAllAsRead,
   } = useAlertas(appliedFilters)
+
+  const { data: validades } = useValidades()
+  const { filteredRupturas: rupturas } = useRupturas()
 
   // Header refresh sync
   useEffect(() => {
@@ -193,6 +197,23 @@ export const AlertasPage: React.FC = () => {
           message={error.message || 'Falha ao buscar notificações operacionais.'}
           onRetry={refetch}
         />
+      )}
+
+      {/* Banner Informativo de Reconstrução da Base */}
+      {validades.length === 0 && rupturas.length === 0 && !isLoading && (
+        <div className="p-4 bg-amber-50/80 border border-amber-300 rounded-2xl flex items-start gap-3 text-amber-900">
+          <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-xs">
+            <span className="font-bold text-amber-950 block">
+              Base operacional em reconstrução — nenhum falso alerta gerado
+            </span>
+            <p className="text-amber-800 leading-relaxed">
+              A base operacional de Validades e Rupturas está vazia para preparação do piloto
+              histórico. O sistema não gerará alertas críticos indevidos até que uma nova
+              importação/sincronização de período seja concluída.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Alert Cards Feed */}
