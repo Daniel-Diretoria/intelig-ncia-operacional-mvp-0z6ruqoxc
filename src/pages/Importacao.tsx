@@ -29,6 +29,9 @@ import {
   Clock,
   GitCompare,
   CalendarCheck,
+  Eye,
+  Building2,
+  ShieldCheck,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -256,6 +259,7 @@ export const ImportacaoPage: React.FC = () => {
   const [valSyncDataInicial, setValSyncDataInicial] = useState<string>('')
   const [valSyncDataFinal, setValSyncDataFinal] = useState<string>('')
   const [valSyncConfirmModalOpen, setValSyncConfirmModalOpen] = useState<boolean>(false)
+  const [valAmostraModalOpen, setValAmostraModalOpen] = useState<boolean>(false)
 
   // Sub-aba ativa na visualização
   const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
@@ -1835,6 +1839,19 @@ export const ImportacaoPage: React.FC = () => {
                     </span>
                   </div>
                 </div>
+
+                <div className="pt-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setValAmostraModalOpen(true)}
+                    className="h-8 px-3 gap-1.5 text-xs text-emerald-800 border-emerald-300 bg-white hover:bg-emerald-50 rounded-xl"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Ver estrutura da amostra</span>
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -2975,14 +2992,26 @@ export const ImportacaoPage: React.FC = () => {
                       </p>
                     </div>
 
-                    <Button
-                      type="button"
-                      onClick={() => setValSyncConfirmModalOpen(true)}
-                      className="h-10 px-5 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs"
-                    >
-                      <Database className="w-4 h-4" />
-                      <span>Sincronizar Validades</span>
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setValAmostraModalOpen(true)}
+                        className="h-10 px-4 gap-2 text-xs font-semibold text-emerald-800 border-emerald-300 bg-white hover:bg-emerald-50 rounded-xl"
+                      >
+                        <Eye className="w-4 h-4 text-emerald-600" />
+                        <span>Ver estrutura da amostra</span>
+                      </Button>
+
+                      <Button
+                        type="button"
+                        onClick={() => setValSyncConfirmModalOpen(true)}
+                        className="h-10 px-5 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                      >
+                        <Database className="w-4 h-4" />
+                        <span>Sincronizar Validades</span>
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
@@ -4761,6 +4790,249 @@ export const ImportacaoPage: React.FC = () => {
             Durante o processamento, os registros serão validados e deduplicados sequencialmente. Em
             caso de interrupção ou erro, a Base Atual anterior será mantida intacta.
           </p>
+        </div>
+      </Modal>
+
+      {/* Modal: Ver Estrutura da Amostra (Diagnóstico Seguro) */}
+      <Modal
+        isOpen={valAmostraModalOpen}
+        onClose={() => setValAmostraModalOpen(false)}
+        title="Estrutura da Amostra de Validades (Diagnóstico)"
+        description="Inspeção segura dos campos operacionais retornados pela API TradePro (sem credenciais ou tokens)"
+        maxWidth="xl"
+        footer={
+          <div className="flex items-center justify-end">
+            <Button
+              type="button"
+              onClick={() => setValAmostraModalOpen(false)}
+              className="h-9 px-4 text-xs bg-slate-900 hover:bg-slate-800 text-white rounded-xl"
+            >
+              Fechar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-1">
+          {validadesPreviewJob?.amostra_estrutura_json ? (
+            (() => {
+              const diag = validadesPreviewJob.amostra_estrutura_json
+              const pag = diag.metadadosPaginacao
+              const cli = diag.diagnosticoCliente
+              const amostra = diag.amostraOperacionalSegura
+
+              return (
+                <div className="space-y-4">
+                  {/* Banner de Proteção de Dados Sensíveis */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-slate-700">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-medium">
+                        Diagnóstico protegido: tokens, headers Authorization e senhas nunca são
+                        exibidos.
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="bg-white text-slate-600 border-slate-300 font-mono text-[10px]"
+                    >
+                      {diag.endpoint}
+                    </Badge>
+                  </div>
+
+                  {/* 1. Contrato e Metadados de Paginação */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5">
+                    <p className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                      Contrato de Paginação da Resposta
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-slate-500 block">Campo de Total</span>
+                        <span className="font-mono font-bold text-slate-900">{pag.campoTotal}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-slate-500 block">Total de Registros</span>
+                        <span className="font-bold text-slate-900">{pag.totalDeRegistros}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-slate-500 block">Páginas na API</span>
+                        <span className="font-mono text-slate-800">
+                          {pag.totalDePaginasApi} (qtd/pág: {pag.quantidadePorPaginaApi})
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <span className="text-emerald-700 font-semibold block">
+                          Páginas Previstas (Lote 30)
+                        </span>
+                        <span className="font-bold text-emerald-950 text-sm">
+                          {pag.totalDePaginasPrevistas} páginas
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Diagnóstico de Identificação do Cliente */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5">
+                    <p className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                      Identificação de Cliente / Indústria SKIP
+                    </p>
+                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-slate-600">
+                          Campos de cliente detectados no registro:
+                        </span>
+                        <span className="font-mono font-semibold text-slate-900">
+                          {cli.camposClienteDetectados.length > 0
+                            ? cli.camposClienteDetectados.join(', ')
+                            : 'Nenhum campo de cliente direto no item'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-slate-600">Cód. Cliente extraído do payload:</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {cli.codClienteEncontrado || 'Não presente no item'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-slate-600">Fornecedor operacional retornado:</span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {cli.fornecedorValor || 'DIRETORIA (não usado para inferir indústria)'}
+                        </span>
+                      </div>
+
+                      <div className="pt-1.5 border-t border-slate-200 text-slate-500 text-[10px] leading-relaxed">
+                        ℹ️ <strong>Regra do Projeto:</strong> O vínculo Cliente TradePro → Indústria
+                        SKIP é feito estritamente por{' '}
+                        <code className="font-mono font-semibold">tradepro_client_id</code> (ex.: 7
+                        = FRUTAP, 43 = Oliveira). Se o registro da API não trouxer código de
+                        cliente, o contexto deve vir do parâmetro da consulta ou configuração da
+                        indústria.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Amostra dos Campos Operacionais (Loja, Produto, Promotor, Coleta) */}
+                  {amostra && (
+                    <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                      <p className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                        Campos Operacionais do Primeiro Item (Amostra Real)
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                          <p className="font-semibold text-slate-800">Loja / Cliente</p>
+                          <p>
+                            <span className="text-slate-500">Razão Social:</span>{' '}
+                            <strong>{amostra.loja.razaoSocial || '—'}</strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Fantasia:</span>{' '}
+                            <strong>{amostra.loja.fantasia || '—'}</strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">CNPJ:</span>{' '}
+                            <span className="font-mono">{amostra.loja.cpfCnpj || '—'}</span>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Cidade/UF:</span> {amostra.loja.cidade}
+                            /{amostra.loja.estado || '—'}
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                          <p className="font-semibold text-slate-800">Produto & Validade</p>
+                          <p>
+                            <span className="text-slate-500">Código Produto:</span>{' '}
+                            <span className="font-mono font-bold">
+                              {amostra.produto.codigo || '—'}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Descrição:</span>{' '}
+                            <strong>{amostra.produto.descricao || '—'}</strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Data Validade:</span>{' '}
+                            <span className="font-mono font-bold text-amber-700">
+                              {amostra.coleta.validade || '—'}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Dias p/ Vencimento:</span>{' '}
+                            {amostra.coleta.diasParaVencimento ?? '—'}
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                          <p className="font-semibold text-slate-800">Coleta & Promotor</p>
+                          <p>
+                            <span className="text-slate-500">Promotor:</span>{' '}
+                            {amostra.promotor.nome || '—'}
+                          </p>
+                          <p>
+                            <span className="text-slate-500">ID Promotor:</span>{' '}
+                            <span className="font-mono">{amostra.promotor.id || '—'}</span>
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Data Realizado:</span>{' '}
+                            {amostra.coleta.dataRealizado || '—'}
+                          </p>
+                          <p>
+                            <span className="text-slate-500">Quantidade:</span>{' '}
+                            {amostra.coleta.quantidade ?? '—'}
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                          <p className="font-semibold text-slate-800">Fornecedor</p>
+                          <p>
+                            <span className="text-slate-500">Valor retornado:</span>{' '}
+                            <strong>{amostra.fornecedor || 'DIRETORIA'}</strong>
+                          </p>
+                          <p className="text-[10px] text-slate-500 pt-1">
+                            Fornecedor é o operador de campo e nunca utilizado para inferir a
+                            indústria SKIP.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Estrutura Técnica dos Nomes dos Campos (Schema da Resposta) */}
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <p className="font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                      Schema Detectado na Resposta JSON
+                    </p>
+                    <pre className="text-[10px] font-mono p-3 bg-white border border-slate-200 rounded-lg overflow-x-auto text-slate-800">
+                      {JSON.stringify(
+                        {
+                          camposRaiz: diag.camposRespostaRaiz,
+                          estruturaItem: diag.estruturaItemValidade,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </div>
+                </div>
+              )
+            })()
+          ) : (
+            <div className="p-6 text-center space-y-3">
+              <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+              <div className="space-y-1">
+                <p className="font-bold text-slate-900 text-sm">
+                  Nenhum diagnóstico de amostra gravado ainda
+                </p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Execute uma nova consulta de prévia no período desejado para capturar e persistir
+                  a estrutura detalhada e segura da amostra de Validades.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 

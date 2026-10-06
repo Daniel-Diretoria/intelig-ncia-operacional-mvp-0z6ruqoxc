@@ -232,23 +232,27 @@ describe('TradePro Offline API Contracts & Adapters', () => {
     expect(res.data.validade).toHaveLength(3)
     expect(res.data.paginaAtual).toBe(1)
     expect(res.data.quantidadePorPagina).toBe(50)
+    // Com totalDeProdutos=120 e lote 50, se totalDePaginas fornecido for 3, mantém 3
     expect(res.data.totalDePaginas).toBe(3)
     expect(res.data.totalDeProdutos).toBe(120)
   })
 
-  // Teste 1b: parseValidadeResponse com nomes alternativos de campo de total (totalDeRegistros, totalRegistros, total)
-  it('1b. parseValidadeResponse detecta dinamicamente totalDeRegistros quando totalDeProdutos estiver ausente', () => {
+  // Teste 1b: parseValidadeResponse detecta dinamicamente totalDeRegistros e ajusta páginas para lote 30
+  it('1b. parseValidadeResponse detecta dinamicamente totalDeRegistros e calcula 17 páginas para 501 registros com lote 30', () => {
+    // Caso real relatado pelo usuário: API de Validades responde com totalDePaginas=501 quando chamada com quantidadePorPagina=1
     const raw = {
       validade: mockValidadesResponse.validade,
       paginaAtual: 1,
-      quantidadePorPagina: 30,
-      totalDePaginas: 39,
-      totalDeRegistros: 1152,
+      quantidadePorPagina: 1,
+      totalDePaginas: 501,
+      totalDeRegistros: 501,
     }
     const res = parseValidadeResponse(raw)
     expect(res.success).toBe(true)
     if (!res.success) return
-    expect(res.data.totalDeProdutos).toBe(1152)
+    expect(res.data.totalDeProdutos).toBe(501)
+    // 501 registros com lote 30 = Math.ceil(501 / 30) = 17 páginas previstas
+    expect(res.data.totalDePaginas).toBe(17)
   })
 
   // Teste 2: parseValidadeResponse com paginaAtual: "1" (string) → normalizado para 1

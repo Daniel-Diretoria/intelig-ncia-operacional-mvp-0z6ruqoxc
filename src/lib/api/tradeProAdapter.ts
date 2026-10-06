@@ -280,6 +280,14 @@ export function parseValidadeResponse(raw: unknown): ParseResult<NormalizedValid
       'totalDeProdutos',
     )
 
+    // Ajuste seguro da paginação: se a resposta da API traz totalDePaginas calculada para quantidadePorPagina=1
+    // (ou se o total informado exige lotes de 30 para percorrer), derivamos a quantidade real de páginas
+    // necessárias para o lote operacional padrão de 30 itens.
+    let paginasCalculadas = totalDePaginas
+    if (totalDeProdutos > 0 && (quantidadePorPagina === 1 || totalDePaginas === totalDeProdutos)) {
+      paginasCalculadas = Math.ceil(totalDeProdutos / 30)
+    }
+
     // Validação defensiva de cada item de validade
     const validadeItems: TradeProValidadeItem[] = []
     for (let i = 0; i < raw.validade.length; i++) {
@@ -334,7 +342,7 @@ export function parseValidadeResponse(raw: unknown): ParseResult<NormalizedValid
         validade: validadeItems,
         paginaAtual,
         quantidadePorPagina,
-        totalDePaginas,
+        totalDePaginas: paginasCalculadas,
         totalDeProdutos,
       },
     }

@@ -55,9 +55,61 @@ export type SyncJobErrorCode =
   | 'tradepro_unavailable'
   | 'internal_error'
 
+export interface AmostraEstruturaDiagnostic {
+  capturadoEm: string
+  endpoint: string
+  metadadosPaginacao: {
+    campoTotal: string
+    totalDeRegistros: number
+    paginaAtual: number
+    quantidadePorPaginaApi: number
+    totalDePaginasApi: number
+    quantidadePorPaginaLotePrevisto: number
+    totalDePaginasPrevistas: number
+    nomeColecao: string
+    itensRetornados: number
+  }
+  camposRespostaRaiz: Record<string, string>
+  estruturaItemValidade: Record<string, unknown> | null
+  diagnosticoCliente: {
+    temCodClienteRaiz: boolean
+    temClienteRaiz: boolean
+    temClienteObjeto: boolean
+    camposClienteDetectados: string[]
+    codClienteEncontrado: string
+    clienteNomeEncontrado: string
+    temFornecedor: boolean
+    fornecedorValor: string
+  }
+  amostraOperacionalSegura: {
+    promotor: {
+      id: string
+      nome: string
+    }
+    loja: {
+      razaoSocial: string
+      fantasia: string
+      cpfCnpj: string
+      cidade: string
+      estado: string
+    }
+    produto: {
+      codigo: string
+      descricao: string
+    }
+    coleta: {
+      dataRealizado: string
+      validade: string
+      diasParaVencimento: number | null
+      quantidade: number | null
+    }
+    fornecedor: string
+  } | null
+}
+
 export interface SyncJobRecord {
   id: string
-  action: 'sync_rupturas'
+  action: 'sync_rupturas' | 'sync_validades'
   requested_by: string
   date_start: string
   date_end: string
@@ -72,6 +124,7 @@ export interface SyncJobRecord {
   registros_consolidados: number
   error_code?: SyncJobErrorCode | ''
   message: string
+  amostra_estrutura_json?: AmostraEstruturaDiagnostic | null
   started_at?: string
   finished_at?: string
   created: string
@@ -239,7 +292,7 @@ export async function testTradeProConnection(
 function mapSyncJobRecord(record: Record<string, unknown>): SyncJobRecord {
   return {
     id: (record.id as string) || '',
-    action: (record.action as 'sync_rupturas') || 'sync_rupturas',
+    action: (record.action as 'sync_rupturas' | 'sync_validades') || 'sync_rupturas',
     requested_by: (record.requested_by as string) || '',
     date_start: (record.date_start as string) || '',
     date_end: (record.date_end as string) || '',
@@ -254,6 +307,7 @@ function mapSyncJobRecord(record: Record<string, unknown>): SyncJobRecord {
     registros_consolidados: Number(record.registros_consolidados) || 0,
     error_code: (record.error_code as SyncJobErrorCode) || '',
     message: (record.message as string) || '',
+    amostra_estrutura_json: (record.amostra_estrutura_json as AmostraEstruturaDiagnostic) || null,
     started_at: (record.started_at as string) || undefined,
     finished_at: (record.finished_at as string) || undefined,
     created: (record.created as string) || '',

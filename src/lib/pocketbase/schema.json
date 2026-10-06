@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T02:52:48.855Z",
+  "generatedAt": "2026-10-06T03:18:42.769Z",
   "collections": [
     {
       "name": "users",
@@ -2321,6 +2321,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "amostra_estrutura_json",
+          "type": "json",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

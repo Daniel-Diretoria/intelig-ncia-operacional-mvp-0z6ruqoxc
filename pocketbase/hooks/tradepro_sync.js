@@ -600,43 +600,27 @@ onRecordAfterCreateSuccess((e) => {
       let paginasTotal = 0
       let itensRetornados = 0
       let nomeCampoTotalDetectado = ''
+      let amostraEstrutura = null
 
       if (res.json && typeof res.json === 'object') {
         const jsonBody = res.json
 
-        // Log sanitizado da estrutura da resposta: NOMES de campos de nível superior e seus tipos
-        // NUNCA loga valores, dados de produtos nem credenciais
-        const topLevelStructure = {}
+        // 1. Extração segura de campos de primeiro nível e tipos
         const bodyKeys = Object.keys(jsonBody)
+        const camposRaiz = {}
         for (let k = 0; k < bodyKeys.length; k++) {
           const keyName = bodyKeys[k]
           const val = jsonBody[keyName]
           if (Array.isArray(val)) {
-            topLevelStructure[keyName] = 'array[' + val.length + ']'
+            camposRaiz[keyName] = 'array[' + val.length + ']'
           } else if (val === null) {
-            topLevelStructure[keyName] = 'null'
+            camposRaiz[keyName] = 'null'
           } else {
-            topLevelStructure[keyName] = typeof val
+            camposRaiz[keyName] = typeof val
           }
-        }
-        console.log(
-          '[tradepro] validades preview: campos da resposta = ' + JSON.stringify(topLevelStructure),
-        )
-
-        // 1. Extração de páginas se fornecido
-        if (jsonBody.totalDePaginas != null) {
-          const parsedP = parseInt(jsonBody.totalDePaginas, 10)
-          paginasTotal = isNaN(parsedP) ? 0 : parsedP
-        } else if (jsonBody.quantidadeDePaginas != null) {
-          const parsedP = parseInt(jsonBody.quantidadeDePaginas, 10)
-          paginasTotal = isNaN(parsedP) ? 0 : parsedP
-        } else if (jsonBody.paginas != null) {
-          const parsedP = parseInt(jsonBody.paginas, 10)
-          paginasTotal = isNaN(parsedP) ? 0 : parsedP
         }
 
         // 2. Detecção dinâmica do campo de total:
-        // Lista de candidatos prioritários conhecidos ou comuns na API TradePro
         const prioridades = [
           'totalDeRegistros',
           'totalRegistros',
@@ -664,7 +648,6 @@ onRecordAfterCreateSuccess((e) => {
           }
         }
 
-        // Se ainda não detectou, varre dinamicamente qualquer chave contendo 'total' (exceto chaves de páginas)
         if (totalDetectado === 0) {
           for (let k = 0; k < bodyKeys.length; k++) {
             const key = bodyKeys[k]
@@ -684,13 +667,228 @@ onRecordAfterCreateSuccess((e) => {
           }
         }
 
-        // Conta quantos itens vieram no array de primeiro nível (validade, registros, data, produtos, etc.)
+        // Localiza a lista de itens
+        let listaValidades = null
+        let nomeLista = ''
         const arrayCandidates = ['validade', 'validades', 'registros', 'data', 'produtos', 'itens']
         for (let a = 0; a < arrayCandidates.length; a++) {
           const arrKey = arrayCandidates[a]
           if (Array.isArray(jsonBody[arrKey])) {
-            itensRetornados = jsonBody[arrKey].length
+            listaValidades = jsonBody[arrKey]
+            nomeLista = arrKey
+            itensRetornados = listaValidades.length
             break
+          }
+        }
+
+        // 3. CÁLCULO E CONTRATO DE PAGINAÇÃO:
+        // A prévia consulta com ?paginaAtual=1&quantidadePorPagina=1.
+        // O TradePro responde totalDePaginas baseado na quantidadePorPagina da requisição (ex.: 501 páginas de 1 item).
+        // Para a sincronização real, usamos lotes de 30 itens (quantidadePorPagina=30).
+        // A quantidade real de páginas para percorrer o dataset com lote 30 é Math.ceil(totalDetectado / 30).
+        // Se a requisição de prévia usou quantidadePorPagina = 1 (ou se totalDePaginas == totalDetectado),
+        // recalculamos para o lote padrão 30.
+        const reqQtdPorPagina =
+          jsonBody.quantidadePorPagina != null ? parseInt(jsonBody.quantidadePorPagina, 10) : 1
+        const apiTotalPaginas =
+          jsonBody.totalDePaginas != null
+            ? parseInt(jsonBody.totalDePaginas, 10)
+            : jsonBody.quantidadeDePaginas != null
+              ? parseInt(jsonBody.quantidadeDePaginas, 10)
+              : jsonBody.paginas != null
+                ? parseInt(jsonBody.paginas, 10)
+                : 0
+
+        const TAMANHO_LOTE_SYNC = 30
+        if (totalDetectado > 0) {
+          paginasTotal = Math.ceil(totalDetectado / TAMANHO_LOTE_SYNC)
+        } else if (apiTotalPaginas > 0) {
+          if (reqQtdPorPagina === 1 || apiTotalPaginas === totalDetectado) {
+            paginasTotal = Math.ceil(apiTotalPaginas / TAMANHO_LOTE_SYNC)
+            totalDetectado = apiTotalPaginas
+          } else {
+            paginasTotal = apiTotalPaginas
+          }
+        } else if (itensRetornados > 0) {
+          totalDetectado = itensRetornados
+          paginasTotal = Math.ceil(totalDetectado / TAMANHO_LOTE_SYNC)
+        }
+
+        // 4. DIAGNÓSTICO SEGURO DA ESTRUTURA DA AMOSTRA (sem dados sensíveis)
+        // Extrai metadados do primeiro item retornado se disponível
+        const itemAmostra = listaValidades && listaValidades.length > 0 ? listaValidades[0] : null
+        let itemEstrutura = null
+        let diagnosticoCliente = {
+          temCodClienteRaiz: false,
+          temClienteRaiz: false,
+          temClienteObjeto: false,
+          camposClienteDetectados: [],
+          codClienteEncontrado: '',
+          clienteNomeEncontrado: '',
+          temFornecedor: false,
+          fornecedorValor: '',
+        }
+
+        if (itemAmostra && typeof itemAmostra === 'object') {
+          itemEstrutura = {}
+          const itemKeys = Object.keys(itemAmostra)
+          for (let ik = 0; ik < itemKeys.length; ik++) {
+            const k = itemKeys[ik]
+            const v = itemAmostra[k]
+            if (v === null) {
+              itemEstrutura[k] = 'null'
+            } else if (Array.isArray(v)) {
+              itemEstrutura[k] = 'array[' + v.length + ']'
+            } else if (typeof v === 'object') {
+              const subKeys = Object.keys(v)
+              const subObj = {}
+              for (let sk = 0; sk < subKeys.length; sk++) {
+                const subK = subKeys[sk]
+                const subV = v[subK]
+                if (typeof subV === 'object' && subV !== null) {
+                  subObj[subK] = 'object(' + Object.keys(subV).join(',') + ')'
+                } else {
+                  subObj[subK] = typeof subV
+                }
+              }
+              itemEstrutura[k] = subObj
+            } else {
+              itemEstrutura[k] = typeof v
+            }
+          }
+
+          // Inspeciona campos de identificação de Cliente / Cód. Cliente
+          if (itemAmostra.codCliente != null) {
+            diagnosticoCliente.temCodClienteRaiz = true
+            diagnosticoCliente.codClienteEncontrado = String(itemAmostra.codCliente)
+            diagnosticoCliente.camposClienteDetectados.push('codCliente')
+          }
+          if (itemAmostra.cod_cliente != null) {
+            diagnosticoCliente.temCodClienteRaiz = true
+            diagnosticoCliente.codClienteEncontrado = String(itemAmostra.cod_cliente)
+            diagnosticoCliente.camposClienteDetectados.push('cod_cliente')
+          }
+          if (itemAmostra.codigoCliente != null) {
+            diagnosticoCliente.temCodClienteRaiz = true
+            diagnosticoCliente.codClienteEncontrado = String(itemAmostra.codigoCliente)
+            diagnosticoCliente.camposClienteDetectados.push('codigoCliente')
+          }
+          if (itemAmostra.clienteNome != null || itemAmostra.nomeCliente != null) {
+            diagnosticoCliente.temClienteRaiz = true
+            diagnosticoCliente.clienteNomeEncontrado = String(
+              itemAmostra.clienteNome || itemAmostra.nomeCliente,
+            )
+            diagnosticoCliente.camposClienteDetectados.push('clienteNome')
+          }
+
+          if (itemAmostra.cliente && typeof itemAmostra.cliente === 'object') {
+            diagnosticoCliente.temClienteObjeto = true
+            const cKeys = Object.keys(itemAmostra.cliente)
+            for (let ck = 0; ck < cKeys.length; ck++) {
+              diagnosticoCliente.camposClienteDetectados.push('cliente.' + cKeys[ck])
+            }
+            if (itemAmostra.cliente.codigoCliente != null) {
+              diagnosticoCliente.codClienteEncontrado = String(itemAmostra.cliente.codigoCliente)
+            } else if (itemAmostra.cliente.codigo != null) {
+              diagnosticoCliente.codClienteEncontrado = String(itemAmostra.cliente.codigo)
+            } else if (itemAmostra.cliente.codCliente != null) {
+              diagnosticoCliente.codClienteEncontrado = String(itemAmostra.cliente.codCliente)
+            }
+          }
+
+          if (itemAmostra.fornecedor != null) {
+            diagnosticoCliente.temFornecedor = true
+            diagnosticoCliente.fornecedorValor = String(itemAmostra.fornecedor)
+          }
+
+          // Dados operacionais seguros da amostra (Loja, Produto, Promotor, Data, Quantidade, Validade)
+          // Sem credenciais, tokens, cabeçalhos nem URLs internas
+          const promotorObj =
+            itemAmostra.promotor && typeof itemAmostra.promotor === 'object'
+              ? itemAmostra.promotor
+              : {}
+          const clienteLojaObj =
+            itemAmostra.cliente && typeof itemAmostra.cliente === 'object'
+              ? itemAmostra.cliente
+              : {}
+          const produtoObj =
+            itemAmostra.produto && typeof itemAmostra.produto === 'object'
+              ? itemAmostra.produto
+              : {}
+          const cidadeObj =
+            clienteLojaObj.cidade && typeof clienteLojaObj.cidade === 'object'
+              ? clienteLojaObj.cidade
+              : {}
+          const estadoObj =
+            cidadeObj.estado && typeof cidadeObj.estado === 'object' ? cidadeObj.estado : {}
+
+          amostraEstrutura = {
+            capturadoEm: new Date().toISOString(),
+            endpoint: '/v1/relatorio-validade',
+            metadadosPaginacao: {
+              campoTotal: nomeCampoTotalDetectado || 'totalDeRegistros',
+              totalDeRegistros: totalDetectado,
+              paginaAtual: jsonBody.paginaAtual != null ? Number(jsonBody.paginaAtual) : 1,
+              quantidadePorPaginaApi: reqQtdPorPagina,
+              totalDePaginasApi: apiTotalPaginas,
+              quantidadePorPaginaLotePrevisto: TAMANHO_LOTE_SYNC,
+              totalDePaginasPrevistas: paginasTotal,
+              nomeColecao: nomeLista || 'validade',
+              itensRetornados: itensRetornados,
+            },
+            camposRespostaRaiz: camposRaiz,
+            estruturaItemValidade: itemEstrutura,
+            diagnosticoCliente: diagnosticoCliente,
+            amostraOperacionalSegura: {
+              promotor: {
+                id: promotorObj.id != null ? String(promotorObj.id) : '',
+                nome: promotorObj.nome != null ? String(promotorObj.nome) : '',
+              },
+              loja: {
+                razaoSocial: clienteLojaObj.razaoSocial || '',
+                fantasia: clienteLojaObj.fantasia || '',
+                cpfCnpj: clienteLojaObj.cpfCnpj || '',
+                cidade:
+                  typeof clienteLojaObj.cidade === 'string'
+                    ? clienteLojaObj.cidade
+                    : cidadeObj.nome || '',
+                estado: estadoObj.sigla || '',
+              },
+              produto: {
+                codigo: produtoObj.codigo != null ? String(produtoObj.codigo) : '',
+                descricao: produtoObj.descricao || '',
+              },
+              coleta: {
+                dataRealizado: itemAmostra.realizado || '',
+                validade: itemAmostra.validade || '',
+                diasParaVencimento:
+                  itemAmostra.diasParaVencimento != null
+                    ? Number(itemAmostra.diasParaVencimento)
+                    : null,
+                quantidade: itemAmostra.quantidade != null ? Number(itemAmostra.quantidade) : null,
+              },
+              fornecedor: itemAmostra.fornecedor || 'DIRETORIA',
+            },
+          }
+        } else {
+          amostraEstrutura = {
+            capturadoEm: new Date().toISOString(),
+            endpoint: '/v1/relatorio-validade',
+            metadadosPaginacao: {
+              campoTotal: nomeCampoTotalDetectado || 'totalDeRegistros',
+              totalDeRegistros: totalDetectado,
+              paginaAtual: jsonBody.paginaAtual != null ? Number(jsonBody.paginaAtual) : 1,
+              quantidadePorPaginaApi: reqQtdPorPagina,
+              totalDePaginasApi: apiTotalPaginas,
+              quantidadePorPaginaLotePrevisto: TAMANHO_LOTE_SYNC,
+              totalDePaginasPrevistas: paginasTotal,
+              nomeColecao: nomeLista || 'validade',
+              itensRetornados: itensRetornados,
+            },
+            camposRespostaRaiz: camposRaiz,
+            estruturaItemValidade: null,
+            diagnosticoCliente: diagnosticoCliente,
+            amostraOperacionalSegura: null,
           }
         }
 
@@ -699,38 +897,22 @@ onRecordAfterCreateSuccess((e) => {
             (nomeCampoTotalDetectado || 'nenhum') +
             ', totalDetectado=' +
             totalDetectado +
-            ', paginasTotal=' +
+            ', paginasTotalCalculadas=' +
             paginasTotal +
+            ', totalDePaginasApi=' +
+            apiTotalPaginas +
             ', itensRetornadosNaPagina=' +
             itensRetornados,
         )
-      }
-
-      // 3. Fallback de contagem:
-      // Se não encontrou campo de total ou veio 0, mas há páginas ou itens na primeira página
-      if (totalDetectado === 0) {
-        if (paginasTotal > 0) {
-          // Estimativa baseada no total de páginas com tamanho padrão do TradePro (ou mínimo se foi página única)
-          // Se paginasTotal > 1, sabemos que há múltiplos registros
-          // Na prévia chamamos com quantidadePorPagina=1 ou 30; se paginasTotal = 583, são ~583 páginas
-          totalDetectado = paginasTotal
-          console.log(
-            '[tradepro] validades preview: total derivado a partir de paginasTotal=' + paginasTotal,
-          )
-        } else if (itensRetornados > 0) {
-          totalDetectado = itensRetornados
-        }
-      }
-
-      // Se paginasTotal ainda for 0 mas totalDetectado > 0, deriva paginasTotal (lote padrão 30)
-      if (paginasTotal === 0 && totalDetectado > 0) {
-        paginasTotal = Math.ceil(totalDetectado / 30)
       }
 
       record.set('status', 'preview')
       record.set('error_code', null)
       record.set('total_informado', totalDetectado)
       record.set('paginas_total', paginasTotal)
+      if (amostraEstrutura) {
+        record.set('amostra_estrutura_json', amostraEstrutura)
+      }
       record.set('paginas_processadas', 0)
       record.set('registros_lidos', 0)
       record.set('registros_validos', 0)
