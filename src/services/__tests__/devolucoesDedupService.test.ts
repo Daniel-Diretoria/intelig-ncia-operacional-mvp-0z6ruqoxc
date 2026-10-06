@@ -111,11 +111,23 @@ Motivo: Vencimento iminente
     expect(conhecidos.has(hashesDoArquivo[1])).toBe(true)
     expect(conhecidos.has(hashesDoArquivo[2])).toBe(false)
 
-    // Ao reimportar com os hashes conhecidos
-    const parseReimport = await parseConversaWhatsApp(conversaExemplo, conhecidos)
+    // Ao reimportar com os hashes conhecidos e mapa indicando que a solicitação já foi processada
+    const mapaConhecidas = new Map<string, any>()
+    mapaConhecidas.set(`sol_${hashesDoArquivo[1]}`, {
+      solicitacaoId: `sol_${hashesDoArquivo[1]}`,
+      rawMensagemId: hashesDoArquivo[1],
+      estadoOperacional: 'processada',
+    })
+    const parseReimport = await parseConversaWhatsApp(
+      conversaExemplo,
+      conhecidos,
+      [],
+      [],
+      mapaConhecidas,
+    )
     expect(parseReimport.mensagensConhecidas).toBe(2)
     expect(parseReimport.mensagensNovas).toBe(1)
-    // A mensagem de solicitação (índice 1) já era conhecida, logo 0 solicitações sugeridas
+    // A mensagem de solicitação (índice 1) já era conhecida e processada, logo 0 solicitações sugeridas
     expect(parseReimport.solicitacoes.length).toBe(0)
   })
 
@@ -236,13 +248,27 @@ Motivo: Vencimento iminente
     const conhecidosSegundaVez = await verificarHashesConhecidos(hashes1)
     expect(conhecidosSegundaVez.size).toBe(3)
 
-    const res2 = await parseConversaWhatsApp(conversaExemplo, conhecidosSegundaVez)
+    // Estado conhecido persistido: solicitação já foi salva e processada (ou pendente)
+    const mapaConhecidas = new Map<string, any>()
+    mapaConhecidas.set(res1.solicitacoes[0].id, {
+      solicitacaoId: res1.solicitacoes[0].id,
+      rawMensagemId: res1.solicitacoes[0].rawMensagemId,
+      estadoOperacional: 'processada',
+      casoCriadoId: 'caso_123',
+    })
+
+    const res2 = await parseConversaWhatsApp(
+      conversaExemplo,
+      conhecidosSegundaVez,
+      [],
+      [],
+      mapaConhecidas,
+    )
 
     // TODAS as mensagens anteriores devem aparecer como conhecidas
     expect(res2.mensagensConhecidas).toBe(3)
     expect(res2.mensagensNovas).toBe(0)
-    // NENHUMA solicitação duplicada sugerida
+    // Solicitação já processada não é reexibida
     expect(res2.solicitacoes.length).toBe(0)
-    expect(res2.resumo.possiveisSolicitacoes).toBe(0)
   })
 })

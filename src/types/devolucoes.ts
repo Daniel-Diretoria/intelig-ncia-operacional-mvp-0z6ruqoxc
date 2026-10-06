@@ -415,6 +415,7 @@ export interface SolicitacaoIdentificadaWhatsApp {
   processadoPor?: string
   processadoEm?: string
   batchId?: string
+  foiRecuperada?: boolean
 }
 
 /** Registro persistido na Caixa de Importação WhatsApp */
@@ -442,6 +443,7 @@ export interface SolicitacaoImportadaRegistro {
   evidencias_json?: unknown
   reconciliacao_json?: unknown
   ajustes_operador_json?: unknown
+  foi_recuperada?: boolean
   created?: string
   updated?: string
 }

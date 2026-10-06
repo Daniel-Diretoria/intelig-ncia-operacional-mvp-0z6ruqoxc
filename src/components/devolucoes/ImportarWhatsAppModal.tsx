@@ -33,6 +33,7 @@ import {
   verificarHashesConhecidos,
   persistirLoteWhatsApp,
   carregarSolicitacoesPersistidas,
+  carregarVinculosCasosExistentes,
   marcarSolicitacaoComoIgnorada,
   reabrirSolicitacaoIgnorada,
   salvarOuAtualizarSolicitacoesPersistidas,
@@ -180,6 +181,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
               casoCriadoCodigo: reg.caso_criado_codigo,
               trechoOriginalWhatsapp: reg.trecho_original,
               batchId: reg.batch_id,
+              foiRecuperada: reg.foi_recuperada,
             })
           }
 
@@ -295,6 +297,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       // 2.1 Carregar estado operacional prévio persistido para as mensagens deste arquivo
       // REGRA CENTRAL: "mensagem conhecida ≠ solicitação concluída"
       const solicitacoesPersistidasMap = await carregarSolicitacoesPersistidas(hashesDoArquivo)
+      const vinculosCasosMap = await carregarVinculosCasosExistentes(hashesDoArquivo)
       const mapaParser = new Map<
         string,
         {
@@ -306,6 +309,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
           ignoradoPor?: string
           ignoradoEm?: string
           produtosAjustados?: SolicitacaoIdentificadaWhatsApp['produtos']
+          foiRecuperada?: boolean
         }
       >()
 
@@ -319,6 +323,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
           ignoradoPor: val.ignorado_por,
           ignoradoEm: val.ignorado_em,
           produtosAjustados: val.produtos_json as SolicitacaoIdentificadaWhatsApp['produtos'],
+          foiRecuperada: val.foi_recuperada,
         })
       }
 
@@ -329,6 +334,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         midiasDisponiveis,
         industriasDisponiveis,
         mapaParser,
+        vinculosCasosMap,
       )
 
       setSolicitacoes(parseResult.solicitacoes as SolicitacaoEnriquecidaUI[])
@@ -805,6 +811,23 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         {/* ETAPA 2: CAIXA DE IMPORTAÇÃO DIDÁTICA (ORIGINAL × INTERPRETAÇÃO × ITENS × EVIDÊNCIAS × PENDÊNCIAS) */}
         {etapa === 'revisao' && (
           <div className="space-y-4 py-3">
+            {/* Banner Informativo Positivo de Solicitações Recuperadas */}
+            {resumoImportacao && (resumoImportacao.solicitacoesRecuperadas ?? 0) > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-900 flex items-start gap-3 shadow-xs">
+                <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="font-bold text-emerald-950 text-sm">
+                    Mensagens Anteriores Recuperadas com Sucesso
+                  </h4>
+                  <p className="text-emerald-800 leading-relaxed">
+                    Encontramos{' '}
+                    <strong>{resumoImportacao.solicitacoesRecuperadas}</strong>{' '}
+                    mensagem(ns) já conhecida(s) que ainda não possuía(m) acompanhamento registrado. Elas foram recuperadas para revisão.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Resumo da Importação e Deduplicação */}
             {resumoImportacao && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700">
@@ -841,6 +864,11 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                   <div>
                     <span className="text-slate-400">Solicitações na Fila:</span>{' '}
                     <strong className="text-indigo-600">{solicitacoes.length}</strong>
+                    {Boolean(resumoImportacao.solicitacoesRecuperadas) && (
+                      <span className="text-[10px] text-emerald-600 ml-1 font-semibold">
+                        ({resumoImportacao.solicitacoesRecuperadas} recup.)
+                      </span>
+                    )}
                   </div>
                   <div>
                     <span className="text-slate-400">Pendentes de Ação:</span>{' '}

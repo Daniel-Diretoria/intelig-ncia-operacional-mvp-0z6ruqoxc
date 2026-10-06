@@ -22,6 +22,82 @@ import {
  * Consulta de solicitações persistidas na Caixa de Importação.
  * Retorna mapa de id de solicitação / hash de mensagem para seu registro com estado operacional.
  */
+/**
+ * Consulta vínculos existentes entre solicitações (ou hashes de mensagens) e devolucoes_casos.
+ * Permite que mensagens conhecidas legadas sem estado que já geraram caso no passado
+ * sejam identificadas e tratadas como processadas (sem recriar casos).
+ */
+export async function carregarVinculosCasosExistentes(
+  hashesDoArquivo?: string[],
+): Promise<Map<string, { casoId: string; casoCodigo: string }>> {
+  const mapa = new Map<string, { casoId: string; casoCodigo: string }>()
+  if (!hashesDoArquivo || hashesDoArquivo.length === 0) {
+    return mapa
+  }
+
+  // 1. Tentar consultar em devolucoes_solicitacoes_importadas registros com caso_criado_id
+  try {
+    const CHUNK_SIZE = 30
+    for (let i = 0; i < hashesDoArquivo.length; i += CHUNK_SIZE) {
+      const chunk = hashesDoArquivo.slice(i, i + CHUNK_SIZE)
+      const cond = chunk
+        .map(
+          (h) =>
+            `raw_mensagem_id = '${h.replace(/'/g, "\\'")}' || solicitacao_id = 'sol_${h.replace(/'/g, "\\'")}'`,
+        )
+        .join(' || ')
+      const res = await pb
+        .collection('devolucoes_solicitacoes_importadas')
+        .getList<SolicitacaoImportadaRegistro>(1, chunk.length * 2, {
+          filter: `(${cond}) && caso_criado_id != ''`,
+        })
+      for (const item of res.items) {
+        if (item.caso_criado_id) {
+          const entry = {
+            casoId: item.caso_criado_id,
+            casoCodigo: item.caso_criado_codigo || '',
+          }
+          mapa.set(item.solicitacao_id, entry)
+          mapa.set(item.raw_mensagem_id, entry)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Falha ao consultar vínculos em devolucoes_solicitacoes_importadas:', err)
+  }
+
+  // 2. Consultar devolucoes_casos diretamente por observacoes com menção determinística
+  try {
+    const CHUNK_SIZE = 20
+    for (let i = 0; i < hashesDoArquivo.length; i += CHUNK_SIZE) {
+      const chunk = hashesDoArquivo.slice(i, i + CHUNK_SIZE)
+      const filterCasos = chunk
+        .map((h) => `observacoes ~ '${h.replace(/'/g, "\\'")}'`)
+        .join(' || ')
+      const resCasos = await pb
+        .collection('devolucoes_casos')
+        .getList(1, chunk.length * 2, {
+          filter: filterCasos,
+        })
+      for (const c of resCasos.items) {
+        const casoRecord = c as unknown as { id: string; codigo_caso: string; observacoes?: string }
+        const obs = casoRecord.observacoes || ''
+        for (const h of chunk) {
+          if (obs.includes(h)) {
+            const entry = { casoId: casoRecord.id, casoCodigo: casoRecord.codigo_caso }
+            mapa.set(`sol_${h}`, entry)
+            mapa.set(h, entry)
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Falha ao consultar vínculos em devolucoes_casos:', err)
+  }
+
+  return mapa
+}
+
 export async function carregarSolicitacoesPersistidas(
   hashesDoArquivo?: string[],
 ): Promise<Map<string, SolicitacaoImportadaRegistro>> {
@@ -101,6 +177,7 @@ export async function salvarOuAtualizarSolicitacoesPersistidas(
       caso_criado_codigo: sol.casoCriadoCodigo || '',
       produtos_json: sol.produtos,
       evidencias_json: sol.evidenciasDisponiveis,
+      foi_recuperada: Boolean(sol.foiRecuperada),
       trecho_original:
         (sol as unknown as { trechoOriginalWhatsapp?: string }).trechoOriginalWhatsapp || '',
     }

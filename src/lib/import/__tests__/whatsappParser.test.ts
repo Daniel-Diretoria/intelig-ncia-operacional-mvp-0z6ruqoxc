@@ -120,8 +120,18 @@ razao: Validade`
     const msgs = extrairMensagensArquivoWhatsApp(conversaCompletaMock)
     msgs.forEach((m) => hashes.add(m.hashDeterminista))
 
+    // Com estado processado no mapa
+    const mapaConhecidas = new Map<string, any>()
+    for (const sol of res1.solicitacoes) {
+      mapaConhecidas.set(sol.id, {
+        solicitacaoId: sol.id,
+        rawMensagemId: sol.rawMensagemId,
+        estadoOperacional: 'processada',
+      })
+    }
+
     // 2ª importação da mesma conversa
-    const res2 = await parseConversaWhatsApp(conversaCompletaMock, hashes)
+    const res2 = await parseConversaWhatsApp(conversaCompletaMock, hashes, [], [], mapaConhecidas)
     expect(res2.mensagensConhecidas).toBe(4)
     expect(res2.mensagensNovas).toBe(0)
     expect(res2.solicitacoes.length).toBe(0)

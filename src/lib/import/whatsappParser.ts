@@ -54,6 +54,7 @@ export interface ParseWhatsAppResult {
     solicitacoesPendentes?: number
     solicitacoesProcessadas?: number
     solicitacoesIgnoradas?: number
+    solicitacoesRecuperadas?: number
   }
 }
 
@@ -795,6 +796,12 @@ export interface EstadoSolicitacaoConhecida {
   ignoradoEm?: string
   ajustesOperador?: Record<string, unknown>
   produtosAjustados?: SolicitacaoIdentificadaWhatsApp['produtos']
+  foiRecuperada?: boolean
+}
+
+export interface VinculoCasoExistente {
+  casoId: string
+  casoCodigo: string
 }
 
 export async function parseConversaWhatsApp(
@@ -803,6 +810,7 @@ export async function parseConversaWhatsApp(
   arquivosMidiaDisponiveis: MidiaDisponivelInput[] = [],
   industriasCadastradas: Array<{ id?: string; nome: string }> = [],
   mapaSolicitacoesConhecidas: Map<string, EstadoSolicitacaoConhecida> = new Map(),
+  mapaVinculosCasosExistentes: Map<string, VinculoCasoExistente> = new Map(),
 ): Promise<ParseWhatsAppResult> {
   const mensagens = extrairMensagensArquivoWhatsApp(conteudoArquivo)
 
@@ -830,17 +838,6 @@ export async function parseConversaWhatsApp(
     const estadoConhecido =
       mapaSolicitacoesConhecidas.get(solId) || mapaSolicitacoesConhecidas.get(msg.hashDeterminista)
 
-    // Se a mensagem já é conhecida:
-    // - Se NÃO for uma solicitação conhecida (ou seja, apenas conversa normal), pula
-    // - Se for solicitação já PROCESSADA: preserva contagem mas não coloca na fila de revisão
-    // - Se for solicitação IGNORADA: preserva estado ignorado
-    // - Se for PENDENTE DE REVISÃO: CONTINUA na lista para conferência humana!
-    // REGRA CENTRAL: "Uma mensagem NÃO pode sair da fila apenas porque já foi importada."
-    if (isMsgConhecida && !estadoConhecido) {
-      // Mensagem comum já conhecida que nunca foi solicitação
-      continue
-    }
-
     if (estadoConhecido?.estadoOperacional === 'processada') {
       // Já gerou caso anteriormente; não recria e não enfileira como nova
       possiveisCount++
@@ -848,6 +845,34 @@ export async function parseConversaWhatsApp(
     }
 
     const campos = extrairCamposSolicitacao(msg.conteudo)
+
+    // EDIÇÃO 1: Tratar mensagens conhecidas sem estado persistido (legado)
+    // Se a mensagem já é conhecida e não possui estado persistido:
+    // NÃO dar continue antes da análise — reavaliar o conteúdo com o parser.
+    // Se NÃO for possível solicitação (!campos.isPossivel), aí sim continue (conversa comum).
+    // Se for possível solicitação: consultar se existe vínculo seguro com Caso em devolucoes_casos.
+    // Se houver vínculo seguro com Caso: tratar como processada (não recria e não enfileira para revisão).
+    // Sem vínculo: criar registro operacional como pendente_revisao (marcado com foiRecuperada = true).
+    let legadaRecuperadaComoPendente = false
+    if (isMsgConhecida && !estadoConhecido) {
+      if (!campos.isPossivel) {
+        // Mensagem comum já conhecida que nunca foi e não é solicitação
+        continue
+      }
+
+      // Consultar se existe vínculo seguro com Caso em devolucoes_casos
+      const vinculoCaso =
+        mapaVinculosCasosExistentes.get(solId) ||
+        mapaVinculosCasosExistentes.get(msg.hashDeterminista)
+
+      if (vinculoCaso?.casoId) {
+        // Vinculada previamente a Caso em devolucoes_casos: tratar como processada
+        possiveisCount++
+        continue
+      }
+
+      legadaRecuperadaComoPendente = true
+    }
 
     if (campos.isPossivel) {
       possiveisCount++
@@ -1001,6 +1026,8 @@ export async function parseConversaWhatsApp(
         ? 'pendente_revisao'
         : 'nova'
 
+      let foiRecuperada = legadaRecuperadaComoPendente || Boolean(estadoConhecido?.foiRecuperada)
+
       if (estadoConhecido) {
         estadoOp = estadoConhecido.estadoOperacional
         if (estadoConhecido.estadoOperacional === 'ignorada') {
@@ -1042,6 +1069,7 @@ export async function parseConversaWhatsApp(
         casoCriadoCodigo: estadoConhecido?.casoCriadoCodigo,
         ignoradoPor: estadoConhecido?.ignoradoPor,
         ignoradoEm: estadoConhecido?.ignoradoEm,
+        foiRecuperada,
       }
 
       // Adicionar metadados enriquecidos para exibição didática (sem quebrar a tipagem de domínio)
@@ -1101,6 +1129,7 @@ export async function parseConversaWhatsApp(
       (!s.estadoOperacional && s.statusRevisao === 'pendente'),
   ).length
   const solIgnoradas = solicitacoes.filter((s) => s.statusRevisao === 'ignorada').length
+  const solRecuperadas = solicitacoes.filter((s) => s.foiRecuperada).length
 
   return {
     totalMensagens: mensagens.length,
@@ -1120,6 +1149,7 @@ export async function parseConversaWhatsApp(
       solicitacoesNovas: solNovas,
       solicitacoesPendentes: solPendentes,
       solicitacoesIgnoradas: solIgnoradas,
+      solicitacoesRecuperadas: solRecuperadas,
     },
   }
 }
