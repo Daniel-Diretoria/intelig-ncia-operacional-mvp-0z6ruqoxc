@@ -164,4 +164,14 @@ Validade: 30/09/2026
     const sol = res.solicitacoes[0]
     expect(sol.statusRevisao).toBe('pendente')
   })
+
+  it('9. Retorna todosHashesMensagens no formato wmsg_xxx correspondentes às mensagens reais', async () => {
+    const res = await parseConversaWhatsApp(conversaCompletaMock)
+    expect(res.todosHashesMensagens.length).toBe(4)
+    for (const hash of res.todosHashesMensagens) {
+      expect(hash).toMatch(/^wmsg_[a-z0-9]+$/)
+      // NUNCA conter prefixo sol_
+      expect(hash.startsWith('sol_')).toBe(false)
+    }
+  })
 })

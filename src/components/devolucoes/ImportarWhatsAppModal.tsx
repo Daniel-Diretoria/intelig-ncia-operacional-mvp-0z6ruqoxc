@@ -22,7 +22,9 @@ import {
   CriarDevolucaoCasoInput,
   CandidatoProdutoSugerido,
 } from '@/types/devolucoes'
-import { parseConversaWhatsApp } from '@/lib/import/whatsappParser'
+import { extrairMensagensArquivoWhatsApp, parseConversaWhatsApp } from '@/lib/import/whatsappParser'
+import { calcularHashArquivo } from '@/lib/data/tradeProPipeline'
+import { verificarHashesConhecidos, persistirLoteWhatsApp } from '@/services/devolucoesDedupService'
 import {
   salvarProductAlias,
   carregarCatalogoContextual,
@@ -113,21 +115,12 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
 
       const texto = await arquivoTxt.text()
 
-      // Buscar hashes já conhecidos de lotes anteriores para deduplicação determinística
-      const hashesJaConhecidos = new Set<string>()
-      try {
-        const batches = await pb.collection('devolucoes_import_batches').getList(1, 50, {
-          sort: '-created',
-        })
-        for (const b of batches.items) {
-          const item = b as unknown as { hashes_mensagens_json?: string[] }
-          if (Array.isArray(item.hashes_mensagens_json)) {
-            item.hashes_mensagens_json.forEach((h) => hashesJaConhecidos.add(h))
-          }
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar histórico de deduplicação:', err)
-      }
+      // 1. Extrair mensagens para obter previamente seus hashes determinísticos
+      const mensagensBrutas = extrairMensagensArquivoWhatsApp(texto)
+      const hashesDoArquivo = mensagensBrutas.map((m) => m.hashDeterminista)
+
+      // 2. Buscar hashes já conhecidos de forma persistente e escalável (sem janela de 50 lotes)
+      const hashesJaConhecidos = await verificarHashesConhecidos(hashesDoArquivo)
 
       // Preparar mídias disponíveis
       const midiasObj = arquivosMidia.map((f) => ({
@@ -135,32 +128,29 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         arquivo: f,
       }))
 
-      // Executar parser determinístico com tolerância a variações
+      // 3. Executar parser determinístico com tolerância a variações
       const parseResult = await parseConversaWhatsApp(texto, hashesJaConhecidos, midiasObj)
 
       setSolicitacoes(parseResult.solicitacoes)
       setResumoImportacao(parseResult.resumo)
       setEtapa('revisao')
 
-      // Registrar lote no banco devolucoes_import_batches
+      // 4. Calcular file_hash determinístico baseado no CONTEÚDO do arquivo (SHA-256)
+      const fileHash = await calcularHashArquivo(arquivoTxt, arquivoTxt.name, arquivoTxt.size)
+
+      // 5. Registrar lote e persistir mensagens individuais com unicidade estrita
       try {
         const user = pb.authStore.model
-        const fileHash = `hash_${arquivoTxt.name}_${arquivoTxt.size}_${Date.now()}`
-        await pb.collection('devolucoes_import_batches').create({
-          file_name: arquivoTxt.name,
-          file_hash: fileHash,
-          origem_canal: 'whatsapp',
-          total_mensagens: parseResult.totalMensagens,
-          mensagens_conhecidas: parseResult.mensagensConhecidas,
-          mensagens_novas: parseResult.mensagensNovas,
-          solicitacoes_identificadas: parseResult.solicitacoes.length,
-          solicitacoes_revisadas: 0,
-          solicitacoes_importadas: 0,
-          solicitacoes_ignoradas: 0,
-          solicitacoes_incompletas: parseResult.resumo.incompletas,
-          usuario_nome: user?.name || user?.email || 'Operador',
-          resumo_processamento_json: parseResult.resumo,
-          hashes_mensagens_json: Array.from(parseResult.solicitacoes.map((s) => s.id)),
+        await persistirLoteWhatsApp({
+          fileName: arquivoTxt.name,
+          fileHash,
+          totalMensagens: parseResult.totalMensagens,
+          mensagensConhecidas: parseResult.mensagensConhecidas,
+          mensagensNovas: parseResult.mensagensNovas,
+          solicitacoes: parseResult.solicitacoes,
+          resumoProcessamento: parseResult.resumo,
+          usuarioNome: user?.name || user?.email || 'Operador',
+          hashesReaisMensagens: parseResult.todosHashesMensagens,
         })
       } catch (err) {
         console.warn('Erro ao registrar devolucoes_import_batches:', err)

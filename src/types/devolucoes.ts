@@ -393,6 +393,20 @@ export interface SolicitacaoIdentificadaWhatsApp {
   statusRevisao: 'pendente' | 'confirmada' | 'ignorada'
 }
 
+/** Registro de mensagem WhatsApp importada para deduplicação escalável */
+export interface DevolucaoMensagemImportadaRegistro {
+  id?: string
+  hash_mensagem: string
+  batch_id?: string
+  file_hash?: string
+  origem_canal?: string
+  data_hora_msg?: string
+  autor?: string
+  solicitacao_id?: string
+  created?: string
+  updated?: string
+}
+
 /** Registro de histórico de importação WhatsApp */
 export interface DevolucoesImportBatchRegistro {
   id?: string

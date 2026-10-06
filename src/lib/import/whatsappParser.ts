@@ -35,6 +35,7 @@ export interface ParseWhatsAppResult {
   totalMensagens: number
   mensagensConhecidas: number
   mensagensNovas: number
+  todosHashesMensagens: string[]
   solicitacoes: SolicitacaoIdentificadaWhatsApp[]
   resumo: {
     totalEncontradas: number
@@ -474,10 +475,13 @@ export async function parseConversaWhatsApp(
     }
   }
 
+  const todosHashesMensagens = mensagens.map((m) => m.hashDeterminista)
+
   return {
     totalMensagens: mensagens.length,
     mensagensConhecidas,
     mensagensNovas,
+    todosHashesMensagens,
     solicitacoes,
     resumo: {
       totalEncontradas: mensagens.length,

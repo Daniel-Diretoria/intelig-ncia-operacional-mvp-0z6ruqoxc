@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T11:42:48.279Z",
+  "generatedAt": "2026-10-06T12:12:06.116Z",
   "collections": [
     {
       "name": "users",
@@ -4068,6 +4068,81 @@
       "indexes": [
         "CREATE INDEX idx_dev_batch_hash ON devolucoes_import_batches (file_hash)",
         "CREATE INDEX idx_dev_batch_created ON devolucoes_import_batches (created DESC)"
+      ]
+    },
+    {
+      "name": "devolucoes_mensagens_importadas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "hash_mensagem",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "batch_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "devolucoes_import_batches"
+        },
+        {
+          "name": "file_hash",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_canal",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_hora_msg",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "autor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "solicitacao_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_dev_msg_hash ON devolucoes_mensagens_importadas (hash_mensagem)",
+        "CREATE INDEX idx_dev_msg_batch ON devolucoes_mensagens_importadas (batch_id)",
+        "CREATE INDEX idx_dev_msg_file_hash ON devolucoes_mensagens_importadas (file_hash)"
       ]
     }
   ]
