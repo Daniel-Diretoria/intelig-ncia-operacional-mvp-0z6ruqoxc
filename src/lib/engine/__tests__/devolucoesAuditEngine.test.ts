@@ -66,12 +66,17 @@ describe('Motor de Auditoria de Devoluções / NF — SKIP Inteligência Operaci
     const contextoComGap: AuditoriaContextoLojaIndustria = {
       ...contextoBase,
       data_solicitacao: '2026-09-20',
+      cicloPesquisaConfigurado: {
+        frequencia: 'semanal',
+        dia_esperado: 'terca',
+        ativo: true,
+      },
       historicoValidades: [
         {
           id: 'val-gap',
           produto: 'IOGURTE MORANGO 1.25L',
           quantidade: 20,
-          realizado: '2026-08-10', // 41 dias antes da solicitação (> 20 dias de gap)
+          realizado: '2026-08-10', // 41 dias antes da solicitação (> múltiplos ciclos semanais perdidos)
           validade_efetiva: '2026-09-26',
         },
       ],
@@ -86,7 +91,8 @@ describe('Motor de Auditoria de Devoluções / NF — SKIP Inteligência Operaci
     const res = auditarItemDevolucao(item, contextoComGap)
     expect(res.classificacao).toBe('atencao')
     expect(res.detalhes.periodosSemAtualizacao).toBe(true)
-    expect(res.explicacao).toContain('períodos sem atualização antes da solicitação')
+    expect(res.detalhes.ciclosSemAtualizacao).toBeGreaterThanOrEqual(1)
+    expect(res.explicacao).toContain('ciclo esperado da indústria sem atualização')
   })
 
   // (3) Teste 3: Produto sem histórico anterior
@@ -342,5 +348,207 @@ describe('Motor de Auditoria de Devoluções / NF — SKIP Inteligência Operaci
     expect(aprovados[0].qtdAutorizada).toBe(10)
     expect(pendentesInfo.length).toBe(1)
     expect(divergentes.length).toBe(1)
+  })
+
+  // =========================================================================
+  // AJUSTES ESPECÍFICOS & NOVOS TESTES OBRIGATÓRIOS (CENÁRIOS A, B, C, D, E)
+  // =========================================================================
+
+  // CENÁRIO A: mesma loja possui Produto X em duas indústrias diferentes;
+  // uma solicitação da Indústria A NUNCA pode utilizar registro da Indústria B como evidência de acompanhamento.
+  it('Cenário A: mesma loja + mesmo/similar produto + indústrias diferentes → não cruzar indústria errada', () => {
+    // Contexto com validades restritas apenas à Indústria FRUTAP (cod_cliente 7)
+    // Se a loja tem registros de "IOGURTE MORANGO 1L" da indústria ITALAC (cod_cliente 43),
+    // a auditoria de devolução para a FRUTAP não deve considerar os registros da ITALAC.
+    const contextoFrutapApenas: AuditoriaContextoLojaIndustria = {
+      industry_name: 'FRUTAP',
+      industry_id: 'ind-frutap',
+      tradepro_client_id: '7',
+      store_code: '405',
+      store_name: 'FORT ATACADISTA 405',
+      data_solicitacao: '2026-09-20',
+      historicoValidades: [
+        // Apenas registros da FRUTAP (fornecidos pelo serviço após filtro estrito)
+        {
+          id: 'val-frutap-1',
+          produto: 'IOGURTE MORANGO 1L FRUTAP',
+          quantidade: 10,
+          realizado: '2026-09-15',
+          validade_efetiva: '2026-09-28',
+          cliente: 'FRUTAP',
+        },
+      ],
+      historicoRupturas: [],
+    }
+
+    // Solicitação de devolução para FRUTAP de um produto "Iogurte Morango 1L Italac" (produto de outra indústria)
+    const itemOutraIndustria: AuditoriaInputItem = {
+      produto_nome_informado: 'Iogurte Morango 1L Italac',
+      quantidade_solicitada: 5,
+      validade_informada: '2026-09-28',
+    }
+
+    const resultado = auditarItemDevolucao(itemOutraIndustria, contextoFrutapApenas)
+    // Não pode considerar como acompanhamento consistente do produto da Italac, pois não está no histórico da Frutap
+    expect(resultado.classificacao).toBe('divergencia')
+    expect(resultado.detalhes.produtoLocalizado).toBe(false)
+    expect(resultado.detalhes.totalRegistrosAnteriores).toBe(0)
+  })
+
+  // CENÁRIO B: indústria com ciclo semanal e ciclo perdido → pode gerar Atenção
+  it('Cenário B: indústria com ciclo semanal e ciclo perdido → gera Atenção operacional com ciclos perdidos', () => {
+    const contextoSemanalPerdido: AuditoriaContextoLojaIndustria = {
+      ...contextoBase,
+      data_solicitacao: '2026-09-22', // Terça-feira
+      cicloPesquisaConfigurado: {
+        frequencia: 'semanal',
+        dia_esperado: 'terca',
+        ativo: true,
+      },
+      historicoValidades: [
+        {
+          id: 'val-s1',
+          produto: 'IOGURTE MORANGO 1.25L',
+          quantidade: 20,
+          // Atualizado há 14 dias (08/09), perdendo o ciclo de 15/09 e 22/09
+          realizado: '2026-09-08',
+          validade_efetiva: '2026-09-26',
+        },
+      ],
+    }
+
+    const item: AuditoriaInputItem = {
+      produto_nome_informado: 'IOGURTE MORANGO 1.25L',
+      quantidade_solicitada: 8,
+      validade_informada: '2026-09-26',
+    }
+
+    const res = auditarItemDevolucao(item, contextoSemanalPerdido)
+    expect(res.classificacao).toBe('atencao')
+    expect(res.detalhes.periodosSemAtualizacao).toBe(true)
+    expect(res.detalhes.ciclosSemAtualizacao).toBeGreaterThanOrEqual(1)
+    expect(res.explicacao).toContain('ciclo esperado da indústria sem atualização')
+  })
+
+  // CENÁRIO C: indústria quinzenal sem ciclo perdido → NÃO gerar Atenção por regra fixa de dias (ex: 12 dias)
+  it('Cenário C: indústria quinzenal sem ciclo perdido → NÃO gerar Atenção por regra fixa de dias', () => {
+    // Em pesquisa quinzenal, 12 dias desde a última visita é perfeitamente dentro do ciclo quinzenal esperado
+    const contextoQuinzenalEmDia: AuditoriaContextoLojaIndustria = {
+      ...contextoBase,
+      data_solicitacao: '2026-09-22',
+      cicloPesquisaConfigurado: {
+        frequencia: 'quinzenal',
+        dia_esperado: 'terca',
+        ativo: true,
+      },
+      historicoValidades: [
+        {
+          id: 'val-q1',
+          produto: 'IOGURTE MORANGO 1.25L',
+          quantidade: 15,
+          realizado: '2026-09-10', // 12 dias antes da solicitação, perfeitamente compatível com quinzenal
+          validade_efetiva: '2026-09-26',
+        },
+      ],
+    }
+
+    const item: AuditoriaInputItem = {
+      produto_nome_informado: 'IOGURTE MORANGO 1.25L',
+      quantidade_solicitada: 5,
+      validade_informada: '2026-09-26',
+    }
+
+    const res = auditarItemDevolucao(item, contextoQuinzenalEmDia)
+    expect(res.classificacao).toBe('acompanhamento_consistente')
+    expect(res.detalhes.periodosSemAtualizacao).toBe(false)
+    expect(res.detalhes.ciclosSemAtualizacao).toBe(0)
+  })
+
+  // CENÁRIO D: indústria mensal → 21 dias sem registro NÃO significam automaticamente Atenção
+  it('Cenário D: indústria mensal → 21 dias sem registro NÃO significam automaticamente Atenção', () => {
+    // 21 dias após a última visita em uma pesquisa mensal (ciclo a cada ~28 dias) NÃO é atraso
+    const contextoMensal: AuditoriaContextoLojaIndustria = {
+      ...contextoBase,
+      data_solicitacao: '2026-09-25',
+      cicloPesquisaConfigurado: {
+        frequencia: 'mensal',
+        dia_esperado: 'terca',
+        ativo: true,
+      },
+      historicoValidades: [
+        {
+          id: 'val-m1',
+          produto: 'IOGURTE MORANGO 1.25L',
+          quantidade: 22,
+          realizado: '2026-09-04', // Exatos 21 dias antes da solicitação
+          validade_efetiva: '2026-10-15',
+        },
+      ],
+    }
+
+    const item: AuditoriaInputItem = {
+      produto_nome_informado: 'IOGURTE MORANGO 1.25L',
+      quantidade_solicitada: 6,
+      validade_informada: '2026-10-15',
+    }
+
+    const res = auditarItemDevolucao(item, contextoMensal)
+    // Não pode disparar Atenção por regra fixa de 20/21 dias! Deve ser Acompanhamento consistente
+    expect(res.classificacao).toBe('acompanhamento_consistente')
+    expect(res.detalhes.periodosSemAtualizacao).toBe(false)
+    expect(res.detalhes.ciclosSemAtualizacao).toBe(0)
+  })
+
+  // CENÁRIO E: ausência de configuração de ciclo → não inventar janela temporal (continuidade não determinável, explicada na saída)
+  it('Cenário E: ausência de configuração de ciclo → não inventar janela temporal e sinalizar continuidade não determinável', () => {
+    const contextoSemCiclo: AuditoriaContextoLojaIndustria = {
+      ...contextoBase,
+      cicloPesquisaConfigurado: undefined, // Sem pesquisa cadastrada
+      data_solicitacao: '2026-09-20',
+      historicoValidades: [
+        {
+          id: 'val-sc1',
+          produto: 'IOGURTE MORANGO 1.25L',
+          quantidade: 14,
+          realizado: '2026-08-25', // 26 dias antes
+          validade_efetiva: '2026-09-26',
+        },
+      ],
+    }
+
+    const item: AuditoriaInputItem = {
+      produto_nome_informado: 'IOGURTE MORANGO 1.25L',
+      quantidade_solicitada: 5,
+      validade_informada: '2026-09-26',
+    }
+
+    const res = auditarItemDevolucao(item, contextoSemCiclo)
+    // Não inventa regra de 20/21 dias: classifica como acompanhamento consistente do histórico existente
+    expect(res.classificacao).toBe('acompanhamento_consistente')
+    expect(res.detalhes.continuidadeNaoDeterminavel).toBe(true)
+    expect(res.detalhes.periodosSemAtualizacao).toBe(false)
+    expect(res.explicacao).toContain('Nota de calendário: Não há ciclo de pesquisa configurado')
+  })
+
+  // CENÁRIO COMPLEMENTAR: contexto de indústria inseguro → classificar DADOS INSUFICIENTES
+  it('deve classificar como DADOS INSUFICIENTES quando o contexto da indústria for inseguro/ambíguo', () => {
+    const contextoInseguro: AuditoriaContextoLojaIndustria = {
+      ...contextoBase,
+      contextoIndustriaSeguro: false,
+      motivoInsegurancaIndustria:
+        'A indústria "DESCONHECIDA" não possui vínculo validado no Cadastro Operacional.',
+      historicoValidades: [],
+    }
+
+    const item: AuditoriaInputItem = {
+      produto_nome_informado: 'QUALQUER PRODUTO',
+      quantidade_solicitada: 5,
+      validade_informada: '2026-09-26',
+    }
+
+    const res = auditarItemDevolucao(item, contextoInseguro)
+    expect(res.classificacao).toBe('dados_insuficientes')
+    expect(res.detalhes.dadosHistoricoInsuficientes).toBe(true)
+    expect(res.explicacao).toContain('não possui vínculo validado')
   })
 })

@@ -7,6 +7,7 @@ import {
   atualizarDadosAutorizacaoNFDescarte,
   gerarMensagemSolicitacaoIndustria,
   gerarProximoCodigoCaso,
+  carregarContextoAuditoria,
 } from '@/services/devolucoesService'
 import { DevolucaoCaso, CriarDevolucaoCasoInput } from '@/types/devolucoes'
 
@@ -227,5 +228,91 @@ describe('Serviço de Devoluções / NF — Fluxo Operacional e Rastreabilidade'
         evidencia_descarte_anexo_nome: 'foto_descarte_loja.jpg',
       }),
     )
+  })
+
+  it('carregarContextoAuditoria deve restringir histórico por indústria validada (industry_id / tradepro_client_id)', async () => {
+    const mockValidadesFilter = vi.fn()
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'industry_registry') {
+        return {
+          getOne: vi.fn().mockResolvedValue({
+            id: 'ind-frutap',
+            nome: 'FRUTAP',
+            tradepro_client_id: '7',
+          }),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      if (name === 'industry_research_config') {
+        return {
+          getFullList: vi.fn().mockResolvedValue([
+            {
+              industry_id: 'ind-frutap',
+              tipo_pesquisa: 'validades',
+              frequencia: 'semanal',
+              dia_esperado: 'terca',
+              tolerancia_dias: 2,
+              ativo: true,
+            },
+          ]),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockImplementation((page, perPage, options) => {
+            mockValidadesFilter(options?.filter)
+            return Promise.resolve({ items: [], totalItems: 0 })
+          }),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      if (name === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalItems: 0 }),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      if (name === 'industry_product_mix') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalItems: 0 }),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      return {} as unknown as ReturnType<typeof pb.collection>
+    })
+
+    const ctx = await carregarContextoAuditoria(
+      'FRUTAP',
+      '405',
+      'Fort 405',
+      '2026-09-20',
+      'ind-frutap',
+    )
+    expect(ctx.industry_id).toBe('ind-frutap')
+    expect(ctx.tradepro_client_id).toBe('7')
+    expect(ctx.contextoIndustriaSeguro).toBe(true)
+    expect(ctx.cicloPesquisaConfigurado?.frequencia).toBe('semanal')
+    // Verifica que o filtro de validades_base restringiu pela indústria (industry_id e/ou cod_cliente=7) e pela loja
+    expect(mockValidadesFilter).toHaveBeenCalled()
+    const filterUsed = mockValidadesFilter.mock.calls[0][0]
+    expect(filterUsed).toContain("codigo_loja = '405'")
+    expect(filterUsed).toContain("industry_id = 'ind-frutap'")
+    expect(filterUsed).toContain("cod_cliente = '7'")
+  })
+
+  it('carregarContextoAuditoria sinaliza contexto inseguro quando indústria não for encontrada no cadastro operacional', async () => {
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'industry_registry') {
+        return {
+          getOne: vi.fn().mockRejectedValue(new Error('Record not found')),
+          getList: vi.fn().mockResolvedValue({ items: [] }),
+        } as unknown as ReturnType<typeof pb.collection>
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+      } as unknown as ReturnType<typeof pb.collection>
+    })
+
+    const ctx = await carregarContextoAuditoria('Indústria Sem Cadastro', '405', 'Fort 405')
+    expect(ctx.contextoIndustriaSeguro).toBe(false)
+    expect(ctx.motivoInsegurancaIndustria).toContain('não possui cadastro operacional validado')
+    // Por segurança, não mistura registros
+    expect(ctx.historicoValidades).toEqual([])
   })
 })

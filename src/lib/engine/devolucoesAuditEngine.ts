@@ -18,6 +18,7 @@ import {
   AuditoriaHistoricoRegistro,
   AuditoriaRupturaContexto,
 } from '@/types/devolucoes'
+import { generateExpectedCycles, calculateCyclesMissed } from '@/lib/tracking/cycleCalculator'
 
 export interface AuditoriaInputItem {
   id?: string
@@ -60,6 +61,8 @@ export interface HistoricoRupturaRaw {
 
 export interface AuditoriaContextoLojaIndustria {
   industry_name: string
+  industry_id?: string
+  tradepro_client_id?: string
   store_code?: string
   store_name: string
   data_solicitacao: string // YYYY-MM-DD
@@ -67,6 +70,22 @@ export interface AuditoriaContextoLojaIndustria {
   historicoRupturas: HistoricoRupturaRaw[]
   mixOficialProdutos?: Array<{ codigo_produto?: string; nome_produto: string }>
   dataInicioBaseHistorica?: string
+  contextoIndustriaSeguro?: boolean
+  motivoInsegurancaIndustria?: string
+  cicloPesquisaConfigurado?: {
+    frequencia: 'diaria' | 'semanal' | 'quinzenal' | 'mensal'
+    dia_esperado?:
+      | 'segunda'
+      | 'terca'
+      | 'quarta'
+      | 'quinta'
+      | 'sexta'
+      | 'sabado'
+      | 'domingo'
+      | 'qualquer'
+    tolerancia_dias?: number
+    ativo?: boolean
+  }
 }
 
 export interface AuditoriaItemResultado {
@@ -313,33 +332,64 @@ export function auditarItemDevolucao(
   const ultimaAtualizacao =
     registrosAnteriores.length > 0 ? registrosAnteriores[registrosAnteriores.length - 1] : undefined
 
-  // 5. Analisar ciclos / períodos sem atualização antes da solicitação
+  // 5. Analisar ciclos / continuidade segundo o calendário operacional configurado da própria indústria
+  // REMOÇÃO DA REGRA FIXA DE 20/21 DIAS (Ajuste 2):
+  // Reutiliza a configuração de ciclos da indústria (industry_research_config) via cycleCalculator.
+  // Se não houver ciclo configurado suficiente, NÃO inventar janela arbitrária.
   let periodosSemAtualizacao = false
   let diasSemAtualizacao = 0
+  let ciclosSemAtualizacao = 0
+  let cicloEsperadoDescricao: string | undefined = undefined
+  let continuidadeNaoDeterminavel = false
+
   if (ultimaAtualizacao && dataSolIso) {
     diasSemAtualizacao = diferencaEmDias(ultimaAtualizacao.data, dataSolIso)
-    // Se a última visita com registro foi há mais de 20 dias antes da solicitação
-    if (diasSemAtualizacao > 20) {
-      periodosSemAtualizacao = true
-    }
   }
 
-  // Também verificar intervalos longos (> 21 dias) entre registros consecutivos
-  if (registrosAnteriores.length >= 2) {
-    for (let i = 1; i < registrosAnteriores.length; i++) {
-      const gap = diferencaEmDias(registrosAnteriores[i - 1].data, registrosAnteriores[i].data)
-      if (gap > 21) {
+  const cicloCfg = contexto.cicloPesquisaConfigurado
+  if (cicloCfg && cicloCfg.frequencia && dataSolIso) {
+    cicloEsperadoDescricao = `${cicloCfg.frequencia}${
+      cicloCfg.dia_esperado ? ` (${cicloCfg.dia_esperado})` : ''
+    }`
+
+    // Gerar ciclos esperados até a data da solicitação
+    const refDate = new Date(dataSolIso + 'T12:00:00Z')
+    const expectedCycles = generateExpectedCycles(
+      {
+        tipo_pesquisa: 'validades',
+        frequencia: cicloCfg.frequencia,
+        dia_esperado: cicloCfg.dia_esperado || 'qualquer',
+      },
+      refDate,
+      6,
+    )
+
+    if (ultimaAtualizacao) {
+      const missed = calculateCyclesMissed(ultimaAtualizacao.data, expectedCycles)
+      ciclosSemAtualizacao = missed.ciclosSemAtualizacao
+      // Se perdeu 1 ou mais ciclos esperados da frequência configurada
+      if (ciclosSemAtualizacao >= 1) {
         periodosSemAtualizacao = true
-        break
       }
     }
+  } else {
+    // Sem configuração operacional de ciclos para esta indústria:
+    // NÃO inventar janela arbitrária. A continuidade não pode ser determinada pelo calendário operacional.
+    continuidadeNaoDeterminavel = true
+    periodosSemAtualizacao = false
   }
 
   // 6. Verificar se há histórico suficiente (Regra 12: NÃO confundir ausência de dado com falha)
-  // Se a base da loja possui menos de 1 ciclo registrado no total ou a data de início da base
-  // é muito recente (menos de 15 dias da data da solicitação)
   let dadosHistoricoInsuficientes = false
   let motivoInsuficiencia: string | undefined = undefined
+
+  // Cenário de limitação de contexto/dados da indústria (Ajuste 1: contextoIndustriaSeguro === false)
+  if (contexto.contextoIndustriaSeguro === false) {
+    dadosHistoricoInsuficientes = true
+    motivoInsuficiencia =
+      contexto.motivoInsegurancaIndustria ||
+      'Contexto de indústria ambíguo ou não identificado no Cadastro Operacional com segurança. Por integridade operacional, registros de outras indústrias não foram considerados.'
+  }
 
   // Cenário 5: Validade não informada
   if (item.validade_ausente || !validadeInformada) {
@@ -391,9 +441,9 @@ export function auditarItemDevolucao(
     const motivosAtencao: string[] = []
     if (periodosSemAtualizacao) {
       motivosAtencao.push(
-        `existem períodos sem atualização antes da solicitação (última atualização em ${formatarDataBr(
+        `ciclo esperado da indústria sem atualização (configuração ${cicloEsperadoDescricao || 'operacional'}: ${ciclosSemAtualizacao} ciclo(s) sem registro antes da solicitação, última atualização em ${formatarDataBr(
           ultimaAtualizacao?.data,
-        )}, há ${diasSemAtualizacao} dias)`,
+        )})`,
       )
     }
     if (!mesmaValidadeEncontrada && validadeInformada) {
@@ -418,6 +468,15 @@ export function auditarItemDevolucao(
     } registro(s) anterior(es); última atualização em ${formatarDataBr(
       ultimaAtualizacao?.data,
     )} com ${ultimaAtualizacao?.quantidade} un.`
+  }
+
+  // Se não havia ciclo configurado para determinar continuidade pelo calendário operacional, explicar com transparência
+  if (
+    continuidadeNaoDeterminavel &&
+    !dadosHistoricoInsuficientes &&
+    registrosAnteriores.length > 0
+  ) {
+    resumoExplicativo += ` (Nota de calendário: Não há ciclo de pesquisa configurado no Cadastro Operacional para a indústria ${contexto.industry_name}; a continuidade foi avaliada com base no histórico existente, sem aplicar janelas temporais arbitrárias).`
   }
 
   // Contexto adicional de Ruptura (Regra 9)
@@ -447,6 +506,9 @@ export function auditarItemDevolucao(
     quantidadeZeroRegistrada,
     periodosSemAtualizacao,
     diasSemAtualizacao,
+    ciclosSemAtualizacao,
+    cicloEsperadoDescricao,
+    continuidadeNaoDeterminavel,
     rupturasRelacionadas,
     dadosHistoricoInsuficientes,
     motivoInsuficiencia,

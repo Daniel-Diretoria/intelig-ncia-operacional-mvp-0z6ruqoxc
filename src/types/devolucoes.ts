@@ -89,6 +89,9 @@ export interface AuditoriaItemDetalhes {
   quantidadeZeroRegistrada: boolean
   periodosSemAtualizacao: boolean
   diasSemAtualizacao?: number
+  ciclosSemAtualizacao?: number
+  cicloEsperadoDescricao?: string
+  continuidadeNaoDeterminavel?: boolean
   rupturasRelacionadas: AuditoriaRupturaContexto[]
   dadosHistoricoInsuficientes: boolean
   motivoInsuficiencia?: string

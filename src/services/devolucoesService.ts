@@ -128,122 +128,245 @@ export async function carregarContextoAuditoria(
   storeCode?: string,
   storeName?: string,
   dataSolicitacao?: string,
+  industryId?: string,
 ): Promise<AuditoriaContextoLojaIndustria> {
   const historicoValidades: HistoricoValidadeRaw[] = []
   const historicoRupturas: HistoricoRupturaRaw[] = []
   let mixOficialProdutos: Array<{ codigo_produto?: string; nome_produto: string }> = []
   let dataInicioBaseHistorica: string | undefined = undefined
 
-  // 1. Buscar histórico de validades em validades_base
+  // 1. Resolução segura da indústria via Cadastro Operacional (industry_registry)
+  let resolvedIndustryId = industryId || ''
+  let resolvedTradeProClientId = ''
+  let resolvedIndustryName = industryName.trim()
+  let contextoIndustriaSeguro = true
+  let motivoInsegurancaIndustria: string | undefined = undefined
+
   try {
-    const filters: string[] = []
-    if (storeCode && storeCode.trim() !== '') {
-      filters.push(`codigo_loja = '${storeCode.replace(/'/g, "\\'")}'`)
-    } else if (storeName && storeName.trim() !== '') {
-      filters.push(
-        `nome_loja ~ '${storeName.replace(/'/g, "\\'")}' || razao_social ~ '${storeName.replace(/'/g, "\\'")}'`,
-      )
-    }
-
-    const filterStr = filters.length > 0 ? filters.join(' && ') : ''
-
-    const records = await pb.collection('validades_base').getList(1, 200, {
-      filter: filterStr,
-      sort: 'realizado',
-    })
-
-    for (const r of records.items) {
-      const row = r as unknown as {
-        id: string
-        produto: string
-        cod_produto?: string
-        codigo_loja?: string
-        nome_loja?: string
-        razao_social?: string
-        quantidade: number
-        realizado: string
-        validade_efetiva?: string
-        validade_original?: string
-        colaborador?: string
-        status_operacional?: string
-        cliente?: string
-        fornecedor?: string
+    if (resolvedIndustryId) {
+      const reg = await pb
+        .collection('industry_registry')
+        .getOne<{ id: string; nome: string; tradepro_client_id?: string }>(resolvedIndustryId)
+      if (reg) {
+        resolvedIndustryName = reg.nome || resolvedIndustryName
+        resolvedTradeProClientId = reg.tradepro_client_id?.trim() || ''
       }
-      historicoValidades.push({
-        id: row.id,
-        produto: row.produto,
-        cod_produto: row.cod_produto,
-        codigo_loja: row.codigo_loja,
-        nome_loja: row.nome_loja,
-        razao_social: row.razao_social,
-        quantidade: typeof row.quantidade === 'number' ? row.quantidade : 0,
-        realizado: row.realizado,
-        validade_efetiva: row.validade_efetiva,
-        validade_original: row.validade_original,
-        colaborador: row.colaborador,
-        status_operacional: row.status_operacional,
-        cliente: row.cliente,
-        fornecedor: row.fornecedor,
+    } else if (resolvedIndustryName) {
+      // Buscar pelo nome canônico no cadastro operacional
+      const cleanKey = resolvedIndustryName.toUpperCase()
+      const regList = await pb.collection('industry_registry').getList<{
+        id: string
+        nome: string
+        nome_chave: string
+        tradepro_client_id?: string
+      }>(1, 1, {
+        filter: `nome_chave = '${cleanKey.replace(/'/g, "\\'")}' || nome ~ '${resolvedIndustryName.replace(/'/g, "\\'")}'`,
       })
-      if (!dataInicioBaseHistorica && row.realizado) {
-        dataInicioBaseHistorica = row.realizado
+      if (regList.items.length > 0) {
+        resolvedIndustryId = regList.items[0].id
+        resolvedTradeProClientId = regList.items[0].tradepro_client_id?.trim() || ''
       }
     }
   } catch (err) {
-    console.warn('[devolucoesService] Aviso ao carregar validades_base para auditoria:', err)
+    console.warn('[devolucoesService] Aviso ao resolver industry_registry:', err)
   }
 
-  // 2. Buscar histórico de rupturas em rupturas_base
-  try {
-    const rFilters: string[] = []
-    if (storeCode && storeCode.trim() !== '') {
-      rFilters.push(`codigo_loja = '${storeCode.replace(/'/g, "\\'")}'`)
-    } else if (storeName && storeName.trim() !== '') {
-      rFilters.push(`nome_loja ~ '${storeName.replace(/'/g, "\\'")}'`)
-    }
-
-    const rFilterStr = rFilters.length > 0 ? rFilters.join(' && ') : ''
-
-    const rupRecords = await pb.collection('rupturas_base').getList(1, 100, {
-      filter: rFilterStr,
-      sort: '-created',
-    })
-
-    for (const r of rupRecords.items) {
-      const row = r as unknown as {
-        id: string
-        produto: string
-        codigo_loja?: string
-        nome_loja?: string
-        motivo?: string
-        situacao_atual?: string
-        data_visita?: string
-        observacao?: string
-      }
-      historicoRupturas.push(row)
-    }
-  } catch (err) {
-    console.warn('[devolucoesService] Aviso ao carregar rupturas_base para auditoria:', err)
+  // Se não foi possível resolver nenhum vínculo seguro com industry_registry nem tradepro_client_id
+  if (!resolvedIndustryId && !resolvedTradeProClientId) {
+    contextoIndustriaSeguro = false
+    motivoInsegurancaIndustria = `A indústria "${industryName}" não possui cadastro operacional validado ou vínculo com Cód. Cliente TradePro (tradepro_client_id). Por segurança, registros operacionais de outras indústrias não foram misturados.`
   }
 
-  // 3. Buscar Mix de produtos da indústria se houver
-  try {
-    const mixRecords = await pb.collection('industry_product_mix').getList(1, 150, {
-      filter: `industry_name ~ '${industryName.replace(/'/g, "\\'")}'`,
-    })
-    mixOficialProdutos = mixRecords.items.map((m) => {
-      const item = m as unknown as { codigo_produto?: string; nome_produto: string }
-      return {
-        codigo_produto: item.codigo_produto,
-        nome_produto: item.nome_produto,
+  // 2. Buscar configuração operacional de pesquisas/ciclos por indústria (Cadastro Operacional)
+  let cicloPesquisaConfigurado: AuditoriaContextoLojaIndustria['cicloPesquisaConfigurado'] =
+    undefined
+  if (resolvedIndustryId) {
+    try {
+      const researchConfigs = await pb.collection('industry_research_config').getFullList<{
+        industry_id: string
+        tipo_pesquisa: string
+        frequencia: 'diaria' | 'semanal' | 'quinzenal' | 'mensal'
+        dia_esperado:
+          | 'segunda'
+          | 'terca'
+          | 'quarta'
+          | 'quinta'
+          | 'sexta'
+          | 'sabado'
+          | 'domingo'
+          | 'qualquer'
+        tolerancia_dias?: number
+        ativo: boolean
+      }>({
+        filter: `industry_id = '${resolvedIndustryId}' && tipo_pesquisa = 'validades' && ativo = true`,
+      })
+      if (researchConfigs.length > 0) {
+        const rc = researchConfigs[0]
+        cicloPesquisaConfigurado = {
+          frequencia: rc.frequencia,
+          dia_esperado: rc.dia_esperado,
+          tolerancia_dias: rc.tolerancia_dias,
+          ativo: rc.ativo,
+        }
       }
-    })
-  } catch (err) {
-    console.warn('[devolucoesService] Aviso ao carregar industry_product_mix:', err)
+    } catch (err) {
+      console.warn('[devolucoesService] Aviso ao carregar industry_research_config:', err)
+    }
+  }
+
+  // 3. Buscar histórico de validades em validades_base — RESTRINGIR POR INDÚSTRIA + LOJA
+  // Apenas busca se o contexto da indústria for seguro, garantindo nunca misturar indústrias
+  if (contextoIndustriaSeguro) {
+    try {
+      const storeClauses: string[] = []
+      if (storeCode && storeCode.trim() !== '') {
+        storeClauses.push(`codigo_loja = '${storeCode.replace(/'/g, "\\'")}'`)
+      } else if (storeName && storeName.trim() !== '') {
+        storeClauses.push(
+          `nome_loja ~ '${storeName.replace(/'/g, "\\'")}' || razao_social ~ '${storeName.replace(/'/g, "\\'")}'`,
+        )
+      }
+
+      // Vínculo da Indústria:
+      // - industry_id (relação direta se populada)
+      // - OU cod_cliente = tradepro_client_id (vínculo por código numérico de cliente TradePro)
+      // NUNCA cruzar por fornecedor!
+      const industryClauses: string[] = []
+      if (resolvedIndustryId) {
+        industryClauses.push(`industry_id = '${resolvedIndustryId}'`)
+      }
+      if (resolvedTradeProClientId) {
+        industryClauses.push(`cod_cliente = '${resolvedTradeProClientId.replace(/'/g, "\\'")}'`)
+      }
+
+      const filters: string[] = []
+      if (storeClauses.length > 0) {
+        filters.push(`(${storeClauses.join(' || ')})`)
+      }
+      if (industryClauses.length > 0) {
+        filters.push(`(${industryClauses.join(' || ')})`)
+      }
+
+      const filterStr = filters.join(' && ')
+
+      const records = await pb.collection('validades_base').getList(1, 200, {
+        filter: filterStr,
+        sort: 'realizado',
+      })
+
+      for (const r of records.items) {
+        const row = r as unknown as {
+          id: string
+          produto: string
+          cod_produto?: string
+          codigo_loja?: string
+          nome_loja?: string
+          razao_social?: string
+          quantidade: number
+          realizado: string
+          validade_efetiva?: string
+          validade_original?: string
+          colaborador?: string
+          status_operacional?: string
+          cliente?: string
+          fornecedor?: string
+        }
+        historicoValidades.push({
+          id: row.id,
+          produto: row.produto,
+          cod_produto: row.cod_produto,
+          codigo_loja: row.codigo_loja,
+          nome_loja: row.nome_loja,
+          razao_social: row.razao_social,
+          quantidade: typeof row.quantidade === 'number' ? row.quantidade : 0,
+          realizado: row.realizado,
+          validade_efetiva: row.validade_efetiva,
+          validade_original: row.validade_original,
+          colaborador: row.colaborador,
+          status_operacional: row.status_operacional,
+          cliente: row.cliente,
+          fornecedor: row.fornecedor,
+        })
+        if (!dataInicioBaseHistorica && row.realizado) {
+          dataInicioBaseHistorica = row.realizado
+        }
+      }
+    } catch (err) {
+      console.warn('[devolucoesService] Aviso ao carregar validades_base para auditoria:', err)
+    }
+
+    // 4. Buscar histórico de rupturas em rupturas_base — RESTRINGIR POR INDÚSTRIA + LOJA
+    // Rupturas_base possui codigo_cliente (ex.: "4" para COCOLEVE) e cliente (nome da indústria/cliente TradePro)
+    try {
+      const rStoreClauses: string[] = []
+      if (storeCode && storeCode.trim() !== '') {
+        rStoreClauses.push(`codigo_loja = '${storeCode.replace(/'/g, "\\'")}'`)
+      } else if (storeName && storeName.trim() !== '') {
+        rStoreClauses.push(`nome_loja ~ '${storeName.replace(/'/g, "\\'")}'`)
+      }
+
+      const rIndClauses: string[] = []
+      if (resolvedTradeProClientId) {
+        rIndClauses.push(`codigo_cliente = '${resolvedTradeProClientId.replace(/'/g, "\\'")}'`)
+      }
+
+      const rFilters: string[] = []
+      if (rStoreClauses.length > 0) {
+        rFilters.push(`(${rStoreClauses.join(' || ')})`)
+      }
+      if (rIndClauses.length > 0) {
+        rFilters.push(`(${rIndClauses.join(' || ')})`)
+      }
+
+      const rFilterStr = rFilters.length > 0 ? rFilters.join(' && ') : ''
+
+      const rupRecords = await pb.collection('rupturas_base').getList(1, 100, {
+        filter: rFilterStr,
+        sort: '-created',
+      })
+
+      for (const r of rupRecords.items) {
+        const row = r as unknown as {
+          id: string
+          produto: string
+          codigo_loja?: string
+          nome_loja?: string
+          motivo?: string
+          situacao_atual?: string
+          data_visita?: string
+          observacao?: string
+        }
+        historicoRupturas.push(row)
+      }
+    } catch (err) {
+      console.warn('[devolucoesService] Aviso ao carregar rupturas_base para auditoria:', err)
+    }
+
+    // 5. Buscar Mix de produtos da indústria se houver
+    try {
+      let mixFilter = `industry_name ~ '${industryName.replace(/'/g, "\\'")}'`
+      if (resolvedIndustryId) {
+        mixFilter = `industry_id = '${resolvedIndustryId}' || ${mixFilter}`
+      }
+      const mixRecords = await pb.collection('industry_product_mix').getList(1, 150, {
+        filter: mixFilter,
+      })
+      mixOficialProdutos = mixRecords.items.map((m) => {
+        const item = m as unknown as { codigo_produto?: string; nome_produto: string }
+        return {
+          codigo_produto: item.codigo_produto,
+          nome_produto: item.nome_produto,
+        }
+      })
+    } catch (err) {
+      console.warn('[devolucoesService] Aviso ao carregar industry_product_mix:', err)
+    }
   }
 
   return {
-    industry_name: industryName,
+    industry_name: resolvedIndustryName || industryName,
+    industry_id: resolvedIndustryId,
+    tradepro_client_id: resolvedTradeProClientId,
     store_code: storeCode,
     store_name: storeName || '',
     data_solicitacao: dataSolicitacao || new Date().toISOString().slice(0, 10),
@@ -251,6 +374,9 @@ export async function carregarContextoAuditoria(
     historicoRupturas,
     mixOficialProdutos,
     dataInicioBaseHistorica,
+    contextoIndustriaSeguro,
+    motivoInsegurancaIndustria,
+    cicloPesquisaConfigurado,
   }
 }
 
@@ -297,6 +423,7 @@ export async function criarCasoDevolucao(input: CriarDevolucaoCasoInput): Promis
     input.store_code,
     input.store_name,
     input.data_solicitacao,
+    input.industry_id,
   )
 
   // 3. Criar e auditar cada item
@@ -410,6 +537,7 @@ export async function reexecutarAuditoriaCaso(casoId: string): Promise<Devolucao
     caso.store_code,
     caso.store_name,
     caso.data_solicitacao,
+    caso.industry_id,
   )
 
   const resultadosAuditados: AuditoriaItemResultado[] = []
