@@ -5,10 +5,22 @@ import {
   listOperationalBackups,
   restoreOperationalBackup,
 } from '@/services/operationalCleanupService'
-import { pb } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 
 vi.mock('@/lib/pocketbase/client', () => {
   return {
+    default: {
+      send: vi.fn(),
+      collection: vi.fn(),
+      authStore: {
+        record: {
+          id: 'admin_test_user_id',
+          name: 'Admin Teste',
+          email: 'admin@diretoria.test',
+          role: 'admin',
+        },
+      },
+    },
     pb: {
       send: vi.fn(),
       collection: vi.fn(),
