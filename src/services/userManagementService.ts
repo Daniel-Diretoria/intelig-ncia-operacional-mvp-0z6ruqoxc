@@ -1,6 +1,6 @@
 /**
- * SKIP — Serviço de Gestão de Usuários, Perfis, Permissões e Auditoria Administrativa
- * v0.0.119
+ * Serviço de Gerenciamento de Usuários, Perfis e Auditoria (RBAC)
+ * v0.0.121
  */
 
 import pb from '@/lib/pocketbase/client'

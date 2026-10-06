@@ -1,6 +1,6 @@
 /**
  * SKIP — Definição de Permissões, Perfis e Controle de Acesso (RBAC + Escopo)
- * v0.0.119
+ * v0.0.121
  */
 
 export type UserRole =

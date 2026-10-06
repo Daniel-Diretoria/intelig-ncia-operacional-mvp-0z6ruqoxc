@@ -154,7 +154,7 @@ export const ConfiguracoesPage: React.FC = () => {
                 Configurações &amp; Acessos
               </h1>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                v0.0.119
+                v0.0.121
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">

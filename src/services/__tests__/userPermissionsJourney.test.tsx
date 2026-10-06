@@ -22,7 +22,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute'
 import * as authContextModule from '@/services/authContext'
 import pb from '@/lib/pocketbase/client'
 
-describe('Fundação de Usuários, Perfis e Permissões (v0.0.119 - 17 Cenários Obrigatórios)', () => {
+describe('Fundação de Usuários, Perfis e Permissões (v0.0.121 - 17 Cenários Obrigatórios)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     pb.authStore.clear()
