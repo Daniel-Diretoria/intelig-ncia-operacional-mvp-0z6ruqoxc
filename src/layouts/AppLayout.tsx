@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   CalendarCheck,
   PackageX,
+  RotateCcw,
   Bell,
   ShieldAlert,
   FileBarChart,
@@ -67,6 +68,11 @@ const PRIMARY_AREAS: NavSection[] = [
         to: '/rupturas',
         label: 'Rupturas',
         icon: PackageX,
+      },
+      {
+        to: '/devolucoes',
+        label: 'Devoluções / NF',
+        icon: RotateCcw,
       },
     ],
   },
@@ -211,6 +217,7 @@ export const AppLayout: React.FC = () => {
     if (location.pathname.startsWith('/industrias')) return 'Indústrias & Fornecedores'
     if (location.pathname === '/validades') return 'Validades'
     if (location.pathname === '/rupturas') return 'Rupturas'
+    if (location.pathname === '/devolucoes') return 'Devoluções / NF'
     if (location.pathname.startsWith('/lojas')) return 'Gestão de Lojas'
     if (location.pathname === '/relatorios') return 'Relatórios Operacionais'
     if (location.pathname === '/auditoria') return 'Auditoria & Governança'

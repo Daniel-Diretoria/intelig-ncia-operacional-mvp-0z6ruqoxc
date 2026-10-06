@@ -22,6 +22,7 @@ import { RelatoriosPage } from '@/pages/Relatorios'
 import { ConfiguracoesPage } from '@/pages/Configuracoes'
 import { AssistantPage } from '@/pages/AssistantPage'
 import { ImportacaoPage } from '@/pages/Importacao'
+import { DevolucoesPage } from '@/pages/DevolucoesPage'
 import NotFound from '@/pages/NotFound'
 
 const App = () => (
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/industrias" element={<IndustriasPage />} />
             <Route path="/industrias/:id" element={<IndustryDetailPage />} />
             <Route path="/validades" element={<ValidadesPage />} />
+            <Route path="/devolucoes" element={<DevolucoesPage />} />
             <Route path="/lojas" element={<LojasPage />} />
             <Route path="/lojas/:storeId" element={<StoreDetailPage />} />
             <Route path="/rupturas" element={<RupturasPage />} />

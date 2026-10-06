@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T03:18:42.769Z",
+  "generatedAt": "2026-10-06T04:07:55.605Z",
   "collections": [
     {
       "name": "users",
@@ -3106,6 +3106,724 @@
         "CREATE INDEX idx_track_trat_ind_store ON industry_tracking_tratativas (industry_name, store_name)",
         "CREATE INDEX idx_track_trat_prod ON industry_tracking_tratativas (product_name)",
         "CREATE INDEX idx_track_trat_status ON industry_tracking_tratativas (status_tratativa)"
+      ]
+    },
+    {
+      "name": "devolucoes_casos",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "codigo_caso",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "data_solicitacao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "industry_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "promotor_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "promotor_cod",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_geral",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "solicitacao_recebida",
+            "em_analise",
+            "aguardando_informacao",
+            "pronta_para_envio",
+            "aguardando_autorizacao_industria",
+            "industria_autorizou",
+            "aguardando_nf_descarte",
+            "concluido",
+            "divergencia_encontrada",
+            "nao_autorizado",
+            "cancelado"
+          ]
+        },
+        {
+          "name": "responsavel_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proxima_acao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_itens",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_unidades_solicitadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_unidades_autorizadas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_unidades_devolvidas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_solicitado",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_autorizado",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_devolvido",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nf_numero",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nf_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nf_valor",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nf_anexo_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nf_assinada_anexo_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "evidencia_descarte_anexo_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "autorizacao_protocolo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "autorizacao_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resultado_auditoria_geral",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resumo_auditoria_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_dev_casos_codigo ON devolucoes_casos (codigo_caso)",
+        "CREATE INDEX idx_dev_casos_status ON devolucoes_casos (status)",
+        "CREATE INDEX idx_dev_casos_ind ON devolucoes_casos (industry_name)",
+        "CREATE INDEX idx_dev_casos_store ON devolucoes_casos (store_code)",
+        "CREATE INDEX idx_dev_casos_promotor ON devolucoes_casos (promotor_nome)",
+        "CREATE INDEX idx_dev_casos_data ON devolucoes_casos (data_solicitacao DESC)"
+      ]
+    },
+    {
+      "name": "devolucoes_itens",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "caso_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "devolucoes_casos"
+        },
+        {
+          "name": "codigo_caso",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto_nome_informado",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "produto_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto_codigo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produto_nome_oficial",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "precisa_identificacao",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade_solicitada",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "quantidade_autorizada",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantidade_devolvida",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_unitario",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade_informada",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "validade_ausente",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_item",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "evidencia_foto_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "classificacao_auditoria",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "acompanhamento_consistente",
+            "atencao",
+            "divergencia",
+            "dados_insuficientes",
+            "nao_auditado"
+          ]
+        },
+        {
+          "name": "auditoria_explicacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "auditoria_detalhes_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "decisao_humana",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "pendente",
+            "aprovado_para_industria",
+            "solicitar_informacao_promotor",
+            "registrar_divergencia",
+            "manter_em_analise",
+            "rejeitado"
+          ]
+        },
+        {
+          "name": "decisao_observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "decisao_usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "decisao_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_dev_itens_caso ON devolucoes_itens (caso_id)",
+        "CREATE INDEX idx_dev_itens_classificacao ON devolucoes_itens (classificacao_auditoria)",
+        "CREATE INDEX idx_dev_itens_decisao ON devolucoes_itens (decisao_humana)"
+      ]
+    },
+    {
+      "name": "devolucoes_timeline",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "caso_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "devolucoes_casos"
+        },
+        {
+          "name": "codigo_caso",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_evento",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "criacao_solicitacao",
+            "edicao_dados",
+            "inclusao_item",
+            "remocao_item",
+            "edicao_item",
+            "auditoria_executada",
+            "decisao_humana",
+            "mudanca_status",
+            "informacao_solicitada",
+            "resposta_recebida",
+            "evidencia_anexada",
+            "autorizacao_industria",
+            "nf_registrada",
+            "descarte_registrado",
+            "caso_concluido",
+            "outro"
+          ]
+        },
+        {
+          "name": "titulo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_anterior",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_novo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dados_extras_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_evento",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_dev_timeline_caso ON devolucoes_timeline (caso_id, created DESC)",
+        "CREATE INDEX idx_dev_timeline_tipo ON devolucoes_timeline (tipo_evento)"
+      ]
+    },
+    {
+      "name": "devolucoes_evidencias",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "caso_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "devolucoes_casos"
+        },
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "timeline_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "foto_produto",
+            "foto_validade",
+            "foto_lote",
+            "nf_documento",
+            "nf_assinada",
+            "comprovante_descarte",
+            "outro"
+          ]
+        },
+        {
+          "name": "titulo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "url_arquivo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "arquivo",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_dev_evid_caso ON devolucoes_evidencias (caso_id)",
+        "CREATE INDEX idx_dev_evid_item ON devolucoes_evidencias (item_id)"
+      ]
+    },
+    {
+      "name": "devolucoes_audit",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "caso_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "devolucoes_casos"
+        },
+        {
+          "name": "acao",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "usuario_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "detalhes_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_acao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_dev_audit_caso ON devolucoes_audit (caso_id, created DESC)",
+        "CREATE INDEX idx_dev_audit_acao ON devolucoes_audit (acao)"
       ]
     }
   ]
