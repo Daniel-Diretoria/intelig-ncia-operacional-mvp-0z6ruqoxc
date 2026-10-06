@@ -10,6 +10,8 @@ export interface IndustryRegistry {
   contato_email?: string
   contato_telefone?: string
   observacoes?: string
+  tradepro_client_id?: string
+  tradepro_client_name?: string
   created?: string
   updated?: string
 }
@@ -140,7 +142,22 @@ export interface IndustryValidityPolicy {
   updated?: string
 }
 
-export type AuditModule = 'identificacao' | 'cobertura' | 'mix' | 'pesquisas' | 'politica_validade'
+export type AuditModule =
+  | 'identificacao'
+  | 'cobertura'
+  | 'mix'
+  | 'pesquisas'
+  | 'politica_validade'
+  | 'integracao_tradepro'
+
+export interface UnlinkedTradeProClient {
+  cod_cliente: string
+  cliente_nome: string
+  volume_registros: number
+  amostra_lojas: string[]
+  amostra_produtos: string[]
+  ultima_aparicao?: string
+}
 
 export interface IndustryConfigAudit {
   id: string

@@ -1420,6 +1420,47 @@ onRecordAfterUpdateSuccess((e) => {
       return
     }
 
+    // Carrega indústrias cadastradas para mapear tradepro_client_id -> industry_id
+    // Cache em memória durante a execução deste job
+    const industryMapByClientId = {}
+    const industryMapByName = {}
+    try {
+      const allIndustries = $app.findRecordsByFilter(
+        'industry_registry',
+        'id != ""',
+        'nome',
+        1000,
+        0,
+      )
+      if (allIndustries && allIndustries.length > 0) {
+        for (let indIdx = 0; indIdx < allIndustries.length; indIdx++) {
+          const indRec = allIndustries[indIdx]
+          const tId = (indRec.getString('tradepro_client_id') || '').trim()
+          const nKey = (indRec.getString('nome_chave') || indRec.getString('nome') || '')
+            .trim()
+            .toUpperCase()
+          if (tId) {
+            industryMapByClientId[tId] = {
+              id: indRec.id,
+              nome: indRec.getString('nome'),
+              tradepro_client_id: tId,
+              tradepro_client_name: indRec.getString('tradepro_client_name'),
+            }
+          }
+          if (nKey) {
+            industryMapByName[nKey] = {
+              id: indRec.id,
+              nome: indRec.getString('nome'),
+              tradepro_client_id: tId,
+              tradepro_client_name: indRec.getString('tradepro_client_name'),
+            }
+          }
+        }
+      }
+    } catch (indErr) {
+      console.log('[tradepro_sync] Aviso: falha ao carregar industry_registry: ' + indErr)
+    }
+
     let paginasTotal = record.getInt('paginas_total') || 1
     const startPage = (record.getInt('paginas_processadas') || 0) + 1
 
@@ -1652,8 +1693,42 @@ onRecordAfterUpdateSuccess((e) => {
           .trim()
         const rawEstado = (estadoObj.sigla || '').toString().trim()
         const rawPromotorNome = (promotor.nome || '').toString().trim()
-        const rawPromotorId = (promotor.id || '').toString().trim()
-        const rawCodProduto = (produtoObj.codigo || '').toString().trim()
+        const rawPromotorId = (promotor.id != null ? String(promotor.id) : '').trim()
+        // Cód. Produto preservando zeros à esquerda como texto estrito
+        const rawCodProduto = (produtoObj.codigo != null ? String(produtoObj.codigo) : '').trim()
+
+        // Cliente TradePro (Indústria): extrai código e nome do item ou do contexto
+        const rawCodCliente = (
+          item.codCliente != null
+            ? String(item.codCliente)
+            : item.cod_cliente != null
+              ? String(item.cod_cliente)
+              : cliente.codigoCliente != null
+                ? String(cliente.codigoCliente)
+                : cliente.codigo != null
+                  ? String(cliente.codigo)
+                  : ''
+        ).trim()
+        const rawClienteNome = (
+          item.clienteNome != null
+            ? String(item.clienteNome)
+            : item.cliente_nome != null
+              ? String(item.cliente_nome)
+              : item.nomeCliente != null
+                ? String(item.nomeCliente)
+                : cliente.cliente != null
+                  ? String(cliente.cliente)
+                  : ''
+        ).trim()
+
+        // Resolução de Indústria SKIP via tradepro_client_id:
+        // A chave primária de vínculo é SEMPRE o código (tradepro_client_id)
+        let resolvedIndustryId = ''
+        let resolvedIndustryName = ''
+        if (rawCodCliente && industryMapByClientId[rawCodCliente]) {
+          resolvedIndustryId = industryMapByClientId[rawCodCliente].id
+          resolvedIndustryName = industryMapByClientId[rawCodCliente].nome
+        }
 
         const rawQuantidade =
           typeof item.quantidade === 'number' ? item.quantidade : Number(item.quantidade) || 0
@@ -1669,7 +1744,8 @@ onRecordAfterUpdateSuccess((e) => {
         }
 
         const codigoLoja = extractStoreCode(rawRazaoSocial)
-        const fornecedor = 'DIRETORIA'
+        // O fornecedor é preservado separadamente e NUNCA substitui nem infere a Indústria
+        const fornecedor = (item.fornecedor || 'DIRETORIA').toString().trim()
         const chaveOperacional = [
           normKey(fornecedor),
           normKey(rawRazaoSocial),
@@ -1684,7 +1760,18 @@ onRecordAfterUpdateSuccess((e) => {
           valRecord.set('fornecedor', fornecedor)
           valRecord.set('razao_social', rawRazaoSocial)
           valRecord.set('produto', rawProduto)
-          valRecord.set('cliente', rawFantasia || rawRazaoSocial)
+          // No SKIP, o campo cliente armazena o Nome da Indústria (Cliente TradePro)
+          // Se não houver nome específico de Cliente TradePro, preserva rawClienteNome ou rawFantasia
+          valRecord.set(
+            'cliente',
+            resolvedIndustryName || rawClienteNome || rawFantasia || rawRazaoSocial,
+          )
+          valRecord.set('cod_cliente', rawCodCliente)
+          if (resolvedIndustryId) {
+            valRecord.set('industry_id', resolvedIndustryId)
+          } else {
+            valRecord.set('industry_id', '')
+          }
           valRecord.set('fantasia', rawFantasia)
           valRecord.set('codigo_loja', codigoLoja)
           valRecord.set('nome_loja', rawRazaoSocial)
@@ -1717,6 +1804,40 @@ onRecordAfterUpdateSuccess((e) => {
 
           $app.save(valRecord)
           totalValidos++
+
+          // Alimentação do Mix Operacional Observado (industry_product_mix):
+          // Tupla: Cliente (Indústria vinculada) + Produto observado
+          // NUNCA toca no Mix Definido da Loja nem altera produtos para oficiais
+          if (resolvedIndustryId && rawProduto) {
+            try {
+              const cleanProdNome = rawProduto.trim()
+              const existingMix = $app.findRecordsByFilter(
+                'industry_product_mix',
+                'industry_id = "' +
+                  resolvedIndustryId +
+                  '" && nome_produto = "' +
+                  cleanProdNome.replace(/"/g, '\\"') +
+                  '"',
+                '-created',
+                1,
+                0,
+              )
+              if (!existingMix || existingMix.length === 0) {
+                const mixCol = $app.findCollectionByNameOrId('industry_product_mix')
+                const newMixItem = new Record(mixCol)
+                newMixItem.set('industry_id', resolvedIndustryId)
+                newMixItem.set('industry_name', resolvedIndustryName)
+                newMixItem.set('codigo_produto', rawCodProduto)
+                newMixItem.set('nome_produto', cleanProdNome)
+                newMixItem.set('categoria', 'Geral')
+                newMixItem.set('tipo_mix', 'observado_operacional')
+                newMixItem.set('status', 'ativo')
+                $app.save(newMixItem)
+              }
+            } catch (_) {
+              // Silencioso se der duplicidade no mix
+            }
+          }
         } catch (saveErr) {
           totalRejeitados++
         }

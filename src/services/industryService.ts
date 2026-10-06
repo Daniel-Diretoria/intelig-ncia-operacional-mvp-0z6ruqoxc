@@ -21,6 +21,8 @@ export interface SaveIndustryInput {
   contato_email?: string
   contato_telefone?: string
   observacoes?: string
+  tradepro_client_id?: string
+  tradepro_client_name?: string
 }
 
 export interface SaveStoreCoverageInput {
@@ -148,7 +150,14 @@ export async function saveIndustryRegistry(
     contato_email: input.contato_email?.trim() || '',
     contato_telefone: input.contato_telefone?.trim() || '',
     observacoes: input.observacoes?.trim() || '',
+    tradepro_client_id:
+      input.tradepro_client_id !== undefined ? input.tradepro_client_id.trim() : undefined,
+    tradepro_client_name:
+      input.tradepro_client_name !== undefined ? input.tradepro_client_name.trim() : undefined,
   }
+  // Remove campos undefined para não sobrescrever caso não enviados
+  if (payload.tradepro_client_id === undefined) delete payload.tradepro_client_id
+  if (payload.tradepro_client_name === undefined) delete payload.tradepro_client_name
 
   let result: IndustryRegistry
   if (input.id) {
@@ -697,5 +706,226 @@ export async function recordConfigAudit(data: {
     })
   } catch (err) {
     console.warn('[industryService] Erro ao salvar auditoria de config:', err)
+  }
+}
+
+/**
+ * 7. INTEGRAÇÃO TRADEPRO — VINCULAÇÃO E CLIENTES NÃO VINCULADOS
+ */
+
+export interface LinkTradeProClientInput {
+  industry_id: string
+  tradepro_client_id: string
+  tradepro_client_name: string
+  justificativa?: string
+  userName?: string
+}
+
+export interface UnlinkTradeProClientInput {
+  industry_id: string
+  justificativa?: string
+  userName?: string
+}
+
+/**
+ * Vincula uma indústria do SKIP a um Cliente TradePro (via código tradepro_client_id).
+ * Atualiza o registro em industry_registry, gera auditoria em industry_config_audit (modulo: 'integracao_tradepro')
+ * e retroalimenta validades_base que possuam esse cod_cliente pendente.
+ */
+export async function linkTradeProClient(
+  input: LinkTradeProClientInput,
+): Promise<IndustryRegistry> {
+  const userName = input.userName || 'Operador'
+  const targetIndustry = await pb
+    .collection('industry_registry')
+    .getOne<IndustryRegistry>(input.industry_id)
+
+  const anteriorClientId = targetIndustry.tradepro_client_id || ''
+  const anteriorClientName = targetIndustry.tradepro_client_name || ''
+
+  // Atualiza na coleção industry_registry
+  const updated = await pb
+    .collection('industry_registry')
+    .update<IndustryRegistry>(input.industry_id, {
+      tradepro_client_id: input.tradepro_client_id.trim(),
+      tradepro_client_name: input.tradepro_client_name.trim(),
+    })
+
+  // Registra auditoria rastreável
+  await recordConfigAudit({
+    industry_id: input.industry_id,
+    modulo: 'integracao_tradepro',
+    acao: anteriorClientId ? 'revinculacao_cliente_tradepro' : 'vinculacao_cliente_tradepro',
+    usuario_nome: userName,
+    detalhes_json: {
+      tradepro_client_id: input.tradepro_client_id.trim(),
+      tradepro_client_name: input.tradepro_client_name.trim(),
+      anterior_client_id: anteriorClientId,
+      anterior_client_name: anteriorClientName,
+      justificativa: input.justificativa?.trim() || 'Vinculação manual via Cadastro Operacional',
+    },
+  })
+
+  // Retroalimenta validades_base que tiverem esse cod_cliente e industry_id vazio
+  try {
+    const unlinkedRows = await pb.collection('validades_base').getFullList<{ id: string }>({
+      filter: `cod_cliente = '${input.tradepro_client_id.trim().replace(/'/g, "\\'")}' && (industry_id = '' || industry_id = null)`,
+      fields: 'id',
+    })
+    for (const row of unlinkedRows) {
+      try {
+        await pb.collection('validades_base').update(row.id, {
+          industry_id: input.industry_id,
+          cliente: updated.nome,
+        })
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+  } catch (syncErr) {
+    console.warn('[industryService] Aviso ao retroalimentar validades_base:', syncErr)
+  }
+
+  return updated
+}
+
+/**
+ * Desvincula uma indústria do SKIP de qualquer Cliente TradePro.
+ * Remove tradepro_client_id e tradepro_client_name e registra auditoria.
+ */
+export async function unlinkTradeProClient(
+  input: UnlinkTradeProClientInput,
+): Promise<IndustryRegistry> {
+  const userName = input.userName || 'Operador'
+  const targetIndustry = await pb
+    .collection('industry_registry')
+    .getOne<IndustryRegistry>(input.industry_id)
+
+  const anteriorClientId = targetIndustry.tradepro_client_id || ''
+  const anteriorClientName = targetIndustry.tradepro_client_name || ''
+
+  const updated = await pb
+    .collection('industry_registry')
+    .update<IndustryRegistry>(input.industry_id, {
+      tradepro_client_id: '',
+      tradepro_client_name: '',
+    })
+
+  await recordConfigAudit({
+    industry_id: input.industry_id,
+    modulo: 'integracao_tradepro',
+    acao: 'desvinculacao_cliente_tradepro',
+    usuario_nome: userName,
+    detalhes_json: {
+      anterior_client_id: anteriorClientId,
+      anterior_client_name: anteriorClientName,
+      justificativa: input.justificativa?.trim() || 'Desvinculação manual via Cadastro Operacional',
+    },
+  })
+
+  return updated
+}
+
+/**
+ * Retorna os clientes TradePro presentes em validades_base que ainda NÃO possuem industry_id associado,
+ * com volume de registros e amostra de lojas/produtos.
+ * Nada é descartado nem inferido silenciosamente.
+ */
+export async function getUnlinkedTradeProClients(): Promise<
+  import('@/types/industryOperational').UnlinkedTradeProClient[]
+> {
+  try {
+    // 1. Busca indústrias cadastradas para ter mapa de client_ids vinculados
+    const industries = await getIndustryRegistries()
+    const linkedClientIds = new Set<string>()
+    for (const ind of industries) {
+      if (ind.tradepro_client_id) {
+        linkedClientIds.add(ind.tradepro_client_id.trim())
+      }
+    }
+
+    // 2. Busca registros de validades_base (base atual)
+    // Coleta cod_cliente e cliente onde industry_id é vazio ou null
+    const records = await pb.collection('validades_base').getFullList<{
+      cod_cliente?: string
+      cliente?: string
+      razao_social?: string
+      nome_loja?: string
+      produto?: string
+      industry_id?: string
+      realizado?: string
+    }>({
+      fields: 'cod_cliente,cliente,razao_social,nome_loja,produto,industry_id,realizado',
+      sort: '-realizado',
+    })
+
+    const clientMap = new Map<
+      string,
+      {
+        cod_cliente: string
+        cliente_nome: string
+        volume_registros: number
+        lojas: Set<string>
+        produtos: Set<string>
+        ultima_aparicao?: string
+      }
+    >()
+
+    for (const r of records) {
+      const code = (r.cod_cliente || '').trim()
+      const indId = (r.industry_id || '').trim()
+
+      // Se já está vinculado por relation industry_id ou por tradepro_client_id cadastrado, ignora
+      if (indId || (code && linkedClientIds.has(code))) {
+        continue
+      }
+
+      // Se nem tiver código nem cliente informado, pula
+      if (!code && !r.cliente) continue
+
+      const clientKey = code || (r.cliente || '').trim()
+      const existing = clientMap.get(clientKey) || {
+        cod_cliente: code,
+        cliente_nome: (r.cliente || '').trim() || `Cliente #${code}`,
+        volume_registros: 0,
+        lojas: new Set<string>(),
+        produtos: new Set<string>(),
+        ultima_aparicao: undefined,
+      }
+
+      existing.volume_registros += 1
+      const lojaNome = (r.nome_loja || r.razao_social || '').trim()
+      if (lojaNome && existing.lojas.size < 5) {
+        existing.lojas.add(lojaNome)
+      }
+      const prodNome = (r.produto || '').trim()
+      if (prodNome && existing.produtos.size < 5) {
+        existing.produtos.add(prodNome)
+      }
+      if (r.realizado && (!existing.ultima_aparicao || r.realizado > existing.ultima_aparicao)) {
+        existing.ultima_aparicao = r.realizado
+      }
+
+      clientMap.set(clientKey, existing)
+    }
+
+    const results: import('@/types/industryOperational').UnlinkedTradeProClient[] = []
+    for (const c of clientMap.values()) {
+      results.push({
+        cod_cliente: c.cod_cliente,
+        cliente_nome: c.cliente_nome,
+        volume_registros: c.volume_registros,
+        amostra_lojas: Array.from(c.lojas),
+        amostra_produtos: Array.from(c.produtos),
+        ultima_aparicao: c.ultima_aparicao,
+      })
+    }
+
+    // Ordena por volume de registros decrescente
+    results.sort((a, b) => b.volume_registros - a.volume_registros)
+    return results
+  } catch (err) {
+    console.warn('[industryService] Erro ao buscar clientes não vinculados:', err)
+    return []
   }
 }

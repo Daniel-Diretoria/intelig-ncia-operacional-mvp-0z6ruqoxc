@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Factory,
@@ -10,11 +10,19 @@ import {
   Plus,
   ExternalLink,
   Loader2,
+  Link2,
+  Check,
 } from 'lucide-react'
 import { useValidades } from '@/services/useValidades'
 import { useRupturas } from '@/services/useRupturas'
 import { useIndustryRegistriesList } from '@/services/useIndustryOperational'
-import { saveIndustryRegistry, type SaveIndustryInput } from '@/services/industryService'
+import {
+  saveIndustryRegistry,
+  linkTradeProClient,
+  getUnlinkedTradeProClients,
+  type SaveIndustryInput,
+} from '@/services/industryService'
+import type { UnlinkedTradeProClient } from '@/types/industryOperational'
 import { useToast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -56,6 +64,15 @@ export const IndustriasPage: React.FC = () => {
   )
   const [panelTarget, setPanelTarget] = useState<ContextPanelTarget | null>(null)
 
+  // Clientes TradePro Não Vinculados
+  const [unlinkedClients, setUnlinkedClients] = useState<UnlinkedTradeProClient[]>([])
+  const [isLoadingUnlinked, setIsLoadingUnlinked] = useState(false)
+  const [selectedUnlinkedToLink, setSelectedUnlinkedToLink] =
+    useState<UnlinkedTradeProClient | null>(null)
+  const [targetIndustryIdToLink, setTargetIndustryIdToLink] = useState('')
+  const [linkJustificativa, setLinkJustificativa] = useState('')
+  const [isLinkingTradePro, setIsLinkingTradePro] = useState(false)
+
   // Estado do modal de criação de nova indústria
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -88,6 +105,20 @@ export const IndustriasPage: React.FC = () => {
     isLoading: isLoadingRupturas,
     refetch: refetchRupturas,
   } = useRupturas()
+
+  const fetchUnlinked = useCallback(async () => {
+    setIsLoadingUnlinked(true)
+    try {
+      const data = await getUnlinkedTradeProClients()
+      setUnlinkedClients(data)
+    } finally {
+      setIsLoadingUnlinked(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchUnlinked()
+  }, [fetchUnlinked])
 
   const isLoading = isLoadingValidades || isLoadingRupturas || isLoadingRegistries
 
@@ -327,6 +358,109 @@ export const IndustriasPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* SEÇÃO: Clientes TradePro Pendentes de Vinculação */}
+      {unlinkedClients.length > 0 && (
+        <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-5 space-y-3.5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+              <Link2 className="w-4 h-4 text-amber-700" />
+              <span>
+                Clientes TradePro Pendentes de Vínculo com Indústrias ({unlinkedClients.length})
+              </span>
+            </div>
+            <span className="text-xs text-amber-700 font-medium">
+              Nenhum dado é descartado nem inferido silenciosamente por nome.
+            </span>
+          </div>
+
+          <p className="text-xs text-amber-800 leading-relaxed">
+            Identificamos registros operacionais com Cód. Cliente TradePro sem correspondência com
+            as indústrias cadastradas no SKIP. Vincule o código à indústria correta ou crie uma nova
+            indústria com um clique.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {unlinkedClients.map((client) => (
+              <div
+                key={client.cod_cliente || client.cliente_nome}
+                className="bg-white p-3.5 rounded-xl border border-amber-200/80 shadow-xs flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-bold text-slate-900 text-xs block">
+                        {client.cliente_nome}
+                      </span>
+                      <span className="text-[11px] font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 font-bold inline-block mt-0.5">
+                        Cód. TradePro: {client.cod_cliente || 'N/D'}
+                      </span>
+                    </div>
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">
+                      {client.volume_registros} registro(s)
+                    </Badge>
+                  </div>
+
+                  {client.amostra_produtos.length > 0 && (
+                    <div className="mt-2 text-[11px] text-slate-500 line-clamp-1">
+                      <span className="font-semibold text-slate-600">Produtos: </span>
+                      {client.amostra_produtos.slice(0, 2).join(', ')}
+                    </div>
+                  )}
+                  {client.amostra_lojas.length > 0 && (
+                    <div className="text-[11px] text-slate-500 line-clamp-1">
+                      <span className="font-semibold text-slate-600">Lojas: </span>
+                      {client.amostra_lojas.slice(0, 2).join(', ')}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedUnlinkedToLink(client)
+                      setTargetIndustryIdToLink('')
+                      setLinkJustificativa(
+                        `Vinculação de pendência TradePro cód. ${client.cod_cliente}`,
+                      )
+                    }}
+                    className="text-[11px] h-7 px-2.5 flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  >
+                    <Link2 className="w-3 h-3 mr-1" />
+                    <span>Vincular Existente</span>
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setCreateForm({
+                        nome: client.cliente_nome,
+                        razao_social: '',
+                        cnpj: '',
+                        status: 'ativa',
+                        segmento: '',
+                        contato_nome: '',
+                        contato_email: '',
+                        contato_telefone: '',
+                        observacoes: `Criada a partir de pendência do Cliente TradePro cód. ${client.cod_cliente}`,
+                        tradepro_client_id: client.cod_cliente,
+                        tradepro_client_name: client.cliente_nome,
+                      })
+                      setIsCreateModalOpen(true)
+                    }}
+                    className="text-[11px] h-7 px-2.5 flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    <span>Criar Indústria</span>
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 4 KPIs de Indústria */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -633,6 +767,118 @@ export const IndustriasPage: React.FC = () => {
         validades={validades}
         rupturas={rupturas}
       />
+
+      {/* Modal: Vincular Cliente TradePro a Indústria Existente */}
+      <Dialog
+        open={!!selectedUnlinkedToLink}
+        onOpenChange={(open) => !open && setSelectedUnlinkedToLink(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-indigo-700">
+              <Link2 className="w-4 h-4" />
+              <span>Vincular Cliente TradePro a Indústria Existente</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Selecione qual indústria cadastrada no SKIP corresponde ao Cliente TradePro{' '}
+              <strong>{selectedUnlinkedToLink?.cliente_nome}</strong> (cód.{' '}
+              <code>{selectedUnlinkedToLink?.cod_cliente}</code>).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3.5 text-xs">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+              <div className="text-[11px] text-slate-500">Cliente TradePro Selecionado:</div>
+              <div className="font-bold text-slate-800">{selectedUnlinkedToLink?.cliente_nome}</div>
+              <div className="text-[11px] font-mono text-indigo-700 font-bold">
+                Código: {selectedUnlinkedToLink?.cod_cliente} · Registros:{' '}
+                {selectedUnlinkedToLink?.volume_registros}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">
+                Selecione a Indústria do SKIP *
+              </label>
+              <select
+                value={targetIndustryIdToLink}
+                onChange={(e) => setTargetIndustryIdToLink(e.target.value)}
+                className="w-full h-8 px-2 bg-white border border-slate-300 rounded-md text-xs font-medium"
+              >
+                <option value="">-- Selecione uma indústria --</option>
+                {registries.map((ind) => (
+                  <option key={ind.id} value={ind.id}>
+                    {ind.nome}{' '}
+                    {ind.tradepro_client_id
+                      ? `(já vinculada a cód. ${ind.tradepro_client_id})`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Justificativa Operacional *</label>
+              <textarea
+                rows={2}
+                value={linkJustificativa}
+                onChange={(e) => setLinkJustificativa(e.target.value)}
+                placeholder="Motivo da vinculação (será registrado na auditoria)..."
+                className="w-full p-2 bg-white border border-slate-300 rounded-md text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedUnlinkedToLink(null)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!targetIndustryIdToLink || isLinkingTradePro}
+                onClick={async () => {
+                  if (!selectedUnlinkedToLink || !targetIndustryIdToLink) return
+                  setIsLinkingTradePro(true)
+                  try {
+                    await linkTradeProClient({
+                      industry_id: targetIndustryIdToLink,
+                      tradepro_client_id: selectedUnlinkedToLink.cod_cliente,
+                      tradepro_client_name: selectedUnlinkedToLink.cliente_nome,
+                      justificativa: linkJustificativa,
+                    })
+                    toast({
+                      title: 'Vínculo realizado com sucesso',
+                      description: `Cliente cód. ${selectedUnlinkedToLink.cod_cliente} associado à indústria.`,
+                    })
+                    setSelectedUnlinkedToLink(null)
+                    await refetchRegistries()
+                    await fetchUnlinked()
+                    await refetchValidades()
+                  } catch (err: any) {
+                    toast({
+                      title: 'Erro ao vincular',
+                      description: err?.message || 'Falha ao vincular.',
+                      variant: 'destructive',
+                    })
+                  } finally {
+                    setIsLinkingTradePro(false)
+                  }
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{isLinkingTradePro ? 'Salvando...' : 'Confirmar Vínculo'}</span>
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Nova Indústria */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>

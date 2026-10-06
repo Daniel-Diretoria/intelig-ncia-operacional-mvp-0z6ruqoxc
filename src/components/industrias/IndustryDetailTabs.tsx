@@ -25,6 +25,8 @@ import {
   Ban,
   Activity,
   AlertCircle,
+  Link2,
+  Unlink,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,6 +39,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { linkTradeProClient, unlinkTradeProClient } from '@/services/industryService'
 import { useAuth } from '@/services/authContext'
 import type { UseIndustryOperationalResult } from '@/services/useIndustryOperational'
 import type {
@@ -174,6 +177,17 @@ export const IndustryDetailTabs: React.FC<IndustryDetailTabsProps> = ({
     observacao: '',
     status: 'ativo' as StoreProductMixStatus,
   })
+
+  // Modal de Integração TradePro (Vincular / Alterar Vínculo)
+  const [isTradeProModalOpen, setIsTradeProModalOpen] = useState(false)
+  const [tradeProForm, setTradeProForm] = useState({
+    tradepro_client_id: '',
+    tradepro_client_name: '',
+    justificativa: '',
+  })
+  const [isUnlinkModalOpen, setIsUnlinkModalOpen] = useState(false)
+  const [unlinkJustificativa, setUnlinkJustificativa] = useState('')
+  const [isSubmittingTradePro, setIsSubmittingTradePro] = useState(false)
 
   // Confirmação para remoção
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -624,6 +638,91 @@ export const IndustryDetailTabs: React.FC<IndustryDetailTabsProps> = ({
                 {industry.observacoes}
               </div>
             )}
+
+            {/* Sub-seção: Integração TradePro */}
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-50/80 border border-slate-200/80">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Integração TradePro (Vínculo de Indústria / Cliente)
+                    </span>
+                    {industry.tradepro_client_id ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                        Vinculado
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                        Não vinculado
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    {industry.tradepro_client_id ? (
+                      <p>
+                        Cliente TradePro:{' '}
+                        <strong className="text-slate-800">
+                          {industry.tradepro_client_name || industry.nome}
+                        </strong>{' '}
+                        · Código (Chave):{' '}
+                        <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-indigo-700 font-bold">
+                          {industry.tradepro_client_id}
+                        </code>
+                      </p>
+                    ) : (
+                      <p className="text-slate-500">
+                        Nenhum Cliente TradePro vinculado a esta indústria do SKIP. Registros
+                        sincronizados com Cód. Cliente permanecerão com indústria não vinculada.
+                      </p>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    A chave operacional é o código numérico (
+                    <code className="font-mono">tradepro_client_id</code>). O nome é exibido para
+                    conferência.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setTradeProForm({
+                        tradepro_client_id: industry.tradepro_client_id || '',
+                        tradepro_client_name: industry.tradepro_client_name || industry.nome,
+                        justificativa: '',
+                      })
+                      setIsTradeProModalOpen(true)
+                    }}
+                    className="gap-1.5 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>
+                      {industry.tradepro_client_id
+                        ? 'Alterar Vínculo'
+                        : 'Vincular Cliente TradePro'}
+                    </span>
+                  </Button>
+
+                  {industry.tradepro_client_id && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setUnlinkJustificativa('')
+                        setIsUnlinkModalOpen(true)
+                      }}
+                      className="gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                    >
+                      <Unlink className="w-3.5 h-3.5" />
+                      <span>Desvincular</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Comparativo: Base Cadastrada vs Operação Observada */}
@@ -2149,6 +2248,196 @@ export const IndustryDetailTabs: React.FC<IndustryDetailTabsProps> = ({
       {/* ========================================================================= */}
       {/* DIÁLOGOS MODAIS                                                           */}
       {/* ========================================================================= */}
+
+      {/* Modal TradePro: Vincular / Alterar Vínculo de Cliente TradePro */}
+      <Dialog open={isTradeProModalOpen} onOpenChange={setIsTradeProModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-indigo-600" />
+              <span>Vincular Cliente TradePro à Indústria</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              O conceito TradePro de Cliente corresponde à Indústria atendida pela Diretoria. A
+              chave do vínculo é o Código do Cliente (ex: 7 para FRUTAP, 43 para OLIVEIRA). O nome é
+              apenas para conferência.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (!tradeProForm.tradepro_client_id.trim()) return
+              setIsSubmittingTradePro(true)
+              try {
+                await linkTradeProClient({
+                  industry_id: industry.id,
+                  tradepro_client_id: tradeProForm.tradepro_client_id.trim(),
+                  tradepro_client_name: tradeProForm.tradepro_client_name.trim() || industry.nome,
+                  justificativa: tradeProForm.justificativa,
+                  userName,
+                })
+                // Atualiza o objeto da indústria localmente
+                await operational.refetch()
+                setIsTradeProModalOpen(false)
+              } catch (err: any) {
+                alert(`Erro ao vincular cliente TradePro: ${err?.message || err}`)
+              } finally {
+                setIsSubmittingTradePro(false)
+              }
+            }}
+            className="space-y-3.5 text-xs"
+          >
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Indústria SKIP Selecionada</label>
+              <Input disabled value={industry.nome} className="h-8 text-xs bg-slate-50 font-bold" />
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">
+                Cód. Cliente TradePro (Chave Primária) *
+              </label>
+              <Input
+                required
+                placeholder="Ex: 7 ou 43"
+                value={tradeProForm.tradepro_client_id}
+                onChange={(e) =>
+                  setTradeProForm({ ...tradeProForm, tradepro_client_id: e.target.value })
+                }
+                className="h-8 text-xs font-mono font-bold"
+              />
+              <p className="text-[11px] text-slate-400">
+                Código numérico do Cliente no TradePro. Utilizado de forma estrita no mapeamento.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">
+                Nome do Cliente TradePro (Exibição / Conferência)
+              </label>
+              <Input
+                placeholder="Ex: FRUTAP"
+                value={tradeProForm.tradepro_client_name}
+                onChange={(e) =>
+                  setTradeProForm({ ...tradeProForm, tradepro_client_name: e.target.value })
+                }
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Justificativa Operacional *</label>
+              <textarea
+                required
+                rows={2}
+                placeholder="Informe a justificativa desta vinculação (será registrada na auditoria)..."
+                value={tradeProForm.justificativa}
+                onChange={(e) =>
+                  setTradeProForm({ ...tradeProForm, justificativa: e.target.value })
+                }
+                className="w-full p-2 bg-white border border-slate-300 rounded-md text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsTradeProModalOpen(false)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmittingTradePro}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>{isSubmittingTradePro ? 'Salvando...' : 'Confirmar Vínculo'}</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Desvinculação TradePro */}
+      <Dialog open={isUnlinkModalOpen} onOpenChange={setIsUnlinkModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Unlink className="w-4 h-4" />
+              <span>Desvincular Cliente TradePro</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Ao desvincular, a indústria deixará de receber novos registros automaticamente por
+              este código.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setIsSubmittingTradePro(true)
+              try {
+                await unlinkTradeProClient({
+                  industry_id: industry.id,
+                  justificativa: unlinkJustificativa,
+                  userName,
+                })
+                await operational.refetch()
+                setIsUnlinkModalOpen(false)
+              } catch (err: any) {
+                alert(`Erro ao desvincular: ${err?.message || err}`)
+              } finally {
+                setIsSubmittingTradePro(false)
+              }
+            }}
+            className="space-y-3.5 text-xs"
+          >
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900">
+              Você está removendo o vínculo do cliente TradePro cód.{' '}
+              <strong>{industry.tradepro_client_id}</strong> (
+              {industry.tradepro_client_name || industry.nome}).
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">Justificativa da Remoção *</label>
+              <textarea
+                required
+                rows={2}
+                placeholder="Motivo da desvinculação (será gravado no log de auditoria)..."
+                value={unlinkJustificativa}
+                onChange={(e) => setUnlinkJustificativa(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-md text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsUnlinkModalOpen(false)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmittingTradePro}
+                className="bg-red-600 hover:bg-red-700 text-white text-xs gap-1.5"
+              >
+                <Unlink className="w-3.5 h-3.5" />
+                <span>{isSubmittingTradePro ? 'Removendo...' : 'Confirmar Desvinculação'}</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal 1: Edição da Indústria */}
       <Dialog open={isEditIndustryModalOpen} onOpenChange={setIsEditIndustryModalOpen}>

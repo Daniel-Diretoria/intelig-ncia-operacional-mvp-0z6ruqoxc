@@ -967,4 +967,330 @@ describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retoma
       }
     })
   })
+
+  describe('TradePro Sync — Mapeamento Cód. Cliente -> Indústria e Integridade de Dados', () => {
+    // Simula a normalização de registro de Validades implementada no hook tradepro_sync.js
+    interface IndustryEntry {
+      id: string
+      nome: string
+      tradepro_client_id: string
+      tradepro_client_name?: string
+    }
+
+    function processValidadeItem(
+      rawItem: any,
+      industryMapByClientId: Record<string, IndustryEntry>,
+      industryMix: Array<{ industry_id: string; nome_produto: string; tipo_mix: string }>,
+      storeMixes: Array<{ industry_id: string; store_name: string; nome_produto: string }>,
+    ) {
+      const clienteObj = rawItem.cliente || {}
+      const produtoObj = rawItem.produto || {}
+      const cidadeObj = rawItem.cidade || {}
+      const estadoObj = rawItem.estado || {}
+
+      const rawRazaoSocial = (clienteObj.razaoSocial || '').toString().trim()
+      const rawProduto = (produtoObj.descricao || '').toString().trim()
+      const rawValidade = (rawItem.validade || '').toString().trim()
+      const rawRealizado = (rawItem.realizado || '').toString().trim()
+      const rawFantasia = (clienteObj.fantasia || '').toString().trim()
+      const rawCpfCnpj = (clienteObj.cpfCnpj || '').toString().trim()
+      const rawCidade = (
+        typeof clienteObj.cidade === 'string' ? clienteObj.cidade : cidadeObj.nome || ''
+      )
+        .toString()
+        .trim()
+      const rawEstado = (estadoObj.sigla || '').toString().trim()
+      // Cód. Produto preservando zeros à esquerda como texto estrito
+      const rawCodProduto = (produtoObj.codigo != null ? String(produtoObj.codigo) : '').trim()
+
+      // Cliente TradePro (Indústria): código e nome
+      const rawCodCliente = (
+        rawItem.codCliente != null
+          ? String(rawItem.codCliente)
+          : rawItem.cod_cliente != null
+            ? String(rawItem.cod_cliente)
+            : clienteObj.codigoCliente != null
+              ? String(clienteObj.codigoCliente)
+              : clienteObj.codigo != null
+                ? String(clienteObj.codigo)
+                : ''
+      ).trim()
+
+      const rawClienteNome = (
+        rawItem.clienteNome != null
+          ? String(rawItem.clienteNome)
+          : rawItem.cliente_nome != null
+            ? String(rawItem.cliente_nome)
+            : rawItem.nomeCliente != null
+              ? String(rawItem.nomeCliente)
+              : clienteObj.cliente != null
+                ? String(clienteObj.cliente)
+                : ''
+      ).trim()
+
+      // Resolução via código numérico (tradepro_client_id)
+      let resolvedIndustryId: string | null = null
+      let resolvedIndustryName = ''
+      if (rawCodCliente && industryMapByClientId[rawCodCliente]) {
+        resolvedIndustryId = industryMapByClientId[rawCodCliente].id
+        resolvedIndustryName = industryMapByClientId[rawCodCliente].nome
+      }
+
+      // Fornecedor é preservado de forma totalmente independente e NUNCA inferido como indústria
+      const fornecedor = (rawItem.fornecedor || 'DIRETORIA').toString().trim()
+
+      const resultRecord = {
+        fornecedor,
+        razao_social: rawRazaoSocial,
+        produto: rawProduto,
+        cliente: resolvedIndustryName || rawClienteNome || rawFantasia || rawRazaoSocial,
+        cod_cliente: rawCodCliente,
+        industry_id: resolvedIndustryId,
+        fantasia: rawFantasia,
+        cpf_cnpj: rawCpfCnpj,
+        cidade: rawCidade,
+        estado: rawEstado,
+        cod_produto: rawCodProduto,
+        realizado: rawRealizado,
+        validade_efetiva: rawValidade,
+      }
+
+      // Se houver indústria vinculada, alimenta o Mix Operacional Observado (industry_product_mix)
+      // NUNCA toca no Mix Definido da Loja
+      if (resolvedIndustryId && rawProduto) {
+        const cleanProdNome = rawProduto.trim()
+        const existsInMix = industryMix.some(
+          (m) => m.industry_id === resolvedIndustryId && m.nome_produto === cleanProdNome,
+        )
+        if (!existsInMix) {
+          industryMix.push({
+            industry_id: resolvedIndustryId,
+            nome_produto: cleanProdNome,
+            tipo_mix: 'observado_operacional',
+          })
+        }
+      }
+
+      return resultRecord
+    }
+
+    it('1. Mapeamento Cód. Cliente -> Indústria ocorre via tradepro_client_id, NÃO por similaridade de nome', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '7': {
+          id: 'ind_frutap_id',
+          nome: 'FRUTAP INDÚSTRIA DE LATICÍNIOS',
+          tradepro_client_id: '7',
+        },
+        '43': { id: 'ind_oliveira_id', nome: 'OLIVEIRA ALIMENTOS', tradepro_client_id: '43' },
+      }
+
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      // Item com código 7 e nome fantasia qualquer
+      const item1 = {
+        codCliente: 7,
+        clienteNome: 'Laticinios Frutap',
+        cliente: {
+          razaoSocial: '085 - SUPERMERCADO ABC LTDA',
+          fantasia: 'SUPER ABC',
+          cpfCnpj: '12.345.678/0001-90',
+        },
+        produto: {
+          codigo: '00445',
+          descricao: 'IOGURTE MORANGO 170G',
+        },
+        validade: '2026-06-30',
+        realizado: '2026-05-10',
+        fornecedor: 'DIRETORIA',
+      }
+
+      const rec = processValidadeItem(item1, industryMap, mockMix, mockStoreMix)
+
+      expect(rec.industry_id).toBe('ind_frutap_id')
+      expect(rec.cliente).toBe('FRUTAP INDÚSTRIA DE LATICÍNIOS')
+      expect(rec.cod_cliente).toBe('7')
+    })
+
+    it('2. Registro com cliente não vinculado fica preservado com industry_id nulo', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '7': { id: 'ind_frutap_id', nome: 'FRUTAP', tradepro_client_id: '7' },
+      }
+
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      // Item com código 9999 (não cadastrado no SKIP)
+      const unlinkedItem = {
+        codCliente: '9999',
+        clienteNome: 'FORNECEDOR NOVO DESCONHECIDO',
+        cliente: {
+          razaoSocial: '010 - SUPERMERCADO XYZ',
+          cpfCnpj: '98.765.432/0001-11',
+        },
+        produto: {
+          codigo: '00100',
+          descricao: 'QUEIJO MINAS 500G',
+        },
+        validade: '2026-07-15',
+        realizado: '2026-05-10',
+      }
+
+      const rec = processValidadeItem(unlinkedItem, industryMap, mockMix, mockStoreMix)
+
+      expect(rec.industry_id).toBeNull()
+      expect(rec.cod_cliente).toBe('9999')
+      expect(rec.cliente).toBe('FORNECEDOR NOVO DESCONHECIDO')
+      // Nada foi adicionado ao mix pois não há industry_id
+      expect(mockMix.length).toBe(0)
+    })
+
+    it('3. Fornecedor DIRETORIA é preservado separado da indústria e NUNCA usado para inferir indústria', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '7': { id: 'ind_frutap_id', nome: 'FRUTAP', tradepro_client_id: '7' },
+      }
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      const itemWithDiretoria = {
+        codCliente: '7',
+        fornecedor: 'DIRETORIA',
+        cliente: { razaoSocial: 'LOJA TESTE', cpfCnpj: '00.000.000/0001-00' },
+        produto: { codigo: '01', descricao: 'BEBIDA LACTEA' },
+        validade: '2026-06-01',
+        realizado: '2026-05-10',
+      }
+
+      const rec = processValidadeItem(itemWithDiretoria, industryMap, mockMix, mockStoreMix)
+
+      expect(rec.fornecedor).toBe('DIRETORIA')
+      expect(rec.industry_id).toBe('ind_frutap_id')
+      expect(rec.cliente).toBe('FRUTAP')
+      expect(rec.fornecedor).not.toBe(rec.cliente)
+    })
+
+    it('4. Loja é identificada por CPF/CNPJ e Razão Social distinta do Cliente (Indústria)', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '43': { id: 'ind_oliveira_id', nome: 'OLIVEIRA', tradepro_client_id: '43' },
+      }
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      const storeCpfCnpj = '11.222.333/0001-44'
+      const storeRazao = '100 - SUPERMERCADO BISTEK LTDA'
+      const storeFantasia = 'BISTEK CRICIUMA'
+
+      const item = {
+        codCliente: '43',
+        cliente: {
+          razaoSocial: storeRazao,
+          fantasia: storeFantasia,
+          cpfCnpj: storeCpfCnpj,
+          cidade: 'Criciúma',
+        },
+        produto: { codigo: '007', descricao: 'AZEITE EXTRA VIRGEM 500ML' },
+        validade: '2026-12-31',
+        realizado: '2026-05-10',
+      }
+
+      const rec = processValidadeItem(item, industryMap, mockMix, mockStoreMix)
+
+      // A loja tem seus dados próprios preservados
+      expect(rec.cpf_cnpj).toBe(storeCpfCnpj)
+      expect(rec.razao_social).toBe(storeRazao)
+      expect(rec.fantasia).toBe(storeFantasia)
+      expect(rec.cidade).toBe('Criciúma')
+
+      // O cliente/indústria é resolvido separadamente
+      expect(rec.cod_cliente).toBe('43')
+      expect(rec.industry_id).toBe('ind_oliveira_id')
+      expect(rec.cliente).toBe('OLIVEIRA')
+    })
+
+    it('5. Cód. Produto é preservado com zeros à esquerda como texto estrito', () => {
+      const industryMap: Record<string, IndustryEntry> = {}
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      const itemWithLeadingZeros = {
+        produto: { codigo: '00042', descricao: 'LEITE FERMENTADO' },
+        cliente: { razaoSocial: 'LOJA 1' },
+        validade: '2026-06-15',
+        realizado: '2026-05-10',
+      }
+
+      const rec = processValidadeItem(itemWithLeadingZeros, industryMap, mockMix, mockStoreMix)
+
+      expect(rec.cod_produto).toBe('00042')
+      expect(typeof rec.cod_produto).toBe('string')
+      expect(rec.cod_produto.length).toBe(5)
+    })
+
+    it('6. Alimentação do Mix Operacional Observado ocorre SEM alterar o Mix Definido da Loja', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '7': { id: 'ind_frutap_id', nome: 'FRUTAP', tradepro_client_id: '7' },
+      }
+
+      const mockMix: Array<{ industry_id: string; nome_produto: string; tipo_mix: string }> = []
+      const mockStoreMix: Array<{ industry_id: string; store_name: string; nome_produto: string }> =
+        [
+          // Loja já tem um produto definido formalmente
+          {
+            industry_id: 'ind_frutap_id',
+            store_name: 'LOJA 01',
+            nome_produto: 'IOGURTE MORANGO 170G',
+          },
+        ]
+
+      const item = {
+        codCliente: '7',
+        cliente: { razaoSocial: 'LOJA 01' },
+        produto: { codigo: '0099', descricao: 'NOVO SABOR COCO 170G' },
+        validade: '2026-08-01',
+        realizado: '2026-05-10',
+      }
+
+      // Processa o novo item observado
+      processValidadeItem(item, industryMap, mockMix, mockStoreMix)
+
+      // 1. O mix operacional observado da indústria foi alimentado
+      expect(mockMix.length).toBe(1)
+      expect(mockMix[0].nome_produto).toBe('NOVO SABOR COCO 170G')
+      expect(mockMix[0].tipo_mix).toBe('observado_operacional')
+
+      // 2. O Mix Definido da Loja PERMANECE INTOCADO (nenhum produto promovido automaticamente)
+      expect(mockStoreMix.length).toBe(1)
+      expect(mockStoreMix[0].nome_produto).toBe('IOGURTE MORANGO 170G')
+      expect(mockStoreMix.some((sm) => sm.nome_produto === 'NOVO SABOR COCO 170G')).toBe(false)
+    })
+
+    it('7. Sincronização repetida continua idempotente após o mapeamento por Cód. Cliente', () => {
+      const industryMap: Record<string, IndustryEntry> = {
+        '7': { id: 'ind_frutap_id', nome: 'FRUTAP', tradepro_client_id: '7' },
+      }
+
+      const mockMix: any[] = []
+      const mockStoreMix: any[] = []
+
+      const item = {
+        codCliente: '7',
+        cliente: { razaoSocial: '085 - LOJA CENTRAL' },
+        produto: { codigo: '00445', descricao: 'IOGURTE MORANGO 170G' },
+        validade: '2026-06-30',
+        realizado: '2026-05-10',
+      }
+
+      // Primeira execução
+      const rec1 = processValidadeItem(item, industryMap, mockMix, mockStoreMix)
+      expect(mockMix.length).toBe(1)
+
+      // Segunda execução repetida (mesmo item, mesma sincronização subsequente)
+      const rec2 = processValidadeItem(item, industryMap, mockMix, mockStoreMix)
+
+      // Não duplicou no mix observado
+      expect(mockMix.length).toBe(1)
+      expect(rec1.industry_id).toBe(rec2.industry_id)
+      expect(rec1.cod_cliente).toBe(rec2.cod_cliente)
+    })
+  })
 })
