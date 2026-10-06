@@ -12,8 +12,11 @@ import {
 import {
   createUser,
   toggleUserStatus,
+  updateUserRole,
   updateUserAllowedIndustries,
   toggleSpecificPermission,
+  listUsers,
+  listUserAuditLogs,
 } from '@/services/userManagementService'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import * as authContextModule from '@/services/authContext'
@@ -191,26 +194,20 @@ describe('Fundação de Usuários, Perfis e Permissões (v0.0.119 - 17 Cenários
         refreshUser: vi.fn(),
       })
 
-      const element = React.createElement(
-        MemoryRouter,
-        { initialEntries: ['/admin-restrito'] },
-        React.createElement(
-          Routes,
-          null,
-          React.createElement(Route, {
-            path: '/admin-restrito',
-            element: React.createElement(
-              ProtectedRoute,
-              {
-                requiredPermission: 'admin:gerenciar_usuarios',
-                children: React.createElement('div', null, 'CONTEUDO_CONFIDENCIAL_ADMIN'),
-              },
-            ),
-          }),
-        ),
+      render(
+        <MemoryRouter initialEntries={['/admin-restrito']}>
+          <Routes>
+            <Route
+              path="/admin-restrito"
+              element={
+                <ProtectedRoute requiredPermission="admin:gerenciar_usuarios">
+                  <div>CONTEUDO_CONFIDENCIAL_ADMIN</div>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
       )
-
-      render(element)
 
       expect(screen.queryByText('CONTEUDO_CONFIDENCIAL_ADMIN')).toBeNull()
       expect(screen.getByText('Você não possui acesso a esta área')).toBeTruthy()
@@ -236,26 +233,20 @@ describe('Fundação de Usuários, Perfis e Permissões (v0.0.119 - 17 Cenários
         refreshUser: vi.fn(),
       })
 
-      const element = React.createElement(
-        MemoryRouter,
-        { initialEntries: ['/admin-permitido'] },
-        React.createElement(
-          Routes,
-          null,
-          React.createElement(Route, {
-            path: '/admin-permitido',
-            element: React.createElement(
-              ProtectedRoute,
-              {
-                requiredPermission: 'admin:gerenciar_usuarios',
-                children: React.createElement('div', null, 'CONTEUDO_AUTORIZADO_ADMIN'),
-              },
-            ),
-          }),
-        ),
+      render(
+        <MemoryRouter initialEntries={['/admin-permitido']}>
+          <Routes>
+            <Route
+              path="/admin-permitido"
+              element={
+                <ProtectedRoute requiredPermission="admin:gerenciar_usuarios">
+                  <div>CONTEUDO_AUTORIZADO_ADMIN</div>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
       )
-
-      render(element)
 
       expect(screen.getByText('CONTEUDO_AUTORIZADO_ADMIN')).toBeTruthy()
       expect(screen.queryByText('Você não possui acesso a esta área')).toBeNull()
