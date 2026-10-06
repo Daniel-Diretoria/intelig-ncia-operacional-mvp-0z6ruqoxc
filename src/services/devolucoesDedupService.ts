@@ -15,7 +15,218 @@ import {
   DevolucaoMensagemImportadaRegistro,
   DevolucoesImportBatchRegistro,
   SolicitacaoIdentificadaWhatsApp,
+  SolicitacaoImportadaRegistro,
 } from '@/types/devolucoes'
+
+/**
+ * Consulta de solicitações persistidas na Caixa de Importação.
+ * Retorna mapa de id de solicitação / hash de mensagem para seu registro com estado operacional.
+ */
+export async function carregarSolicitacoesPersistidas(
+  hashesDoArquivo?: string[],
+): Promise<Map<string, SolicitacaoImportadaRegistro>> {
+  const mapa = new Map<string, SolicitacaoImportadaRegistro>()
+  try {
+    let filter = ''
+    if (hashesDoArquivo && hashesDoArquivo.length > 0) {
+      // Filtrar hashes específicos em chunks
+      const CHUNK_SIZE = 40
+      for (let i = 0; i < hashesDoArquivo.length; i += CHUNK_SIZE) {
+        const chunk = hashesDoArquivo.slice(i, i + CHUNK_SIZE)
+        const cond = chunk
+          .map(
+            (h) =>
+              `raw_mensagem_id = '${h.replace(/'/g, "\\'")}' || solicitacao_id = 'sol_${h.replace(/'/g, "\\'")}'`,
+          )
+          .join(' || ')
+        const res = await pb
+          .collection('devolucoes_solicitacoes_importadas')
+          .getList<SolicitacaoImportadaRegistro>(1, chunk.length * 2, {
+            filter: cond,
+          })
+        for (const item of res.items) {
+          mapa.set(item.solicitacao_id, item)
+          mapa.set(item.raw_mensagem_id, item)
+        }
+      }
+      return mapa
+    }
+
+    // Se nenhum hash foi especificado, traz as pendentes de revisão e ativas da fila
+    const res = await pb
+      .collection('devolucoes_solicitacoes_importadas')
+      .getList<SolicitacaoImportadaRegistro>(1, 200, {
+        sort: '-created',
+      })
+    for (const item of res.items) {
+      mapa.set(item.solicitacao_id, item)
+      mapa.set(item.raw_mensagem_id, item)
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Falha ao carregar devolucoes_solicitacoes_importadas:', err)
+  }
+  return mapa
+}
+
+/**
+ * Atualiza ou persiste uma lista de solicitações identificadas com seus estados operacionais.
+ * REGRA FUNDAMENTAL: "Uma mensagem NÃO pode sair da fila apenas porque já foi importada."
+ * Preserva histórico, quem ignorou, quem processou, e ajustes feitos pelo operador.
+ */
+export async function salvarOuAtualizarSolicitacoesPersistidas(
+  solicitacoes: SolicitacaoIdentificadaWhatsApp[],
+  batchId?: string,
+): Promise<void> {
+  const user = pb.authStore.model
+  const userName = user?.name || user?.email || 'Operador'
+  const agoraIso = new Date().toISOString()
+
+  for (const sol of solicitacoes) {
+    const rawMsgId = sol.rawMensagemId || sol.id.replace(/^sol_/, '')
+    const estado =
+      sol.estadoOperacional || (sol.statusRevisao === 'ignorada' ? 'ignorada' : 'pendente_revisao')
+
+    const payload: Record<string, unknown> = {
+      solicitacao_id: sol.id,
+      raw_mensagem_id: rawMsgId,
+      batch_id: batchId || sol.batchId || '',
+      data_hora_msg: sol.dataHoraMsg || '',
+      autor: sol.autor || '',
+      loja_informada: sol.lojaInformada || '',
+      loja_codigo: sol.lojaResolvida?.codigo || '',
+      industria_informada: sol.industriaInformada || '',
+      industria_id: sol.industriaResolvida?.id || '',
+      estado_operacional: estado,
+      caso_criado_id: sol.casoCriadoId || '',
+      caso_criado_codigo: sol.casoCriadoCodigo || '',
+      produtos_json: sol.produtos,
+      evidencias_json: sol.evidenciasDisponiveis,
+      trecho_original:
+        (sol as unknown as { trechoOriginalWhatsapp?: string }).trechoOriginalWhatsapp || '',
+    }
+
+    if (estado === 'ignorada') {
+      payload.ignorado_por = sol.ignoradoPor || userName
+      payload.ignorado_em = sol.ignoradoEm || agoraIso
+      payload.ignorado_motivo = sol.ignoradoMotivo || 'Ignorado pelo operador na revisão'
+    } else if (estado === 'processada') {
+      payload.processado_por = sol.processadoPor || userName
+      payload.processado_em = sol.processadoEm || agoraIso
+    }
+
+    try {
+      // Tentar localizar registro existente
+      const existing = await pb
+        .collection('devolucoes_solicitacoes_importadas')
+        .getFirstListItem(`solicitacao_id = '${sol.id}'`)
+      if (existing) {
+        // Se já foi processada anteriormente e não estamos explicitamente forçando alteração, não sobrescreve
+        if (existing.estado_operacional === 'processada' && estado !== 'processada') {
+          continue
+        }
+        await pb.collection('devolucoes_solicitacoes_importadas').update(existing.id, payload)
+        continue
+      }
+    } catch {
+      // Se não encontrou, prossegue para criação
+    }
+
+    try {
+      await pb.collection('devolucoes_solicitacoes_importadas').create(payload)
+    } catch (err) {
+      // Se falhar por concorrência de chave única, tenta update
+      try {
+        const existing = await pb
+          .collection('devolucoes_solicitacoes_importadas')
+          .getFirstListItem(`solicitacao_id = '${sol.id}'`)
+        if (existing) {
+          await pb.collection('devolucoes_solicitacoes_importadas').update(existing.id, payload)
+        }
+      } catch (e2) {
+        console.warn('[devolucoesDedup] Erro ao persistir solicitacao importada:', e2)
+      }
+    }
+  }
+}
+
+/**
+ * Atualiza o estado de uma solicitação para ignorada com rastreabilidade
+ */
+export async function marcarSolicitacaoComoIgnorada(
+  solicitacaoId: string,
+  motivo?: string,
+): Promise<void> {
+  const user = pb.authStore.model
+  const userName = user?.name || user?.email || 'Operador'
+  const agora = new Date().toISOString()
+  try {
+    const existing = await pb
+      .collection('devolucoes_solicitacoes_importadas')
+      .getFirstListItem(`solicitacao_id = '${solicitacaoId}'`)
+    if (existing) {
+      await pb.collection('devolucoes_solicitacoes_importadas').update(existing.id, {
+        estado_operacional: 'ignorada',
+        ignorado_por: userName,
+        ignorado_em: agora,
+        ignorado_motivo: motivo || 'Decisão registrada pelo operador',
+      })
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Erro ao marcar solicitação como ignorada:', err)
+  }
+}
+
+/**
+ * Reabre uma solicitação ignorada de volta para pendente de revisão
+ */
+export async function reabrirSolicitacaoIgnorada(solicitacaoId: string): Promise<void> {
+  try {
+    const existing = await pb
+      .collection('devolucoes_solicitacoes_importadas')
+      .getFirstListItem(`solicitacao_id = '${solicitacaoId}'`)
+    if (existing) {
+      await pb.collection('devolucoes_solicitacoes_importadas').update(existing.id, {
+        estado_operacional: 'pendente_revisao',
+        ignorado_por: '',
+        ignorado_em: '',
+        ignorado_motivo: '',
+      })
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Erro ao reabrir solicitação ignorada:', err)
+  }
+}
+
+/**
+ * Marca solicitação como processada após a criação confirmada do Caso
+ * REGRA 11: Vínculo estrito Solicitação -> Caso Criado
+ * REGRA 12: Só marca processada SE a criação do caso tiver sido bem-sucedida!
+ */
+export async function marcarSolicitacaoProcessada(
+  solicitacaoId: string,
+  casoCriadoId: string,
+  casoCriadoCodigo: string,
+): Promise<void> {
+  const user = pb.authStore.model
+  const userName = user?.name || user?.email || 'Operador'
+  const agora = new Date().toISOString()
+  try {
+    const existing = await pb
+      .collection('devolucoes_solicitacoes_importadas')
+      .getFirstListItem(`solicitacao_id = '${solicitacaoId}'`)
+    if (existing) {
+      await pb.collection('devolucoes_solicitacoes_importadas').update(existing.id, {
+        estado_operacional: 'processada',
+        caso_criado_id: casoCriadoId,
+        caso_criado_codigo: casoCriadoCodigo,
+        processado_por: userName,
+        processado_em: agora,
+      })
+    }
+  } catch (err) {
+    console.warn('[devolucoesDedup] Erro ao marcar solicitacao como processada:', err)
+  }
+}
 
 /**
  * Consulta de hashes conhecidos de forma escalável.
@@ -158,9 +369,10 @@ export async function persistirLoteWhatsApp(
     mensagens_conhecidas: input.mensagensConhecidas,
     mensagens_novas: input.mensagensNovas,
     solicitacoes_identificadas: input.solicitacoes.length,
-    solicitacoes_revisadas: 0,
+    solicitacoes_revisadas: input.solicitacoes.filter((s) => s.statusRevisao === 'confirmada')
+      .length,
     solicitacoes_importadas: 0,
-    solicitacoes_ignoradas: 0,
+    solicitacoes_ignoradas: input.solicitacoes.filter((s) => s.statusRevisao === 'ignorada').length,
     solicitacoes_incompletas: Number(input.resumoProcessamento?.incompletas || 0),
     usuario_nome: userName,
     resumo_processamento_json: input.resumoProcessamento,
@@ -168,6 +380,14 @@ export async function persistirLoteWhatsApp(
   })
 
   const batchId = batchRecord.id
+
+  // 1.1 Persistir ou atualizar estado operacional das solicitações identificadas
+  // Garante que solicitações pendentes não sejam perdidas mesmo fechando ou recarregando
+  try {
+    await salvarOuAtualizarSolicitacoesPersistidas(input.solicitacoes, batchId)
+  } catch (err) {
+    console.warn('[devolucoesDedup] Aviso ao persistir estado de solicitações:', err)
+  }
 
   // Mapa de hash -> solicitacao_id para associar metadados mínimos
   const hashToSolMap = new Map<string, { solId: string; autor?: string; dataHora?: string }>()

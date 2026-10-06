@@ -50,6 +50,10 @@ export interface ParseWhatsAppResult {
     incompletas: number
     comMidiaOcultada: number
     comMidiaRealAnexa: number
+    solicitacoesNovas?: number
+    solicitacoesPendentes?: number
+    solicitacoesProcessadas?: number
+    solicitacoesIgnoradas?: number
   }
 }
 
@@ -781,11 +785,24 @@ export function extrairCamposSolicitacao(texto: string): {
  * Processa mensagens, deduplica via hashes, extrai blocos com múltiplos produtos,
  * reconcilia cabeçalho vs corpo e submete cada produto individualmente ao Resolvedor de Produtos existente.
  */
+export interface EstadoSolicitacaoConhecida {
+  solicitacaoId: string
+  rawMensagemId: string
+  estadoOperacional: 'nova' | 'pendente_revisao' | 'processada' | 'ignorada'
+  casoCriadoId?: string
+  casoCriadoCodigo?: string
+  ignoradoPor?: string
+  ignoradoEm?: string
+  ajustesOperador?: Record<string, unknown>
+  produtosAjustados?: SolicitacaoIdentificadaWhatsApp['produtos']
+}
+
 export async function parseConversaWhatsApp(
   conteudoArquivo: string,
   hashesJaConhecidos: Set<string> = new Set(),
   arquivosMidiaDisponiveis: MidiaDisponivelInput[] = [],
   industriasCadastradas: Array<{ id?: string; nome: string }> = [],
+  mapaSolicitacoesConhecidas: Map<string, EstadoSolicitacaoConhecida> = new Map(),
 ): Promise<ParseWhatsAppResult> {
   const mensagens = extrairMensagensArquivoWhatsApp(conteudoArquivo)
 
@@ -801,12 +818,34 @@ export async function parseConversaWhatsApp(
 
   for (let i = 0; i < mensagens.length; i++) {
     const msg = mensagens[i]
+    const isMsgConhecida = hashesJaConhecidos.has(msg.hashDeterminista)
 
-    if (hashesJaConhecidos.has(msg.hashDeterminista)) {
+    if (isMsgConhecida) {
       mensagensConhecidas++
+    } else {
+      mensagensNovas++
+    }
+
+    const solId = `sol_${msg.hashDeterminista}`
+    const estadoConhecido =
+      mapaSolicitacoesConhecidas.get(solId) || mapaSolicitacoesConhecidas.get(msg.hashDeterminista)
+
+    // Se a mensagem já é conhecida:
+    // - Se NÃO for uma solicitação conhecida (ou seja, apenas conversa normal), pula
+    // - Se for solicitação já PROCESSADA: preserva contagem mas não coloca na fila de revisão
+    // - Se for solicitação IGNORADA: preserva estado ignorado
+    // - Se for PENDENTE DE REVISÃO: CONTINUA na lista para conferência humana!
+    // REGRA CENTRAL: "Uma mensagem NÃO pode sair da fila apenas porque já foi importada."
+    if (isMsgConhecida && !estadoConhecido) {
+      // Mensagem comum já conhecida que nunca foi solicitação
       continue
     }
-    mensagensNovas++
+
+    if (estadoConhecido?.estadoOperacional === 'processada') {
+      // Já gerou caso anteriormente; não recria e não enfileira como nova
+      possiveisCount++
+      continue
+    }
 
     const campos = extrairCamposSolicitacao(msg.conteudo)
 
@@ -906,6 +945,7 @@ export async function parseConversaWhatsApp(
         industriaSugerida.ambigua
 
       // 5. Resolução individual de cada item extraído com o Resolvedor de Produtos existente
+      // Se houver produtos já ajustados anteriormente pelo operador em estado pendente, reutiliza
       const produtosProcessados: SolicitacaoIdentificadaWhatsApp['produtos'] = []
 
       for (let pIdx = 0; pIdx < campos.itensExtraidos.length; pIdx++) {
@@ -952,9 +992,25 @@ export async function parseConversaWhatsApp(
         precisamRevisaoCount++
       }
 
+      // Determina estado operacional:
+      // se é mensagem nova -> 'nova' (ou 'pendente' se identificada como possível solicitação)
+      // se já conhecida e pendente -> 'pendente_revisao'
+      // se já conhecida e ignorada -> 'ignorada'
+      let statusRevisao: 'pendente' | 'confirmada' | 'ignorada' = 'pendente'
+      let estadoOp: 'nova' | 'pendente_revisao' | 'processada' | 'ignorada' = isMsgConhecida
+        ? 'pendente_revisao'
+        : 'nova'
+
+      if (estadoConhecido) {
+        estadoOp = estadoConhecido.estadoOperacional
+        if (estadoConhecido.estadoOperacional === 'ignorada') {
+          statusRevisao = 'ignorada'
+        }
+      }
+
       // Montagem da solicitação preservando estrutura aprovada
       const solicitacao: SolicitacaoIdentificadaWhatsApp = {
-        id: `sol_${msg.hashDeterminista}`,
+        id: solId,
         rawMensagemId: msg.id,
         timestamp: msg.timestampIso,
         dataHoraMsg: msg.dataHoraStr,
@@ -973,11 +1029,19 @@ export async function parseConversaWhatsApp(
               nome: industriaFinalNome,
             }
           : undefined,
-        produtos: produtosProcessados,
+        produtos:
+          estadoConhecido?.produtosAjustados && estadoConhecido.produtosAjustados.length > 0
+            ? estadoConhecido.produtosAjustados
+            : produtosProcessados,
         incompleta,
         camposFaltantes: faltantes,
         evidenciasDisponiveis: evidenciasMsg,
-        statusRevisao: 'pendente',
+        statusRevisao,
+        estadoOperacional: estadoOp,
+        casoCriadoId: estadoConhecido?.casoCriadoId,
+        casoCriadoCodigo: estadoConhecido?.casoCriadoCodigo,
+        ignoradoPor: estadoConhecido?.ignoradoPor,
+        ignoradoEm: estadoConhecido?.ignoradoEm,
       }
 
       // Adicionar metadados enriquecidos para exibição didática (sem quebrar a tipagem de domínio)
@@ -1030,6 +1094,14 @@ export async function parseConversaWhatsApp(
 
   const todosHashesMensagens = mensagens.map((m) => m.hashDeterminista)
 
+  const solNovas = solicitacoes.filter((s) => s.estadoOperacional === 'nova').length
+  const solPendentes = solicitacoes.filter(
+    (s) =>
+      s.estadoOperacional === 'pendente_revisao' ||
+      (!s.estadoOperacional && s.statusRevisao === 'pendente'),
+  ).length
+  const solIgnoradas = solicitacoes.filter((s) => s.statusRevisao === 'ignorada').length
+
   return {
     totalMensagens: mensagens.length,
     mensagensConhecidas,
@@ -1045,6 +1117,9 @@ export async function parseConversaWhatsApp(
       incompletas: incompletasCount,
       comMidiaOcultada: comMidiaOcultadaCount,
       comMidiaRealAnexa: comMidiaRealCount,
+      solicitacoesNovas: solNovas,
+      solicitacoesPendentes: solPendentes,
+      solicitacoesIgnoradas: solIgnoradas,
     },
   }
 }

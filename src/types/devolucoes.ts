@@ -31,6 +31,12 @@ export type DecisaoHumanaItem =
   | 'manter_em_analise'
   | 'rejeitado'
 
+export type EstadoOperacionalImportacao = 'nova' | 'pendente_revisao' | 'processada' | 'ignorada'
+
+export type TipoRespostaIndustria = 'total' | 'parcial' | 'nao_autorizado'
+
+export type SituacaoAutorizacaoItem = 'pendente' | 'autorizado' | 'nao_autorizado'
+
 export type TimelineEventoTipo =
   | 'criacao_solicitacao'
   | 'edicao_dados'
@@ -114,6 +120,8 @@ export interface DevolucaoItem {
   quantidade_autorizada?: number
   quantidade_devolvida?: number
   valor_unitario?: number
+  situacao_autorizacao?: SituacaoAutorizacaoItem
+  motivo_nao_autorizado?: string
   validade_informada?: string
   validade_ausente?: boolean
   motivo_item?: string
@@ -163,6 +171,13 @@ export interface DevolucaoCaso {
   evidencia_descarte_anexo_nome?: string
   autorizacao_protocolo?: string
   autorizacao_data?: string
+  tipo_autorizacao_industria?: TipoRespostaIndustria
+  autorizacao_observacao?: string
+  autorizacao_registrada_por?: string
+  descarte_registrado_por?: string
+  descarte_data?: string
+  conclusao_data?: string
+  conclusao_usuario_nome?: string
   resultado_auditoria_geral?: AuditoriaClassificacao
   resumo_auditoria_json?: {
     itens_consistentes: number
@@ -391,6 +406,62 @@ export interface SolicitacaoIdentificadaWhatsApp {
   }>
   grupoCasoSugeridoId?: string
   statusRevisao: 'pendente' | 'confirmada' | 'ignorada'
+  estadoOperacional?: EstadoOperacionalImportacao
+  casoCriadoId?: string
+  casoCriadoCodigo?: string
+  ignoradoPor?: string
+  ignoradoEm?: string
+  ignoradoMotivo?: string
+  processadoPor?: string
+  processadoEm?: string
+  batchId?: string
+}
+
+/** Registro persistido na Caixa de Importação WhatsApp */
+export interface SolicitacaoImportadaRegistro {
+  id: string
+  solicitacao_id: string
+  raw_mensagem_id: string
+  batch_id?: string
+  data_hora_msg?: string
+  autor?: string
+  loja_informada?: string
+  loja_codigo?: string
+  industria_informada?: string
+  industria_id?: string
+  estado_operacional: EstadoOperacionalImportacao
+  caso_criado_id?: string
+  caso_criado_codigo?: string
+  ignorado_por?: string
+  ignorado_em?: string
+  ignorado_motivo?: string
+  processado_por?: string
+  processado_em?: string
+  trecho_original?: string
+  produtos_json?: unknown
+  evidencias_json?: unknown
+  reconciliacao_json?: unknown
+  ajustes_operador_json?: unknown
+  created?: string
+  updated?: string
+}
+
+export interface RegistrarAutorizacaoIndustriaInput {
+  casoId: string
+  codigoCaso: string
+  tipoAutorizacao: TipoRespostaIndustria
+  dataAutorizacao: string // YYYY-MM-DD
+  observacao?: string
+  protocolo?: string
+  responsavelNome?: string
+  evidenciaAnexoNome?: string
+  // Itens específicos em caso de autorização parcial
+  itensAutorizados?: Array<{
+    itemId: string
+    autorizado: boolean
+    quantidadeAutorizada: number
+    motivoNaoAutorizado?: string
+  }>
 }
 
 /** Registro de mensagem WhatsApp importada para deduplicação escalável */

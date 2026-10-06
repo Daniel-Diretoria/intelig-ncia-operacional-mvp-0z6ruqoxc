@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -29,7 +29,15 @@ import {
 } from '@/lib/import/whatsappParser'
 import { processarZipWhatsApp } from '@/lib/import/zipReader'
 import { calcularHashArquivo } from '@/lib/data/tradeProPipeline'
-import { verificarHashesConhecidos, persistirLoteWhatsApp } from '@/services/devolucoesDedupService'
+import {
+  verificarHashesConhecidos,
+  persistirLoteWhatsApp,
+  carregarSolicitacoesPersistidas,
+  marcarSolicitacaoComoIgnorada,
+  reabrirSolicitacaoIgnorada,
+  salvarOuAtualizarSolicitacoesPersistidas,
+} from '@/services/devolucoesDedupService'
+import { EstadoOperacionalImportacao } from '@/types/devolucoes'
 import {
   salvarProductAlias,
   carregarCatalogoContextual,
@@ -102,6 +110,10 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     incompletas: number
     comMidiaOcultada: number
     comMidiaRealAnexa: number
+    solicitacoesNovas?: number
+    solicitacoesPendentes?: number
+    solicitacoesProcessadas?: number
+    solicitacoesIgnoradas?: number
   } | null>(null)
 
   // Estado para modal secundário de revisão humana
@@ -117,6 +129,98 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
   const [catalogoCompleto, setCatalogoCompleto] = useState<CatalogoProdutoContexto[]>([])
   const [buscaCatalogoTexto, setBuscaCatalogoTexto] = useState('')
   const [salvarNoDicionario, setSalvarNoDicionario] = useState(false)
+
+  // Carregar solicitações pendentes de revisão previamente persistidas na Caixa
+  useEffect(() => {
+    if (!isOpen) return
+    let isMounted = true
+
+    async function carregarFilaPersistente() {
+      try {
+        const solicitacoesDb = await carregarSolicitacoesPersistidas()
+        if (isMounted && solicitacoesDb.size > 0 && etapa === 'upload' && !arquivoSelecionado) {
+          const pendentesArray: SolicitacaoEnriquecidaUI[] = []
+          for (const reg of solicitacoesDb.values()) {
+            if (pendentesArray.some((p) => p.id === reg.solicitacao_id)) continue
+
+            const prods = (reg.produtos_json as SolicitacaoIdentificadaWhatsApp['produtos']) || []
+            const faltantes: string[] = []
+            if (!reg.loja_informada && !reg.loja_codigo) faltantes.push('Loja')
+            if (!reg.industria_informada && !reg.industria_id) faltantes.push('Indústria')
+            if (prods.length === 0) faltantes.push('Produto')
+
+            pendentesArray.push({
+              id: reg.solicitacao_id,
+              rawMensagemId: reg.raw_mensagem_id,
+              timestamp: reg.created || new Date().toISOString(),
+              dataHoraMsg: reg.data_hora_msg || '',
+              autor: reg.autor || 'Promotor',
+              lojaInformada: reg.loja_informada || '',
+              lojaResolvida: reg.loja_informada
+                ? { codigo: reg.loja_codigo || '', nome: reg.loja_informada }
+                : undefined,
+              industriaInformada: reg.industria_informada || '',
+              industriaResolvida: reg.industria_informada
+                ? { id: reg.industria_id, nome: reg.industria_informada }
+                : undefined,
+              produtos: prods,
+              incompleta: faltantes.length > 0,
+              camposFaltantes: faltantes,
+              evidenciasDisponiveis:
+                (reg.evidencias_json as SolicitacaoIdentificadaWhatsApp['evidenciasDisponiveis']) ||
+                [],
+              statusRevisao:
+                reg.estado_operacional === 'ignorada'
+                  ? 'ignorada'
+                  : reg.estado_operacional === 'processada'
+                    ? 'confirmada'
+                    : 'pendente',
+              estadoOperacional: reg.estado_operacional,
+              casoCriadoId: reg.caso_criado_id,
+              casoCriadoCodigo: reg.caso_criado_codigo,
+              trechoOriginalWhatsapp: reg.trecho_original,
+              batchId: reg.batch_id,
+            })
+          }
+
+          if (pendentesArray.length > 0) {
+            setSolicitacoes(pendentesArray)
+            const pendentesReais = pendentesArray.filter(
+              (s) => s.estadoOperacional === 'pendente_revisao' || s.estadoOperacional === 'nova',
+            )
+            if (pendentesReais.length > 0) {
+              setEtapa('revisao')
+              setResumoImportacao({
+                totalEncontradas: pendentesArray.length,
+                jaConhecidas: pendentesArray.length,
+                novas: 0,
+                possiveisSolicitacoes: pendentesArray.length,
+                precisamRevisao: pendentesReais.length,
+                incompletas: pendentesArray.filter((s) => s.incompleta).length,
+                comMidiaOcultada: 0,
+                comMidiaRealAnexa: 0,
+                solicitacoesNovas: 0,
+                solicitacoesPendentes: pendentesReais.length,
+                solicitacoesProcessadas: pendentesArray.filter(
+                  (s) => s.estadoOperacional === 'processada',
+                ).length,
+                solicitacoesIgnoradas: pendentesArray.filter(
+                  (s) => s.estadoOperacional === 'ignorada',
+                ).length,
+              })
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar fila persistente do WhatsApp:', err)
+      }
+    }
+
+    carregarFilaPersistente()
+    return () => {
+      isMounted = false
+    }
+  }, [isOpen, etapa, arquivoSelecionado])
 
   // Resetar ao fechar
   const handleClose = () => {
@@ -188,12 +292,43 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       // 2. Buscar hashes já conhecidos de forma persistente e escalável (deduplicação v0.0.117)
       const hashesJaConhecidos = await verificarHashesConhecidos(hashesDoArquivo)
 
-      // 3. Executar parser com os cenários A a J
+      // 2.1 Carregar estado operacional prévio persistido para as mensagens deste arquivo
+      // REGRA CENTRAL: "mensagem conhecida ≠ solicitação concluída"
+      const solicitacoesPersistidasMap = await carregarSolicitacoesPersistidas(hashesDoArquivo)
+      const mapaParser = new Map<
+        string,
+        {
+          solicitacaoId: string
+          rawMensagemId: string
+          estadoOperacional: EstadoOperacionalImportacao
+          casoCriadoId?: string
+          casoCriadoCodigo?: string
+          ignoradoPor?: string
+          ignoradoEm?: string
+          produtosAjustados?: SolicitacaoIdentificadaWhatsApp['produtos']
+        }
+      >()
+
+      for (const [key, val] of solicitacoesPersistidasMap.entries()) {
+        mapaParser.set(key, {
+          solicitacaoId: val.solicitacao_id,
+          rawMensagemId: val.raw_mensagem_id,
+          estadoOperacional: val.estado_operacional,
+          casoCriadoId: val.caso_criado_id,
+          casoCriadoCodigo: val.caso_criado_codigo,
+          ignoradoPor: val.ignorado_por,
+          ignoradoEm: val.ignorado_em,
+          produtosAjustados: val.produtos_json as SolicitacaoIdentificadaWhatsApp['produtos'],
+        })
+      }
+
+      // 3. Executar parser separando "mensagem conhecida" de "estado operacional"
       const parseResult = await parseConversaWhatsApp(
         textoConversa,
         hashesJaConhecidos,
         midiasDisponiveis,
         industriasDisponiveis,
+        mapaParser,
       )
 
       setSolicitacoes(parseResult.solicitacoes as SolicitacaoEnriquecidaUI[])
@@ -249,14 +384,39 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     }
   }
 
-  // Ações na Caixa de Importação
-  const handleIgnorarSolicitacao = (id: string) => {
+  // Ações na Caixa de Importação com persistência de estado (Regra 3, 7, 10 e 13)
+  const handleIgnorarSolicitacao = async (id: string) => {
     setSolicitacoes((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, statusRevisao: 'ignorada' } : s)),
+      prev.map((s) =>
+        s.id === id ? { ...s, statusRevisao: 'ignorada', estadoOperacional: 'ignorada' } : s,
+      ),
     )
+    try {
+      await marcarSolicitacaoComoIgnorada(
+        id,
+        'Decisão registrada pelo operador na Caixa de Importação',
+      )
+    } catch (e) {
+      console.warn('Aviso ao registrar ignorado:', e)
+    }
   }
 
-  const handleConfirmarIndividual = (id: string) => {
+  const handleReabrirSolicitacao = async (id: string) => {
+    setSolicitacoes((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, statusRevisao: 'pendente', estadoOperacional: 'pendente_revisao' }
+          : s,
+      ),
+    )
+    try {
+      await reabrirSolicitacaoIgnorada(id)
+    } catch (e) {
+      console.warn('Aviso ao reabrir ignorado:', e)
+    }
+  }
+
+  const handleConfirmarIndividual = async (id: string) => {
     setSolicitacoes((prev) =>
       prev.map((s) => (s.id === id ? { ...s, statusRevisao: 'confirmada' } : s)),
     )
@@ -384,18 +544,24 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
 
     const incompleta = faltantes.length > 0
 
+    const solicitacaoAtualizada: SolicitacaoEnriquecidaUI = {
+      ...solicitacaoEmEdicao,
+      incompleta,
+      camposFaltantes: faltantes,
+      statusRevisao: 'confirmada',
+      estadoOperacional: 'pendente_revisao',
+    }
+
     setSolicitacoes((prev) =>
-      prev.map((s) =>
-        s.id === solicitacaoEmEdicao.id
-          ? {
-              ...solicitacaoEmEdicao,
-              incompleta,
-              camposFaltantes: faltantes,
-              statusRevisao: 'confirmada',
-            }
-          : s,
-      ),
+      prev.map((s) => (s.id === solicitacaoEmEdicao.id ? solicitacaoAtualizada : s)),
     )
+
+    // Persistir os ajustes no backend imediatamente para nunca perder o trabalho em andamento (Regra 14)
+    try {
+      await salvarOuAtualizarSolicitacoesPersistidas([solicitacaoAtualizada])
+    } catch (e) {
+      console.warn('Aviso ao persistir ajustes do operador:', e)
+    }
 
     setModalEdicaoOpen(false)
   }
@@ -430,6 +596,7 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
       const lojaCod = ref.lojaResolvida?.codigo || ''
       const indNome =
         ref.industriaResolvida?.nome || ref.industriaInformada || 'Indústria a identificar'
+      const solOrigemId = ref.id // Guarda id da solicitação para vínculo estrito e marcação de processada
 
       // Unificar todos os produtos das mensagens do grupo (Regra 4: UM caso com N produtos)
       const itensCaso: CriarDevolucaoItemInput[] = solsDoGrupo.flatMap((s) =>
@@ -476,16 +643,26 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
         observacoes: observacoesGerais,
         itens: itensCaso,
         evidencias: evidenciasCaso,
-      })
+        solicitacaoOrigemId: solOrigemId,
+      } as CriarDevolucaoCasoInput)
     }
 
     try {
       setIsProcessando(true)
+      // REGRA 11 e 12: se falhar aqui, não marca como processada e não perde nada
       await onConfirmarCriacaoCasos(casosParaCriar)
+
+      // Atualiza estado local das confirmadas para processada
+      setSolicitacoes((prev) =>
+        prev.map((s) =>
+          s.statusRevisao === 'confirmada' ? { ...s, estadoOperacional: 'processada' } : s,
+        ),
+      )
+
       setEtapa('concluido')
       toast({
-        title: 'Casos Criados!',
-        description: `${casosParaCriar.length} Caso(s) de Devolução criado(s) com sucesso.`,
+        title: 'Casos Criados com Sucesso!',
+        description: `${casosParaCriar.length} Caso(s) de Devolução criado(s). As solicitações foram vinculadas e marcadas como processadas.`,
       })
       setTimeout(() => {
         handleClose()
@@ -493,8 +670,9 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
     } catch (err) {
       console.error(err)
       toast({
-        title: 'Erro ao criar casos',
-        description: 'Falha na gravação do Caso de Devolução.',
+        title: 'Erro ao criar casos de devolução',
+        description:
+          'Falha na gravação do Caso. Nenhuma solicitação foi perdida ou marcada indevidamente como processada.',
         variant: 'destructive',
       })
     } finally {
@@ -654,22 +832,40 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-[11px]">
                   <div>
-                    <span className="text-slate-400">Total Mensagens:</span>{' '}
-                    <strong>{resumoImportacao.totalEncontradas}</strong>
+                    <span className="text-slate-400">Mensagens:</span>{' '}
+                    <strong>{resumoImportacao.totalEncontradas}</strong>{' '}
+                    <span className="text-[10px] text-slate-400">
+                      ({resumoImportacao.novas} novas / {resumoImportacao.jaConhecidas} conhecidas)
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-400">Já Conhecidas (Dedup):</span>{' '}
-                    <strong>{resumoImportacao.jaConhecidas}</strong>
+                    <span className="text-slate-400">Solicitações na Fila:</span>{' '}
+                    <strong className="text-indigo-600">{solicitacoes.length}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-400">Possíveis Solicitações:</span>{' '}
-                    <strong className="text-indigo-600">
-                      {resumoImportacao.possiveisSolicitacoes}
+                    <span className="text-slate-400">Pendentes de Ação:</span>{' '}
+                    <strong className="text-amber-600">
+                      {
+                        solicitacoes.filter(
+                          (s) =>
+                            s.statusRevisao === 'pendente' && s.estadoOperacional !== 'processada',
+                        ).length
+                      }
                     </strong>
                   </div>
                   <div>
-                    <span className="text-slate-400">Precisam Revisão:</span>{' '}
-                    <strong className="text-amber-600">{resumoImportacao.precisamRevisao}</strong>
+                    <span className="text-slate-400">Processadas / Ignoradas:</span>{' '}
+                    <strong className="text-slate-600">
+                      {
+                        solicitacoes.filter(
+                          (s) =>
+                            s.estadoOperacional === 'processada' ||
+                            s.statusRevisao === 'confirmada',
+                        ).length
+                      }{' '}
+                      proc. / {solicitacoes.filter((s) => s.statusRevisao === 'ignorada').length}{' '}
+                      ign.
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -766,17 +962,11 @@ export const ImportarWhatsAppModal: React.FC<ImportarWhatsAppModalProps> = ({
                           {isIgnorada ? (
                             <Button
                               size="sm"
-                              variant="ghost"
-                              className="text-xs h-7 text-slate-600"
-                              onClick={() =>
-                                setSolicitacoes((prev) =>
-                                  prev.map((s) =>
-                                    s.id === sol.id ? { ...s, statusRevisao: 'pendente' } : s,
-                                  ),
-                                )
-                              }
+                              variant="outline"
+                              className="text-xs h-7 border-slate-300 text-indigo-700 hover:bg-indigo-50 font-medium"
+                              onClick={() => handleReabrirSolicitacao(sol.id)}
                             >
-                              Restaurar
+                              Reabrir para revisão
                             </Button>
                           ) : (
                             <>

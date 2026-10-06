@@ -221,11 +221,33 @@ const CasoCard: React.FC<{
           </div>
         </div>
 
-        {/* Resultado Auditoria Explicável */}
+        {/* Resultado Auditoria Explicável & Quantidades Autorizadas */}
         <div className="pt-1 flex items-center justify-between border-t border-slate-100">
           <span className="text-[10px] font-semibold text-slate-500">Auditoria SKIP:</span>
           <AuditoriaBadge classificacao={caso.resultado_auditoria_geral} />
         </div>
+
+        {/* Indicador de Autorização da Indústria quando existente */}
+        {caso.tipo_autorizacao_industria && (
+          <div className="flex items-center justify-between text-[11px] bg-slate-50 px-2 py-1 rounded">
+            <span className="text-slate-500">Indústria:</span>
+            <span
+              className={`font-bold ${
+                caso.tipo_autorizacao_industria === 'total'
+                  ? 'text-emerald-700'
+                  : caso.tipo_autorizacao_industria === 'parcial'
+                    ? 'text-amber-700'
+                    : 'text-red-700'
+              }`}
+            >
+              {caso.tipo_autorizacao_industria === 'total'
+                ? `Total (${caso.total_unidades_autorizadas ?? caso.total_unidades_solicitadas} un.)`
+                : caso.tipo_autorizacao_industria === 'parcial'
+                  ? `Parcial (${caso.total_unidades_autorizadas ?? 0} un.)`
+                  : 'Não autorizada'}
+            </span>
+          </div>
+        )}
 
         {/* Próxima Ação */}
         {caso.proxima_acao && (

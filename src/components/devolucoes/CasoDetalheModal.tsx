@@ -83,10 +83,25 @@ interface CasoDetalheModalProps {
       novo_status?: DevolucaoStatus
     },
   ) => Promise<void>
+  onRegistrarRespostaIndustria?: (
+    casoId: string,
+    codigoCaso: string,
+    tipo: 'total' | 'parcial' | 'nao_autorizado',
+    data: string,
+    observacao: string,
+    protocolo: string,
+    itensAutorizados?: Array<{
+      itemId: string
+      autorizado: boolean
+      quantidadeAutorizada: number
+      motivoNaoAutorizado?: string
+    }>,
+  ) => Promise<void>
+  onConcluirDevolucao?: (casoId: string, codigoCaso: string, obs?: string) => Promise<void>
   onAnexarEvidencia: (
     casoId: string,
     codigoCaso: string,
-    dados: {
+    evidencia: {
       tipo: EvidenciaTipo
       titulo: string
       descricao?: string
@@ -104,10 +119,33 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
   onRegistrarDecisaoItem,
   onAtualizarStatus,
   onSalvarNFDescarte,
+  onRegistrarRespostaIndustria,
+  onConcluirDevolucao,
   onAnexarEvidencia,
 }) => {
   const { can } = useAuth()
   const [activeTab, setActiveTab] = useState('auditoria')
+  const [autorizacaoModalOpen, setAutorizacaoModalOpen] = useState(false)
+  const [tipoRespIndustria, setTipoRespIndustria] = useState<
+    'total' | 'parcial' | 'nao_autorizado'
+  >('total')
+  const [dataRespIndustria, setDataRespIndustria] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  )
+  const [obsRespIndustria, setObsRespIndustria] = useState('')
+  const [protocoloRespIndustria, setProtocoloRespIndustria] = useState('')
+  const [itensParciaisState, setItensParciaisState] = useState<
+    Array<{
+      itemId: string
+      nome: string
+      solicitado: number
+      autorizado: boolean
+      qtdAutorizada: number
+      motivo?: string
+    }>
+  >([])
+  const [concluirModalOpen, setConcluirModalOpen] = useState(false)
+  const [obsConclusao, setObsConclusao] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
 
   const canViewDocuments = can('devolucoes:visualizar_documentos')
@@ -163,6 +201,92 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
 
   // Mensagem WhatsApp gerada
   const mensagemWhatsApp = gerarMensagemSolicitacaoIndustria(caso)
+
+  // Status de documentação estrito (Regras 27 a 30)
+  // REGRA 29: NF comum NÃO é NF assinada; foto genérica NÃO é descarte
+  const temNfAssinada = Boolean(
+    caso.nf_assinada_anexo_nome?.trim() || caso.evidencias?.some((e) => e.tipo === 'nf_assinada'),
+  )
+  const temDescarte = Boolean(
+    caso.evidencia_descarte_anexo_nome?.trim() ||
+    caso.evidencias?.some((e) => e.tipo === 'comprovante_descarte'),
+  )
+  const documentacaoCompleta = temNfAssinada && temDescarte
+
+  const handleOpenAutorizacaoModal = () => {
+    setDataRespIndustria(caso.autorizacao_data || new Date().toISOString().slice(0, 10))
+    setProtocoloRespIndustria(caso.autorizacao_protocolo || '')
+    setObsRespIndustria('')
+    setTipoRespIndustria('total')
+
+    if (caso.itens) {
+      setItensParciaisState(
+        caso.itens.map((it) => ({
+          itemId: it.id,
+          nome: it.produto_nome_oficial || it.produto_nome_informado,
+          solicitado: it.quantidade_solicitada,
+          autorizado: true,
+          qtdAutorizada: it.quantidade_solicitada,
+          motivo: '',
+        })),
+      )
+    }
+    setAutorizacaoModalOpen(true)
+  }
+
+  const handleSalvarRespostaIndustria = async () => {
+    if (!onRegistrarRespostaIndustria) return
+    try {
+      setIsProcessing(true)
+      await onRegistrarRespostaIndustria(
+        caso.id,
+        caso.codigo_caso,
+        tipoRespIndustria,
+        dataRespIndustria,
+        obsRespIndustria,
+        protocoloRespIndustria,
+        tipoRespIndustria === 'parcial'
+          ? itensParciaisState.map((it) => ({
+              itemId: it.itemId,
+              autorizado: it.autorizado,
+              quantidadeAutorizada: it.autorizado ? it.qtdAutorizada : 0,
+              motivoNaoAutorizado: it.motivo,
+            }))
+          : undefined,
+      )
+      setAutorizacaoModalOpen(false)
+      toast({
+        title: 'Resposta da Indústria Registrada!',
+        description:
+          tipoRespIndustria === 'nao_autorizado'
+            ? 'Caso marcado como Não Autorizado com auditoria preservada.'
+            : 'Caso avançado automaticamente para Aguardando NF Assinada e Descarte.',
+      })
+    } catch (err) {
+      console.error(err)
+      toast({ title: 'Erro ao registrar autorização', variant: 'destructive' })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleExecutarConclusao = async () => {
+    if (!onConcluirDevolucao) return
+    try {
+      setIsProcessing(true)
+      await onConcluirDevolucao(caso.id, caso.codigo_caso, obsConclusao)
+      setConcluirModalOpen(false)
+      toast({
+        title: 'Devolução Concluída!',
+        description: 'Caso arquivado com sucesso nas Devoluções Finalizadas.',
+      })
+    } catch (err) {
+      console.error(err)
+      toast({ title: 'Erro ao concluir devolução', variant: 'destructive' })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
   const handleOpenDecisaoItem = (item: DevolucaoItem) => {
     setItemParaDecisao(item)
@@ -307,9 +431,37 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
               </div>
             </div>
 
-            {/* Ações de Status Rápido */}
+            {/* Ações de Status Rápido e Ações Inteligentes de Avanço de Fluxo */}
             <div className="flex flex-col sm:items-end gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* BOTÃO OPERACIONAL: INDÚSTRIA AUTORIZOU (Regra 18 a 23) */}
+                {(caso.status === 'aguardando_autorizacao_industria' ||
+                  caso.status === 'pronta_para_envio') &&
+                  canRegisterAuth && (
+                    <Button
+                      size="sm"
+                      onClick={handleOpenAutorizacaoModal}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 shadow-xs"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                      Indústria Respondeu / Autorizou
+                    </Button>
+                  )}
+
+                {/* BOTÃO OPERACIONAL: CONCLUIR DEVOLUÇÃO HUMANA (Regra 30 e 31) */}
+                {caso.status === 'aguardando_nf_descarte' &&
+                  documentacaoCompleta &&
+                  canRegisterAuth && (
+                    <Button
+                      size="sm"
+                      onClick={() => setConcluirModalOpen(true)}
+                      className="bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs h-8 shadow-xs animate-pulse"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                      Concluir Devolução
+                    </Button>
+                  )}
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -328,7 +480,7 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
                     onAtualizarStatus(caso.id, caso.codigo_caso, val as DevolucaoStatus)
                   }
                 >
-                  <SelectTrigger className="w-[200px] h-8 text-xs font-semibold">
+                  <SelectTrigger className="w-[180px] h-8 text-xs font-semibold">
                     <SelectValue placeholder="Alterar status..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -349,7 +501,7 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
               </div>
 
               {caso.proxima_acao && (
-                <p className="text-[11px] text-amber-800 bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
+                <p className="text-[11px] text-amber-900 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
                   <strong>Próxima ação:</strong> {caso.proxima_acao}
                 </p>
               )}
@@ -784,9 +936,52 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
               </div>
             ) : (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 text-xs">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs">
-                  Controle de Autorização da Indústria, Emissão de NF e Descarte
-                </h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div>
+                    <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs">
+                      Controle de Autorização da Indústria, NF e Descarte
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Rastreabilidade documental estrita. O encerramento do caso depende da
+                      conferência da NF assinada e do descarte.
+                    </p>
+                  </div>
+                  {/* Quadro Indicador de Completude Documental (Regra 27 a 29) */}
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        temNfAssinada
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      NF Assinada: {temNfAssinada ? 'Recebida' : 'Pendente'}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        temDescarte
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      Descarte: {temDescarte ? 'Recebido' : 'Pendente'}
+                    </Badge>
+                    {documentacaoCompleta ? (
+                      <Badge className="bg-emerald-600 text-white text-[10px]">
+                        Documentação Completa
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="text-slate-500 border-slate-300 text-[10px]"
+                      >
+                        Documentação Incompleta
+                      </Badge>
+                    )}
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Bloco Autorização */}
@@ -1023,6 +1218,292 @@ export const CasoDetalheModal: React.FC<CasoDetalheModalProps> = ({
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
                 >
                   Salvar Decisão
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Modal "Indústria Respondeu / Autorizou" (Regra 18 a 25) */}
+        {autorizacaoModalOpen && (
+          <Dialog open={autorizacaoModalOpen} onOpenChange={setAutorizacaoModalOpen}>
+            <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Registrar Resposta da Indústria — {caso.codigo_caso}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2 text-xs">
+                {/* Tipo de Resposta */}
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Tipo de Resposta da Indústria
+                  </Label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    <Button
+                      type="button"
+                      variant={tipoRespIndustria === 'total' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTipoRespIndustria('total')}
+                      className={`text-xs ${
+                        tipoRespIndustria === 'total'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : 'text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      Autorização Total
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={tipoRespIndustria === 'parcial' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTipoRespIndustria('parcial')}
+                      className={`text-xs ${
+                        tipoRespIndustria === 'parcial'
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      Autorização Parcial
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={tipoRespIndustria === 'nao_autorizado' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTipoRespIndustria('nao_autorizado')}
+                      className={`text-xs ${
+                        tipoRespIndustria === 'nao_autorizado'
+                          ? 'bg-red-600 hover:bg-red-700 text-white'
+                          : 'text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      Não Autorizado
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Data da Autorização / Resposta
+                    </Label>
+                    <Input
+                      type="date"
+                      value={dataRespIndustria}
+                      onChange={(e) => setDataRespIndustria(e.target.value)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Protocolo / Nº Autorização (opcional)
+                    </Label>
+                    <Input
+                      type="text"
+                      placeholder="Ex: AUT-98421"
+                      value={protocoloRespIndustria}
+                      onChange={(e) => setProtocoloRespIndustria(e.target.value)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Bloco de Itens para Autorização Parcial (Regra 21 e 24) */}
+                {tipoRespIndustria === 'parcial' && (
+                  <div className="space-y-2 border border-amber-200 rounded-lg p-3 bg-amber-50/40">
+                    <h5 className="font-bold text-amber-900 text-xs">
+                      Detalhamento por Item (Mesmo Caso — Situação por Item)
+                    </h5>
+                    <p className="text-[11px] text-amber-800">
+                      Informe quais itens foram autorizados e suas quantidades autorizadas:
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {itensParciaisState.map((it, idx) => (
+                        <div
+                          key={it.itemId}
+                          className="p-2 bg-white rounded border border-slate-200 space-y-1.5 text-xs shadow-2xs"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-800">
+                              {it.nome} ({it.solicitado} un. solicitadas)
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <label className="flex items-center gap-1 cursor-pointer text-slate-700 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={it.autorizado}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked
+                                    setItensParciaisState((prev) =>
+                                      prev.map((p, i) =>
+                                        i === idx
+                                          ? {
+                                              ...p,
+                                              autorizado: checked,
+                                              qtdAutorizada: checked ? p.solicitado : 0,
+                                            }
+                                          : p,
+                                      ),
+                                    )
+                                  }}
+                                  className="rounded border-slate-300"
+                                />
+                                Autorizado
+                              </label>
+                            </div>
+                          </div>
+
+                          {it.autorizado ? (
+                            <div className="flex items-center gap-2 pt-1">
+                              <span className="text-[11px] text-slate-500">Qtd Autorizada:</span>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={it.solicitado}
+                                value={it.qtdAutorizada}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10) || 0
+                                  setItensParciaisState((prev) =>
+                                    prev.map((p, i) =>
+                                      i === idx ? { ...p, qtdAutorizada: val } : p,
+                                    ),
+                                  )
+                                }}
+                                className="h-7 w-24 text-xs"
+                              />
+                            </div>
+                          ) : (
+                            <div className="pt-1">
+                              <Input
+                                type="text"
+                                placeholder="Motivo da não autorização deste item..."
+                                value={it.motivo || ''}
+                                onChange={(e) => {
+                                  const mot = e.target.value
+                                  setItensParciaisState((prev) =>
+                                    prev.map((p, i) => (i === idx ? { ...p, motivo: mot } : p)),
+                                  )
+                                }}
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Observações / Motivo da Resposta
+                  </Label>
+                  <Textarea
+                    placeholder="Detalhes adicionais da resposta da indústria..."
+                    value={obsRespIndustria}
+                    onChange={(e) => setObsRespIndustria(e.target.value)}
+                    className="mt-1 text-xs"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-[11px] text-slate-600">
+                  {tipoRespIndustria === 'total' && (
+                    <p>
+                      ✓ <strong>Avanço automático:</strong> o caso passará para{' '}
+                      <em>"Aguardando NF assinada + descarte"</em> e registrará a autorização
+                      integral na Linha do Tempo.
+                    </p>
+                  )}
+                  {tipoRespIndustria === 'parcial' && (
+                    <p>
+                      ✓ <strong>Avanço automático:</strong> os itens autorizados seguirão para
+                      emissão de NF e descarte no mesmo caso. Itens rejeitados permanecerão
+                      sinalizados.
+                    </p>
+                  )}
+                  {tipoRespIndustria === 'nao_autorizado' && (
+                    <p>
+                      ✓ <strong>Preservação integral:</strong> o caso será marcado como{' '}
+                      <em>"Não Autorizado"</em>, preservando a auditoria e o histórico completo na
+                      Linha do Tempo.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <Button variant="outline" size="sm" onClick={() => setAutorizacaoModalOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSalvarRespostaIndustria}
+                  disabled={isProcessing}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                >
+                  Confirmar Resposta da Indústria
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Modal Concluir Devolução Humana (Regra 30 e 31) */}
+        {concluirModalOpen && (
+          <Dialog open={concluirModalOpen} onOpenChange={setConcluirModalOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                  Conclusão Humana do Processo — {caso.codigo_caso}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-3 py-2 text-xs">
+                <p className="text-slate-600">
+                  A documentação exigida (NF assinada e comprovante de descarte) está presente no
+                  caso. Deseja efetivar o encerramento operacional?
+                </p>
+
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-slate-700">
+                  <div>
+                    <strong>NF Assinada:</strong>{' '}
+                    {caso.nf_assinada_anexo_nome || 'Anexada como evidência'}
+                  </div>
+                  <div>
+                    <strong>Evidência de Descarte:</strong>{' '}
+                    {caso.evidencia_descarte_anexo_nome || 'Anexada como evidência'}
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Observações Finais de Encerramento (opcional)
+                  </Label>
+                  <Textarea
+                    placeholder="Ex: Documentos conferidos e arquivados no cofre digital..."
+                    value={obsConclusao}
+                    onChange={(e) => setObsConclusao(e.target.value)}
+                    className="mt-1 text-xs"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <Button variant="outline" size="sm" onClick={() => setConcluirModalOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleExecutarConclusao}
+                  disabled={isProcessing}
+                  className="bg-indigo-700 hover:bg-indigo-800 text-white font-semibold"
+                >
+                  Efetivar Conclusão
                 </Button>
               </div>
             </DialogContent>

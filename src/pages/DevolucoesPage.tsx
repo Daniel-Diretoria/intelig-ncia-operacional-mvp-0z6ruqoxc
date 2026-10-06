@@ -17,6 +17,8 @@ import {
   atualizarStatusCaso,
   atualizarDadosAutorizacaoNFDescarte,
   anexarEvidencia,
+  registrarAutorizacaoIndustria,
+  concluirDevolucaoHumana,
 } from '@/services/devolucoesService'
 import { getIndustryRegistries } from '@/services/industryService'
 import pb from '@/lib/pocketbase/client'
@@ -49,6 +51,7 @@ import { useAuth } from '@/services/authContext'
 export const DevolucoesPage: React.FC = () => {
   const { can, allowedIndustries } = useAuth()
   const [abaAtiva, setAbaAtiva] = useState<'fila' | 'arquivo'>('fila')
+  const [solicitacoesPendentesCount, setSolicitacoesPendentesCount] = useState<number>(0)
   const [filtros, setFiltros] = useState<DevolucoesFiltros>({})
   const [fila, setFila] = useState<FilaOperacionalAgrupada>({
     precisaDeAcao: [],
@@ -119,6 +122,17 @@ export const DevolucoesPage: React.FC = () => {
       try {
         const res = await listarCasosOperacionais(filtros, allowedIndustries)
         setFila(res.fila)
+
+        try {
+          const solRecords = await pb
+            .collection('devolucoes_solicitacoes_importadas')
+            .getList(1, 100, {
+              filter: "estado_operacional = 'pendente_revisao' || estado_operacional = 'nova'",
+            })
+          setSolicitacoesPendentesCount(solRecords.totalItems)
+        } catch (e) {
+          console.warn('Aviso ao carregar solicitacoes pendentes count:', e)
+        }
       } catch (err) {
         console.error('[DevolucoesPage] Erro ao listar casos:', err)
         toast({
@@ -238,6 +252,43 @@ export const DevolucoesPage: React.FC = () => {
     await carregarCasos(true)
   }
 
+  // Resposta da Indústria (Total, Parcial ou Não Autorizado - Regras 17 a 25)
+  const handleRegistrarRespostaIndustria = async (
+    casoId: string,
+    codigoCaso: string,
+    tipo: 'total' | 'parcial' | 'nao_autorizado',
+    data: string,
+    observacao: string,
+    protocolo: string,
+    itensAutorizados?: Array<{
+      itemId: string
+      autorizado: boolean
+      quantidadeAutorizada: number
+      motivoNaoAutorizado?: string
+    }>,
+  ) => {
+    await registrarAutorizacaoIndustria({
+      casoId,
+      codigoCaso,
+      tipoAutorizacao: tipo,
+      dataAutorizacao: data,
+      observacao,
+      protocolo,
+      itensAutorizados,
+    })
+    const recarregado = await carregarCasoDetalhes(casoId)
+    if (recarregado) setCasoSelecionado(recarregado)
+    await carregarCasos(true)
+  }
+
+  // Conclusão humana de devolução (Regras 30 e 31)
+  const handleConcluirDevolucao = async (casoId: string, codigoCaso: string, obs?: string) => {
+    await concluirDevolucaoHumana(casoId, codigoCaso, obs)
+    const recarregado = await carregarCasoDetalhes(casoId)
+    if (recarregado) setCasoSelecionado(recarregado)
+    await carregarCasos(true)
+  }
+
   // Anexar evidência
   const handleAnexarEvidencia = async (
     casoId: string,
@@ -290,14 +341,20 @@ export const DevolucoesPage: React.FC = () => {
           {/* Importar conversa do WhatsApp */}
           {can('devolucoes:importar_whatsapp') && (
             <Button
-              variant="outline"
+              variant={solicitacoesPendentesCount > 0 ? 'default' : 'outline'}
               size="sm"
               onClick={() => setIsWhatsAppOpen(true)}
-              className="text-xs h-9 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
-              title="Importar conversa do WhatsApp"
+              className={`text-xs h-9 font-semibold ${
+                solicitacoesPendentesCount > 0
+                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs'
+                  : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300'
+              }`}
+              title="Caixa de Importação WhatsApp"
             >
-              <Upload className="w-3.5 h-3.5 mr-1.5 text-emerald-700" />
-              Importar WhatsApp
+              <Upload className="w-3.5 h-3.5 mr-1.5 text-emerald-200" />
+              {solicitacoesPendentesCount > 0
+                ? `Caixa WhatsApp (${solicitacoesPendentesCount} pendente${solicitacoesPendentesCount > 1 ? 's' : ''})`
+                : 'Importar WhatsApp'}
             </Button>
           )}
 
@@ -360,6 +417,37 @@ export const DevolucoesPage: React.FC = () => {
         />
       ) : (
         <>
+          {/* Card de Alerta se houver Solicitações Pendentes de Revisão na Caixa WhatsApp (Regra 5) */}
+          {solicitacoesPendentesCount > 0 && (
+            <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <span className="p-2 rounded-lg bg-emerald-600 text-white shrink-0">
+                  <Upload className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                    Caixa de Importação WhatsApp — Fila de Trabalho Ativa
+                  </h4>
+                  <p className="text-xs text-emerald-800 mt-0.5">
+                    Você possui{' '}
+                    <strong>
+                      {solicitacoesPendentesCount} solicitação(ões) pendente(s) de revisão
+                    </strong>{' '}
+                    identificadas a partir de conversas importadas. Não é necessário reimportar o
+                    arquivo.
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setIsWhatsAppOpen(true)}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shrink-0"
+              >
+                Continuar revisão ({solicitacoesPendentesCount})
+              </Button>
+            </div>
+          )}
+
           {/* KPI Tiles Resumo da Fila Operacional (Regra 16) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
@@ -459,6 +547,8 @@ export const DevolucoesPage: React.FC = () => {
         onRegistrarDecisaoItem={handleRegistrarDecisaoItem}
         onAtualizarStatus={handleAtualizarStatus}
         onSalvarNFDescarte={handleSalvarNFDescarte}
+        onRegistrarRespostaIndustria={handleRegistrarRespostaIndustria}
+        onConcluirDevolucao={handleConcluirDevolucao}
         onAnexarEvidencia={handleAnexarEvidencia}
       />
 

@@ -15,7 +15,9 @@ import {
   DevolucaoStatus,
   DecisaoHumanaItem,
   AuditoriaClassificacao,
+  RegistrarAutorizacaoIndustriaInput,
 } from '@/types/devolucoes'
+import { marcarSolicitacaoProcessada } from '@/services/devolucoesDedupService'
 import {
   auditarItemDevolucao,
   consolidarAuditoriaCaso,
@@ -83,7 +85,191 @@ export async function registrarDevolucaoAudit(
 }
 
 /**
- * Registra evento na timeline do Caso de Devolução (Regra 14: NÃO sobrescrever silenciosamente o histórico)
+ * Registra a resposta da Indústria no caso (Parte 2: Autorização Total, Parcial ou Não Autorizado)
+ * Avança o caso automaticamente:
+ * - Total / Parcial -> status 'aguardando_nf_descarte' (próxima etapa: NF assinada + descarte)
+ * - Não autorizado -> status 'nao_autorizado' (preserva o caso, auditoria e linha do tempo)
+ * NUNCA divide em casos diferentes (mesmo caso preservado)
+ */
+export async function registrarAutorizacaoIndustria(
+  input: RegistrarAutorizacaoIndustriaInput,
+): Promise<DevolucaoCaso> {
+  const user = pb.authStore.model
+  const responsavel = input.responsavelNome || user?.name || user?.email || 'Operador'
+  const dataHoje = input.dataAutorizacao || new Date().toISOString().slice(0, 10)
+
+  // 1. Obter itens atuais do caso para atualizar quantidades autorizadas
+  const itensRecords = await pb.collection('devolucoes_itens').getFullList({
+    filter: `caso_id = '${input.casoId}'`,
+  })
+  const itensAtuais = itensRecords as unknown as DevolucaoItem[]
+
+  let totalQtdAutorizada = 0
+  let itensAutorizadosCount = 0
+  const totalItens = itensAtuais.length
+
+  if (input.tipoAutorizacao === 'total') {
+    // Todos os itens autorizados integralmente
+    for (const it of itensAtuais) {
+      const qtd = it.quantidade_solicitada
+      totalQtdAutorizada += qtd
+      itensAutorizadosCount++
+      await pb.collection('devolucoes_itens').update(it.id, {
+        quantidade_autorizada: qtd,
+        situacao_autorizacao: 'autorizado',
+      })
+    }
+  } else if (input.tipoAutorizacao === 'parcial') {
+    // Respeita a seleção por item informada pelo operador
+    const mapaItensInput = new Map(input.itensAutorizados?.map((i) => [i.itemId, i]))
+    for (const it of itensAtuais) {
+      const itemInfo = mapaItensInput.get(it.id)
+      if (itemInfo && itemInfo.autorizado) {
+        const qtdAut = Math.min(
+          itemInfo.quantidadeAutorizada !== undefined
+            ? itemInfo.quantidadeAutorizada
+            : it.quantidade_solicitada,
+          it.quantidade_solicitada,
+        )
+        totalQtdAutorizada += qtdAut
+        itensAutorizadosCount++
+        await pb.collection('devolucoes_itens').update(it.id, {
+          quantidade_autorizada: qtdAut,
+          situacao_autorizacao: 'autorizado',
+          observacao: itemInfo.motivoNaoAutorizado || it.observacao || '',
+        })
+      } else {
+        await pb.collection('devolucoes_itens').update(it.id, {
+          quantidade_autorizada: 0,
+          situacao_autorizacao: 'nao_autorizado',
+          motivo_nao_autorizado: itemInfo?.motivoNaoAutorizado || 'Não autorizado pela indústria',
+        })
+      }
+    }
+  } else {
+    // Não autorizado
+    for (const it of itensAtuais) {
+      await pb.collection('devolucoes_itens').update(it.id, {
+        quantidade_autorizada: 0,
+        situacao_autorizacao: 'nao_autorizado',
+        motivo_nao_autorizado: input.observacao || 'Devolução não autorizada pela indústria',
+      })
+    }
+  }
+
+  // 2. Determinar próximo status e próxima ação automática (Regra 20 e 23)
+  let novoStatus: DevolucaoStatus = 'aguardando_nf_descarte'
+  let proximaAcao = 'Aguardando envio da NF assinada e comprovante de descarte pelo promotor.'
+
+  if (input.tipoAutorizacao === 'nao_autorizado') {
+    novoStatus = 'nao_autorizado'
+    proximaAcao = 'Devolução recusada pela indústria. Caso finalizado sem emissão de NF.'
+  }
+
+  // 3. Atualizar Caso
+  const payloadCaso: Record<string, unknown> = {
+    status: novoStatus,
+    tipo_autorizacao_industria: input.tipoAutorizacao,
+    autorizacao_data: dataHoje,
+    autorizacao_protocolo: input.protocolo || '',
+    autorizacao_observacao: input.observacao || '',
+    autorizacao_registrada_por: responsavel,
+    total_unidades_autorizadas: totalQtdAutorizada,
+    proxima_acao: proximaAcao,
+  }
+
+  const casoAtualizado = (await pb
+    .collection('devolucoes_casos')
+    .update(input.casoId, payloadCaso)) as unknown as DevolucaoCaso
+
+  // 4. Registrar Linha do Tempo detalhada (Regra 25)
+  let tituloTimeline = 'Indústria autorizou a devolução'
+  let descTimeline = `Autorização total registrada. ${totalQtdAutorizada} unidade(s) autorizada(s).`
+
+  if (input.tipoAutorizacao === 'parcial') {
+    tituloTimeline = 'Indústria autorizou parcialmente a devolução'
+    descTimeline = `Autorização parcial: ${itensAutorizadosCount} de ${totalItens} item(ns) autorizado(s) (${totalQtdAutorizada} unidades autorizadas).`
+  } else if (input.tipoAutorizacao === 'nao_autorizado') {
+    tituloTimeline = 'Indústria não autorizou a devolução'
+    descTimeline = `Solicitação recusada pela indústria. Motivo: ${input.observacao || 'Não informado'}.`
+  }
+
+  if (input.observacao) {
+    descTimeline += ` Observação: "${input.observacao}".`
+  }
+
+  await registrarTimelineEvento(
+    input.casoId,
+    input.codigoCaso,
+    'autorizacao_industria',
+    tituloTimeline,
+    descTimeline,
+    {
+      usuarioNome: responsavel,
+      dadosExtras: {
+        tipoAutorizacao: input.tipoAutorizacao,
+        totalAutorizado: totalQtdAutorizada,
+        protocolo: input.protocolo,
+      },
+    },
+  )
+
+  await registrarDevolucaoAudit(input.casoId, 'autorizacao_industria_registrada', {
+    tipo: input.tipoAutorizacao,
+    totalQtdAutorizada,
+    usuario: responsavel,
+  })
+
+  return casoAtualizado
+}
+
+/**
+ * Conclusão humana do processo de devolução (Regra 30 e 31)
+ * Requer conferência humana e verificação se a documentação necessária foi recebida.
+ */
+export async function concluirDevolucaoHumana(
+  casoId: string,
+  codigoCaso: string,
+  observacaoConclusao?: string,
+): Promise<DevolucaoCaso> {
+  const user = pb.authStore.model
+  const responsavel = user?.name || user?.email || 'Operador'
+  const dataHoje = new Date().toISOString().slice(0, 10)
+
+  // Atualizar caso para 'concluido'
+  const casoAtualizado = (await pb.collection('devolucoes_casos').update(casoId, {
+    status: 'concluido',
+    conclusao_data: dataHoje,
+    conclusao_usuario_nome: responsavel,
+    proxima_acao: 'Devolução concluída com sucesso. Documentação arquivada.',
+  })) as unknown as DevolucaoCaso
+
+  // Registrar na linha do tempo
+  await registrarTimelineEvento(
+    casoId,
+    codigoCaso,
+    'caso_concluido',
+    'Devolução Concluída e Arquivada',
+    `Processo concluído com documentação completa por ${responsavel}.${observacaoConclusao ? ` Obs: ${observacaoConclusao}` : ''}`,
+    {
+      usuarioNome: responsavel,
+      dadosExtras: {
+        dataConclusao: dataHoje,
+      },
+    },
+  )
+
+  await registrarDevolucaoAudit(casoId, 'conclusao_devolucao', {
+    responsavel,
+    data: dataHoje,
+    observacao: observacaoConclusao,
+  })
+
+  return casoAtualizado
+}
+
+/**
+ * Registra evento na linha do tempo
  */
 export async function registrarTimelineEvento(
   casoId: string,
@@ -512,6 +698,17 @@ export async function criarCasoDevolucao(input: CriarDevolucaoCasoInput): Promis
     total_unidades: totalUnidades,
     resultado_auditoria: consolidado.resultadoGeral,
   })
+
+  // 7. Se o input tem vínculo com solicitação identificada do WhatsApp, marcar como processada
+  // REGRA 11 e 12: só marca como processada após criação concluída do Caso
+  const solOrigemId = (input as unknown as { solicitacaoOrigemId?: string }).solicitacaoOrigemId
+  if (solOrigemId) {
+    try {
+      await marcarSolicitacaoProcessada(solOrigemId, casoId, codigoCaso)
+    } catch (e) {
+      console.warn('[devolucoesService] Aviso ao marcar solicitacao como processada:', e)
+    }
+  }
 
   return {
     ...(casoRecord as unknown as DevolucaoCaso),

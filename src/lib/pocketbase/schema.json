@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T19:02:37.895Z",
+  "generatedAt": "2026-10-06T20:33:19.932Z",
   "collections": [
     {
       "name": "users",
@@ -3384,6 +3384,49 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tipo_autorizacao_industria",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["total", "parcial", "nao_autorizado"]
+        },
+        {
+          "name": "autorizacao_observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "autorizacao_registrada_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descarte_registrado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descarte_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "conclusao_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "conclusao_usuario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -3573,6 +3616,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "situacao_autorizacao",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pendente", "autorizado", "nao_autorizado"]
+        },
+        {
+          "name": "motivo_nao_autorizado",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -4280,6 +4336,172 @@
         "CREATE INDEX idx_user_audit_target ON user_audit_log (target_user_id)",
         "CREATE INDEX idx_user_audit_acao ON user_audit_log (acao)",
         "CREATE INDEX idx_user_audit_created ON user_audit_log (created DESC)"
+      ]
+    },
+    {
+      "name": "devolucoes_solicitacoes_importadas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "solicitacao_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "raw_mensagem_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "batch_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_hora_msg",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "autor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "loja_informada",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "loja_codigo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industria_informada",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industria_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estado_operacional",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["nova", "pendente_revisao", "processada", "ignorada"]
+        },
+        {
+          "name": "caso_criado_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "caso_criado_codigo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ignorado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ignorado_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ignorado_motivo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "processado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "processado_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "trecho_original",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "produtos_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "evidencias_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reconciliacao_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ajustes_operador_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_dev_sol_id ON devolucoes_solicitacoes_importadas (solicitacao_id)",
+        "CREATE INDEX idx_dev_sol_estado ON devolucoes_solicitacoes_importadas (estado_operacional)",
+        "CREATE INDEX idx_dev_sol_raw_msg ON devolucoes_solicitacoes_importadas (raw_mensagem_id)",
+        "CREATE INDEX idx_dev_sol_caso ON devolucoes_solicitacoes_importadas (caso_criado_id)"
       ]
     }
   ]
