@@ -28,8 +28,16 @@ export interface Ruptura {
   cidade: string
   estado: string
   codigo_cliente: string
-  /** Nome do cliente/fornecedor (ex.: FRUTAP, ITALAC). */
+  /** Nome da Indústria (ex.: FRUTAP, ITALAC), resolvido via Cadastro Operacional. */
   cliente: string
+  /** Rede / Grupo varejista real extraído do campo Fantasia da fonte. */
+  rede?: string
+  /** Valor original de Fantasia da fonte. */
+  fantasia?: string
+  /** Razão Social original da loja / unidade. */
+  razao_social?: string
+  /** Nome bruto do Cliente enviado pela fonte TradePro para auditoria. */
+  tradepro_cliente_nome?: string
   colaborador: string
   categoria: string
   observacao: string
@@ -61,8 +69,10 @@ export interface RupturasFilters {
   loja?: string
   /** Motivo padronizado (Ruptura Total / Sem Estoque Mínimo / Estoque Virtual). */
   motivo?: string
-  /** Nome do cliente/fornecedor. */
+  /** Nome da indústria (Indústria / Marca). */
   cliente?: string
+  /** Nome da rede / grupo varejista (campo real Fantasia). */
+  rede?: string
   /** Situação atual: Ativo | Resolvido. */
   situacao?: RupturaSituacao
   /** ISO YYYY-MM-DD — início do período de data_visita. */

@@ -601,6 +601,7 @@ export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuc
     candidato: {
       codigo_loja: item.codigoCliente,
       nome_loja: item.razaoSocialCliente,
+      razao_social: item.razaoSocialCliente,
       cnpj_loja: item.cpfCnpjCliente,
       cidade: item.cidadeCliente,
       estado: item.siglaEstadoCliente,
@@ -612,7 +613,8 @@ export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuc
       data_visita: item.dataVisita,
       colaborador: item.nomePromotor,
       codColaborador: item.idPromotor,
-      rede: item.redeCliente,
+      rede: item.fantasiaCliente || item.redeCliente,
+      fantasia: item.fantasiaCliente,
       observacao: item.observacaoRuptura,
       ruptura_flag: item.ruptura,
       produto,

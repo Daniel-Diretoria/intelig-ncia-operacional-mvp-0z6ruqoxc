@@ -108,8 +108,10 @@ export function useRupturas(filters?: ExtendedRupturasFilters): UseRupturasResul
 
       if (filters?.rede && filters.rede !== 'all' && filters.rede !== 'Todos') {
         items = items.filter((i) => {
-          const derivedRede = deriveNetworkName(i.nome_loja)
-          return derivedRede === filters.rede
+          const itemRede = (i.rede || i.fantasia || deriveNetworkName(i.nome_loja) || '')
+            .trim()
+            .toLowerCase()
+          return itemRede === filters.rede!.trim().toLowerCase()
         })
       }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T00:15:26.181Z",
+  "generatedAt": "2026-10-07T11:30:37.022Z",
   "collections": [
     {
       "name": "users",
@@ -1715,6 +1715,30 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "rede",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fantasia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tradepro_cliente_nome",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -1725,7 +1749,8 @@
         "CREATE INDEX idx_rupturas_base_cliente ON rupturas_base (cliente)",
         "CREATE INDEX idx_rupturas_base_visita ON rupturas_base (data_visita)",
         "CREATE INDEX idx_rupturas_base_import ON rupturas_base (source_import_id)",
-        "CREATE INDEX `idx_rupturas_base_atual` ON `rupturas_base` (is_base_atual)"
+        "CREATE INDEX `idx_rupturas_base_atual` ON `rupturas_base` (is_base_atual)",
+        "CREATE INDEX `idx_rupturas_base_rede` ON `rupturas_base` (rede)"
       ]
     },
     {

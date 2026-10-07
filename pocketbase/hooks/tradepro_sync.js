@@ -1432,12 +1432,17 @@ onRecordAfterUpdateSuccess((e) => {
           registrosValidos++
           const codigoLoja = extractStoreCode(rawRazaoSocial)
           const motivoNormalizado = normalizeRupturaMotivo(rawMotivo)
-          const clienteFantasia = item.fantasiaCliente || item.cliente || ''
+          // Preserva semântica bruta da fonte
+          const rawFantasia = (item.fantasiaCliente || '').toString().trim()
+          const rawClienteNome = (item.cliente || '').toString().trim()
           const rawCodigoCliente = (item.codigoCliente || item.codigo_cliente || '')
             .toString()
             .trim()
 
-          // Resolução estrita da Indústria SKIP via tradepro_client_id
+          // Resolução estrita da Indústria SKIP via tradepro_client_id (Cadastro Operacional)
+          // Regra Semântica Crucial:
+          // Se não houver indústria homologada para o Cód. Cliente, a Indústria fica "Não identificada".
+          // NUNCA fazer fallback para Fantasia/Rede nem para Razão Social/Loja!
           let resolvedIndustryName = ''
           let resolvedIndustryId = ''
           if (rawCodigoCliente && industryMapByClientId[rawCodigoCliente]) {
@@ -1445,11 +1450,11 @@ onRecordAfterUpdateSuccess((e) => {
             resolvedIndustryName = industryMapByClientId[rawCodigoCliente].nome
           }
 
-          // Se tiver indústria mapeada, o campo cliente (Indústria) recebe o nome canônico (ex: FRUTAP)
-          // Preserva clienteFantasia para Rede/Fantasia
-          const clienteNormalizado = resolvedIndustryName || clienteFantasia
+          const industriaNormalizada = resolvedIndustryName || 'Não identificada'
+          // Rede real vem de fantasiaCliente (ou item.redeCliente se fornecido)
+          const redeReal = rawFantasia || (item.redeCliente || '').toString().trim()
 
-          const dedupKey = codigoLoja + '|' + rawProduto + '|' + clienteNormalizado
+          const dedupKey = codigoLoja + '|' + rawProduto + '|' + industriaNormalizada
           const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
 
           const rupRecord = new Record(rupturasBaseCol)
@@ -1457,11 +1462,15 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('motivo', motivoNormalizado)
           rupRecord.set('codigo_loja', codigoLoja)
           rupRecord.set('nome_loja', rawRazaoSocial)
+          rupRecord.set('razao_social', rawRazaoSocial)
+          rupRecord.set('rede', redeReal)
+          rupRecord.set('fantasia', rawFantasia)
+          rupRecord.set('tradepro_cliente_nome', rawClienteNome || rawFantasia)
           rupRecord.set('cnpj_loja', item.cpfCnpjCliente || item.cnpj_loja || '')
           rupRecord.set('cidade', item.cidadeCliente || item.cidade || '')
           rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')
           rupRecord.set('codigo_cliente', rawCodigoCliente)
-          rupRecord.set('cliente', clienteNormalizado)
+          rupRecord.set('cliente', industriaNormalizada)
           rupRecord.set('colaborador', item.nomePromotor || item.colaborador || '')
           rupRecord.set('categoria', item.descricaoCategoria || item.categoria || '')
           rupRecord.set('observacao', item.observacaoRuptura || item.observacao || '')
@@ -2063,17 +2072,22 @@ onRecordAfterUpdateSuccess((e) => {
         const statusOp = computeStatusOperacional(rawDiasParaVencimento)
 
         try {
+          // Regra Semântica Crucial Validades:
+          // Indústria = Cliente/Cód. Cliente (apenas via industry_registry; se não vinculado => "Não identificada")
+          // NUNCA fazer fallback para Fantasia/Rede nem para Razão Social/Loja!
+          // Rede = Fantasia (item.fantasia)
+          // Loja = Razão Social (rawRazaoSocial)
+          // Fornecedor = campo próprio (nunca usado como indústria)
+          const industriaValidade = resolvedIndustryName || 'Não identificada'
+          const redeValidade = rawFantasia || ''
+
           const valRecord = new Record(validadesBaseCol)
           valRecord.set('fornecedor', fornecedor)
           valRecord.set('razao_social', rawRazaoSocial)
           valRecord.set('produto', rawProduto)
-          // No SKIP, o campo cliente armazena o Nome da Indústria (Cliente TradePro)
-          // Se não houver nome específico de Cliente TradePro, preserva rawClienteNome ou rawFantasia
-          valRecord.set(
-            'cliente',
-            resolvedIndustryName || rawClienteNome || rawFantasia || rawRazaoSocial,
-          )
+          valRecord.set('cliente', industriaValidade)
           valRecord.set('cod_cliente', rawCodCliente)
+          valRecord.set('rede', redeValidade)
           if (resolvedIndustryId) {
             valRecord.set('industry_id', resolvedIndustryId)
           } else {
