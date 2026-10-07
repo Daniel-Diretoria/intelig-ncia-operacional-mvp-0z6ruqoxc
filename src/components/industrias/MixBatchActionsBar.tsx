@@ -90,9 +90,9 @@ export const MixBatchActionsBar: React.FC<MixBatchActionsBarProps> = ({
       case 'remover_mix_oficial':
         return {
           title: 'Remover do Mix Oficial?',
-          desc: `Esta ação definirá ${selectedCount} produto(s) selecionado(s) como Mix Observado${indText}. Os produtos continuam na base e nenhuma evidência histórica será apagada.`,
+          desc: `Esta ação definirá ${selectedCount} produto(s) selecionado(s) como Fora do Mix Oficial${indText}. Os produtos continuam cadastrados no catálogo e nenhuma evidência histórica será apagada.`,
           warning:
-            'Produtos removidos do Mix Oficial deixam de compor a lista mestra exigida da indústria.',
+            'Diretriz SKIP (Item 32): Produto deixar de fazer parte do Mix Oficial NÃO significa que foi observado operacionalmente. O produto passa a constar como "Fora do Mix Oficial" no catálogo da indústria sem virar falso mix observado.',
           btnText: 'Confirmar e Remover',
           btnClass: 'bg-amber-600 hover:bg-amber-700 text-white',
         }

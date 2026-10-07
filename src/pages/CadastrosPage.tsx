@@ -28,6 +28,7 @@ import {
   Filter,
   BarChart2,
   UserCheck,
+  CheckCircle2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -89,6 +90,8 @@ import {
   confirmarVinculoObservado,
   getProductOperationalStats,
 } from '@/services/cadastrosService'
+import { executarHomologacaoCadastralBaseAtual } from '@/services/homologacaoCadastralService'
+import type { HomologacaoCadastralResultado } from '@/types/cadastros'
 import {
   MixBatchActionsBar,
   type MixBatchActionType,
@@ -212,6 +215,36 @@ export const CadastrosPage: React.FC = () => {
   // Reavaliação de rupturas
   const [reavaliandoRupturas, setReavaliandoRupturas] = React.useState(false)
 
+  // Homologação Cadastral TradePro (Bloco A)
+  const [homologandoCadastros, setHomologandoCadastros] = React.useState(false)
+  const [resultadoHomologacao, setResultadoHomologacao] =
+    React.useState<HomologacaoCadastralResultado | null>(null)
+
+  // Executar Homologação Cadastral Bloco A
+  const handleExecutarHomologacao = async () => {
+    if (homologandoCadastros) return
+    setHomologandoCadastros(true)
+    try {
+      const res = await executarHomologacaoCadastralBaseAtual(
+        user?.name || user?.email || 'Operador',
+      )
+      setResultadoHomologacao(res)
+      toast({
+        title: 'Homologação Cadastral Concluída (Bloco A)',
+        description: `${res.industrias.vinculadas} indústrias, ${res.redes.vinculadas} redes, ${res.lojas.vinculadas} lojas e ${res.promotores.vinculados} promotores vinculados com segurança.`,
+      })
+      await loadAll()
+    } catch (err: any) {
+      toast({
+        title: 'Erro na homologação',
+        description: err?.message || 'Falha ao processar homologação cadastral',
+        variant: 'destructive',
+      })
+    } finally {
+      setHomologandoCadastros(false)
+    }
+  }
+
   // Seleção múltipla para Ações em Lote no Mix (Item 5 da consolidação)
   const [selectedProductIds, setSelectedProductIds] = React.useState<string[]>([])
   const [isBatchProcessing, setIsBatchProcessing] = React.useState(false)
@@ -330,8 +363,9 @@ export const CadastrosPage: React.FC = () => {
   // Alterna produto no mix oficial (Sem deletar produto! Preserva histórico total)
   const handleToggleMixOficial = async (produto: CadastroProduto) => {
     if (!canEdit) return
+    // Diretriz SKIP (Item 32): se for oficial, ao remover vira fora_mix_oficial, nunca falso observado_operacional
     const novoTipoMix =
-      produto.tipo_mix === 'oficial_industria' ? 'observado_operacional' : 'oficial_industria'
+      produto.tipo_mix === 'oficial_industria' ? 'fora_mix_oficial' : 'oficial_industria'
     try {
       await saveCadastroProduto({
         ...produto,
@@ -343,7 +377,7 @@ export const CadastrosPage: React.FC = () => {
             ? 'Adicionado ao Mix Oficial'
             : 'Removido do Mix Oficial',
         description: `Produto "${produto.nome_produto}" agora está como ${
-          novoTipoMix === 'oficial_industria' ? 'Mix Oficial' : 'Mix Observado'
+          novoTipoMix === 'oficial_industria' ? 'Mix Oficial' : 'Fora do Mix Oficial'
         }. O histórico foi preservado.`,
       })
       loadAll()
@@ -852,6 +886,20 @@ export const CadastrosPage: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleExecutarHomologacao}
+            disabled={homologandoCadastros}
+            className="text-xs gap-1.5 h-9 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700"
+            title="Reconcilia os Cadastros Mestres com base nas evidências reais existentes da TradePro (Bloco A)"
+          >
+            <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+            <span>
+              {homologandoCadastros ? 'Homologando Cadastros...' : 'Homologar Cadastros (TradePro)'}
+            </span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleReavaliarRupturas}
             disabled={reavaliandoRupturas}
             className="text-xs gap-1.5 h-9"
@@ -882,6 +930,148 @@ export const CadastrosPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Painel do Resultado da Homologação Cadastral (Bloco A) */}
+      {resultadoHomologacao && (
+        <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+              <h3 className="text-sm font-bold text-indigo-900">
+                Resultado da Homologação Cadastral Real (Bloco A)
+              </h3>
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-white border-indigo-200 text-indigo-700"
+              >
+                {new Date(resultadoHomologacao.dataExecucao).toLocaleTimeString()}
+              </Badge>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setResultadoHomologacao(null)}
+              className="text-xs h-7 text-indigo-700 hover:bg-indigo-100"
+            >
+              Fechar Painel
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Indústrias
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.industrias.vinculadas}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.industrias.descobertas} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.industrias.pendentes} pendentes
+              </span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Redes
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.redes.vinculadas}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.redes.descobertas} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.redes.pendentes} pendentes
+              </span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Lojas
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.lojas.vinculadas}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.lojas.descobertas} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.lojas.pendentes} pendentes
+              </span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Produtos
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.produtos.resolvidos}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.produtos.descobertos} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.produtos.pendentes + resultadoHomologacao.produtos.ambiguos}{' '}
+                pend./amb.
+              </span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Promotores
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.promotores.vinculados}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.promotores.descobertos} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.promotores.pendentes} pendentes
+              </span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                Supervisores
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.supervisores.vinculados}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  / {resultadoHomologacao.supervisores.descobertos} desc.
+                </span>
+              </p>
+              <span className="text-[10px] text-amber-600">
+                {resultadoHomologacao.supervisores.pendentes} pendentes
+              </span>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-indigo-800 flex items-center gap-4 bg-white/60 p-2 rounded-lg border border-indigo-100">
+            <span>
+              <strong>Vínculos Observados:</strong>
+            </span>
+            <span>
+              Promotor ↔ Loja:{' '}
+              <strong>{resultadoHomologacao.vinculosObservados.promotorLoja}</strong>
+            </span>
+            <span>
+              Promotor ↔ Indústria:{' '}
+              <strong>{resultadoHomologacao.vinculosObservados.promotorIndustria}</strong>
+            </span>
+            <span>
+              Supervisor ↔ Promotor:{' '}
+              <strong>{resultadoHomologacao.vinculosObservados.supervisorPromotor}</strong>
+            </span>
+            <span className="text-slate-400">
+              | Sem alteração em eventos operacionais (item 36)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* CONSOLIDAÇÃO NAS 4 FAMÍLIAS PRINCIPAIS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 bg-slate-100 p-1.5 rounded-2xl">
@@ -2851,7 +3041,7 @@ export const CadastrosPage: React.FC = () => {
                   >
                     {selectedProductFicha.tipo_mix === 'oficial_industria'
                       ? 'Remover do Mix Oficial'
-                      : 'Adicionar ao Mix Oficial'}
+                      : 'Definir como Mix Oficial'}
                   </Button>
                   <Button
                     size="sm"

@@ -235,13 +235,16 @@ export async function executeMixBatchAction(
     acao,
   }
 
-  const novoTipoMix = acao === 'remover_mix_oficial' ? 'observado_operacional' : 'oficial_industria'
+  // Semântica estrita Bloco A (item 32):
+  // 'remover_mix_oficial' -> define tipo_mix = 'fora_mix_oficial' (Produto cadastrado mas não pertencente ao Mix Oficial atual).
+  // NÃO transforma em observado_operacional. 'observado_operacional' é reservado para produtos observados na operação!
+  const novoTipoMix = acao === 'remover_mix_oficial' ? 'fora_mix_oficial' : 'oficial_industria'
 
   const produtosAlvo = produtosBase.filter((p) => produtosIds.includes(p.id))
 
   for (const produto of produtosAlvo) {
-    // Se for promoção de observado para oficial, garantir que apenas os observados são afetados
-    if (acao === 'promover_observado_oficial' && produto.tipo_mix !== 'observado_operacional') {
+    // Se for promoção de observado para oficial, garantir que produtos observados ou fora do mix oficial são afetados
+    if (acao === 'promover_observado_oficial' && produto.tipo_mix === 'oficial_industria') {
       continue
     }
 

@@ -33,6 +33,9 @@ export interface CadastroIndustria {
   tradepro_client_id?: string
   tradepro_client_name?: string
   app_diretoria_industry_id?: string
+  edicao_manual?: boolean
+  origem_fonte?: string
+  ultima_observacao_fonte?: string
   created?: string
   updated?: string
 }
@@ -51,7 +54,7 @@ export interface CadastroProduto {
   sabor?: string
   gramatura?: string
   embalagem?: string
-  tipo_mix: 'oficial_industria' | 'observado_operacional'
+  tipo_mix: 'oficial_industria' | 'observado_operacional' | 'fora_mix_oficial'
   status: 'ativo' | 'descontinuado' | 'em_avaliacao'
   shelf_life_dias?: number
   store_code_restrito?: string
@@ -89,6 +92,9 @@ export interface CadastroLoja {
   regiao?: string
   ativo: boolean
   app_diretoria_store_id?: string
+  edicao_manual?: boolean
+  origem_fonte?: string
+  ultima_observacao_fonte?: string
   created?: string
   updated?: string
 }
@@ -105,6 +111,9 @@ export interface CadastroSupervisor {
   observacoes?: string
   app_diretoria_supervisor_id?: string
   total_promotores?: number
+  edicao_manual?: boolean
+  origem_fonte?: string
+  ultima_observacao_fonte?: string
   created?: string
   updated?: string
 }
@@ -124,6 +133,9 @@ export interface CadastroPromotor {
   app_diretoria_promoter_id?: string
   total_lojas?: number
   industrias_relacionadas?: string[]
+  edicao_manual?: boolean
+  origem_fonte?: string
+  ultima_observacao_fonte?: string
   created?: string
   updated?: string
 }
@@ -215,6 +227,61 @@ export interface CadastroPendencia {
 }
 
 // Inteligência Básica Explicável de Mix (Oportunidades Operacionais de Presença)
+// 7. Resultado Completo da Homologação Cadastral (Bloco A)
+export interface HomologacaoCadastralResultado {
+  dataExecucao: string
+  industrias: {
+    descobertas: number
+    vinculadas: number
+    pendentes: number
+    conflitos: number
+    detalhes: Array<{ id: string; nome: string; codCliente?: string; status: string }>
+  }
+  redes: {
+    descobertas: number
+    vinculadas: number
+    pendentes: number
+    detalhes: Array<{ id: string; nome: string; status: string }>
+  }
+  lojas: {
+    descobertas: number
+    vinculadas: number
+    pendentes: number
+    possiveisDuplicidades: number
+    detalhes: Array<{ id: string; codigo: string; nome: string; rede?: string; status: string }>
+  }
+  produtos: {
+    descobertos: number
+    resolvidos: number
+    pendentes: number
+    ambiguos: number
+    detalhes: Array<{
+      id?: string
+      codigo?: string
+      nome: string
+      industria?: string
+      status: string
+    }>
+  }
+  promotores: {
+    descobertos: number
+    vinculados: number
+    pendentes: number
+    detalhes: Array<{ id: string; codigo?: string; nome: string; status: string }>
+  }
+  supervisores: {
+    descobertos: number
+    vinculados: number
+    pendentes: number
+    detalhes: Array<{ id: string; codigo?: string; nome: string; status: string }>
+  }
+  vinculosObservados: {
+    promotorLoja: number
+    promotorIndustria: number
+    supervisorPromotor: number
+  }
+}
+
 export interface MixOpportunityAnalysis {
   produtoNome: string
   codigoProduto?: string

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T18:47:31.337Z",
+  "generatedAt": "2026-10-07T19:31:41.377Z",
   "collections": [
     {
       "name": "users",
@@ -761,6 +761,24 @@
         },
         {
           "name": "app_diretoria_store_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "edicao_manual",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_observacao_fonte",
           "type": "text",
           "required": false,
           "system": false
@@ -2520,6 +2538,24 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "edicao_manual",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_observacao_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2672,7 +2708,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["oficial_industria", "observado_operacional"]
+          "selectValues": ["oficial_industria", "observado_operacional", "fora_mix_oficial"]
         },
         {
           "name": "status",
@@ -4402,7 +4438,9 @@
             "desvinculo_tradepro_cliente",
             "mix_oficial_alterado",
             "mix_definido_loja_alterado",
-            "pendencia_cadastro_resolvida"
+            "pendencia_cadastro_resolvida",
+            "homologacao_cadastral_executada",
+            "vinculo_manual_preservado"
           ]
         },
         {
@@ -4806,6 +4844,24 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "edicao_manual",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_observacao_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -4899,6 +4955,24 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "edicao_manual",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_observacao_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
