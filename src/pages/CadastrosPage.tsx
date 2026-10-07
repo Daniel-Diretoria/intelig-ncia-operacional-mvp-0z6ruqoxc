@@ -68,6 +68,8 @@ import {
   saveCadastroIndustria,
   getCadastrosProdutos,
   saveCadastroProduto,
+  executeMixBatchAction,
+  type MixBatchActionResult,
   getCadastrosRedes,
   saveCadastroRede,
   getCadastrosLojas,
@@ -87,6 +89,10 @@ import {
   confirmarVinculoObservado,
   getProductOperationalStats,
 } from '@/services/cadastrosService'
+import {
+  MixBatchActionsBar,
+  type MixBatchActionType,
+} from '@/components/industrias/MixBatchActionsBar'
 import {
   getIndustryStoreCoverages,
   saveStoreCoverage,
@@ -206,6 +212,10 @@ export const CadastrosPage: React.FC = () => {
   // Reavaliação de rupturas
   const [reavaliandoRupturas, setReavaliandoRupturas] = React.useState(false)
 
+  // Seleção múltipla para Ações em Lote no Mix (Item 5 da consolidação)
+  const [selectedProductIds, setSelectedProductIds] = React.useState<string[]>([])
+  const [isBatchProcessing, setIsBatchProcessing] = React.useState(false)
+
   // Carrega todos os cadastros
   const loadAll = React.useCallback(async () => {
     setLoading(true)
@@ -244,10 +254,11 @@ export const CadastrosPage: React.FC = () => {
     loadAll()
   }, [loadAll])
 
-  // Limpa busca ao trocar de família ou subvisão
+  // Limpa busca e seleção ao trocar de família ou subvisão
   React.useEffect(() => {
     setSearchTerm('')
     setFilterStatus('todos')
+    setSelectedProductIds([])
   }, [activeFamily, industriaSubView, equipeSubView])
 
   // Abre ficha do produto com estatísticas enriquecidas
@@ -261,6 +272,58 @@ export const CadastrosPage: React.FC = () => {
       setProductStats(null)
     } finally {
       setLoadingProductStats(false)
+    }
+  }
+
+  // Handlers de Seleção Múltipla de Produtos
+  const handleToggleSelectProduct = (productId: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId],
+    )
+  }
+
+  const handleSelectAllVisibleProducts = (visibleList: CadastroProduto[]) => {
+    const visibleIds = visibleList.map((p) => p.id)
+    const allSelected = visibleIds.every((id) => selectedProductIds.includes(id))
+
+    if (allSelected) {
+      // Desmarca todos os visíveis
+      setSelectedProductIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
+    } else {
+      // Adiciona todos os visíveis à seleção sem duplicar
+      setSelectedProductIds((prev) => Array.from(new Set([...prev, ...visibleIds])))
+    }
+  }
+
+  const handleClearProductSelection = () => {
+    setSelectedProductIds([])
+  }
+
+  // Executa Ação em Lote no Mix
+  const handleExecuteMixBatchAction = async (
+    action: MixBatchActionType,
+  ): Promise<MixBatchActionResult | void> => {
+    if (!canEdit || selectedProductIds.length === 0) return
+    setIsBatchProcessing(true)
+    try {
+      const res = await executeMixBatchAction(selectedProductIds, action, produtos, {
+        executorNome: user?.name || 'Administrador',
+      })
+      toast({
+        title: 'Ação em Lote Concluída',
+        description: `${res.sucessos} de ${res.totalSolicitados} produto(s) atualizado(s) com sucesso.`,
+      })
+      setSelectedProductIds([])
+      await loadAll()
+      return res
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao executar ação em lote',
+        description: err?.message || 'Falha na atualização em lote.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsBatchProcessing(false)
     }
   }
 
@@ -1236,130 +1299,196 @@ export const CadastrosPage: React.FC = () => {
                 )}
 
                 {/* Seção 2: Produtos & Mix da Indústria */}
-                {industryFichaSection === 'produtos_mix' && (
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-900">
-                          Catálogo de Produtos desta Indústria
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          Produtos vinculados estruturalmente a {selectedIndustryFicha.nome}.
-                          Adicione ou remova do Mix Oficial sem perder histórico.
-                        </p>
-                      </div>
-                      {canEdit && (
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            handleOpenCreate('produtos', {
-                              industry_id: selectedIndustryFicha.id,
-                              industry_name: selectedIndustryFicha.nome,
-                            })
-                          }
-                          className="text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Adicionar Produto</span>
-                        </Button>
-                      )}
-                    </div>
+                {industryFichaSection === 'produtos_mix' &&
+                  (() => {
+                    const prodsInd = produtos.filter(
+                      (p) => p.industry_id === selectedIndustryFicha.id,
+                    )
+                    const allIndSelected =
+                      prodsInd.length > 0 &&
+                      prodsInd.every((p) => selectedProductIds.includes(p.id))
+                    const someIndSelected =
+                      prodsInd.some((p) => selectedProductIds.includes(p.id)) && !allIndSelected
 
-                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                          <tr>
-                            <th className="p-3">Código TradePro</th>
-                            <th className="p-3">Produto Oficial</th>
-                            <th className="p-3">Família / Sabor / Gramatura</th>
-                            <th className="p-3">Mix Oficial</th>
-                            <th className="p-3">Status</th>
-                            <th className="p-3 text-right">Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {produtos
-                            .filter((p) => p.industry_id === selectedIndustryFicha.id)
-                            .map((prod) => (
-                              <tr key={prod.id} className="hover:bg-slate-50/80">
-                                <td className="p-3 font-mono font-medium text-slate-700">
-                                  {prod.codigo_produto || '—'}
-                                </td>
-                                <td className="p-3 font-semibold text-slate-900">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenProductFicha(prod)}
-                                    className="hover:underline text-left text-indigo-700"
-                                  >
-                                    {prod.nome_produto}
-                                  </button>
-                                </td>
-                                <td className="p-3 text-slate-600">
-                                  {[prod.familia, prod.sabor, prod.gramatura, prod.embalagem]
-                                    .filter(Boolean)
-                                    .join(' • ') || '—'}
-                                </td>
-                                <td className="p-3">
-                                  <Badge
-                                    variant="outline"
-                                    className={
-                                      prod.tipo_mix === 'oficial_industria'
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                                    }
-                                  >
-                                    {prod.tipo_mix === 'oficial_industria'
-                                      ? 'Sim (Mix Oficial)'
-                                      : 'Não (Observado)'}
-                                  </Badge>
-                                </td>
-                                <td className="p-3">
-                                  <Badge
-                                    variant={prod.status === 'ativo' ? 'default' : 'secondary'}
-                                    className="text-[10px] capitalize"
-                                  >
-                                    {prod.status}
-                                  </Badge>
-                                </td>
-                                <td className="p-3 text-right space-x-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-xs h-7 px-2"
-                                    onClick={() => handleOpenProductFicha(prod)}
-                                  >
-                                    <Eye className="w-3 h-3 mr-1" /> Ficha
-                                  </Button>
-                                  {canEdit && (
-                                    <>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-xs h-7 px-2"
-                                        onClick={() => handleToggleMixOficial(prod)}
-                                      >
-                                        {prod.tipo_mix === 'oficial_industria'
-                                          ? 'Remover do Mix'
-                                          : 'Adicionar ao Mix'}
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs h-7 px-2 text-indigo-600"
-                                        onClick={() => handleOpenEdit('produtos', prod)}
-                                      >
-                                        Editar
-                                      </Button>
-                                    </>
-                                  )}
-                                </td>
+                    const selectedProdsInd = prodsInd.filter((p) =>
+                      selectedProductIds.includes(p.id),
+                    )
+
+                    return (
+                      <div className="space-y-3 pt-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              Catálogo de Produtos desta Indústria
+                            </h3>
+                            <p className="text-xs text-slate-500">
+                              Produtos vinculados estruturalmente a {selectedIndustryFicha.nome}.
+                              Use a seleção múltipla para executar ações em lote no Mix Oficial.
+                            </p>
+                          </div>
+                          {canEdit && (
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                handleOpenCreate('produtos', {
+                                  industry_id: selectedIndustryFicha.id,
+                                  industry_name: selectedIndustryFicha.nome,
+                                })
+                              }
+                              className="text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Adicionar Produto</span>
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* Barra de Ações em Lote para a Indústria Selecionada */}
+                        <MixBatchActionsBar
+                          selectedCount={selectedProdsInd.length}
+                          selectedProducts={selectedProdsInd}
+                          contextIndustryName={selectedIndustryFicha.nome}
+                          canEdit={canEdit}
+                          isProcessing={isBatchProcessing}
+                          onClearSelection={handleClearProductSelection}
+                          onExecuteAction={handleExecuteMixBatchAction}
+                        />
+
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                              <tr>
+                                <th className="p-3 w-10 text-center">
+                                  <input
+                                    type="checkbox"
+                                    aria-label="Selecionar todos os produtos desta indústria"
+                                    checked={allIndSelected}
+                                    ref={(input) => {
+                                      if (input) input.indeterminate = someIndSelected
+                                    }}
+                                    onChange={() => handleSelectAllVisibleProducts(prodsInd)}
+                                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  />
+                                </th>
+                                <th className="p-3">Código TradePro</th>
+                                <th className="p-3">Produto Oficial</th>
+                                <th className="p-3">Família / Sabor / Gramatura</th>
+                                <th className="p-3">Mix Oficial</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3 text-right">Ações</th>
                               </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {prodsInd.length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="p-6 text-center text-slate-400">
+                                    Nenhum produto cadastrado para esta indústria.
+                                  </td>
+                                </tr>
+                              ) : (
+                                prodsInd.map((prod) => {
+                                  const isSelected = selectedProductIds.includes(prod.id)
+                                  return (
+                                    <tr
+                                      key={prod.id}
+                                      className={`transition-colors ${
+                                        isSelected
+                                          ? 'bg-indigo-50/70 hover:bg-indigo-50'
+                                          : 'hover:bg-slate-50/80'
+                                      }`}
+                                    >
+                                      <td className="p-3 text-center">
+                                        <input
+                                          type="checkbox"
+                                          aria-label={`Selecionar produto ${prod.nome_produto}`}
+                                          checked={isSelected}
+                                          onChange={() => handleToggleSelectProduct(prod.id)}
+                                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                      </td>
+                                      <td className="p-3 font-mono font-medium text-slate-700">
+                                        {prod.codigo_produto || '—'}
+                                      </td>
+                                      <td className="p-3 font-semibold text-slate-900">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenProductFicha(prod)}
+                                          className="hover:underline text-left text-indigo-700"
+                                        >
+                                          {prod.nome_produto}
+                                        </button>
+                                      </td>
+                                      <td className="p-3 text-slate-600">
+                                        {[prod.familia, prod.sabor, prod.gramatura, prod.embalagem]
+                                          .filter(Boolean)
+                                          .join(' • ') || '—'}
+                                      </td>
+                                      <td className="p-3">
+                                        <Badge
+                                          variant="outline"
+                                          className={
+                                            prod.tipo_mix === 'oficial_industria'
+                                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                                          }
+                                        >
+                                          {prod.tipo_mix === 'oficial_industria'
+                                            ? 'Sim (Mix Oficial)'
+                                            : 'Não (Observado)'}
+                                        </Badge>
+                                      </td>
+                                      <td className="p-3">
+                                        <Badge
+                                          variant={
+                                            prod.status === 'ativo' ? 'default' : 'secondary'
+                                          }
+                                          className="text-[10px] capitalize"
+                                        >
+                                          {prod.status}
+                                        </Badge>
+                                      </td>
+                                      <td className="p-3 text-right space-x-1">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-xs h-7 px-2"
+                                          onClick={() => handleOpenProductFicha(prod)}
+                                        >
+                                          <Eye className="w-3 h-3 mr-1" /> Ficha
+                                        </Button>
+                                        {canEdit && (
+                                          <>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="text-xs h-7 px-2"
+                                              onClick={() => handleToggleMixOficial(prod)}
+                                            >
+                                              {prod.tipo_mix === 'oficial_industria'
+                                                ? 'Remover do Mix'
+                                                : 'Adicionar ao Mix'}
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="text-xs h-7 px-2 text-indigo-600"
+                                              onClick={() => handleOpenEdit('produtos', prod)}
+                                            >
+                                              Editar
+                                            </Button>
+                                          </>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  )
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                 {/* Seção 3: Lojas / Cobertura Auto-suficiente */}
                 {industryFichaSection === 'lojas_cobertura' && (
@@ -1808,129 +1937,195 @@ export const CadastrosPage: React.FC = () => {
             </div>
           ) : (
             /* SUBVISÃO: TODOS OS PRODUTOS (Catálogo Global em Tabela Organizada) */
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-                <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">Catálogo Mestre Completo</span>
-                    <Badge variant="outline" className="text-slate-600">
-                      {filteredTodosProdutos.length} de {produtos.length} produtos
-                    </Badge>
-                  </div>
-                  <span className="text-slate-500 text-[11px]">
-                    Visão global compartilhada com a ficha das indústrias. Edições refletem em
-                    ambas.
-                  </span>
-                </div>
+            (() => {
+              const allFilteredSelected =
+                filteredTodosProdutos.length > 0 &&
+                filteredTodosProdutos.every((p) => selectedProductIds.includes(p.id))
+              const someFilteredSelected =
+                filteredTodosProdutos.some((p) => selectedProductIds.includes(p.id)) &&
+                !allFilteredSelected
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200">
-                      <tr>
-                        <th className="p-3">Código TradePro</th>
-                        <th className="p-3">Produto Oficial</th>
-                        <th className="p-3">Indústria / Marca</th>
-                        <th className="p-3">Categoria / Família</th>
-                        <th className="p-3">Nível do Mix</th>
-                        <th className="p-3">Status</th>
-                        <th className="p-3 text-right">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredTodosProdutos.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400">
-                            Nenhum produto encontrado com os filtros selecionados.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredTodosProdutos.map((prod) => (
-                          <tr key={prod.id} className="hover:bg-slate-50/80">
-                            <td className="p-3 font-mono font-medium text-slate-700">
-                              {prod.codigo_produto || '—'}
-                            </td>
-                            <td className="p-3 font-semibold text-slate-900">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenProductFicha(prod)}
-                                className="hover:underline text-left text-indigo-700"
-                              >
-                                {prod.nome_produto}
-                              </button>
-                              {prod.gramatura && (
-                                <span className="text-slate-400 font-normal ml-1">
-                                  ({prod.gramatura})
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-3 font-medium text-indigo-600">
-                              {prod.industry_name}
-                            </td>
-                            <td className="p-3 text-slate-600">
-                              {prod.categoria || 'Geral'} {prod.familia ? `• ${prod.familia}` : ''}
-                            </td>
-                            <td className="p-3">
-                              <Badge
-                                variant="outline"
-                                className={
-                                  prod.tipo_mix === 'oficial_industria'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+              const selectedProdsInGlobal = produtos.filter((p) =>
+                selectedProductIds.includes(p.id),
+              )
+
+              // Identificar nome da indústria filtrada, se houver filtro por indústria específica
+              const filteredIndObj =
+                filterIndustryInCatalog !== 'todas'
+                  ? industrias.find((i) => i.id === filterIndustryInCatalog)
+                  : undefined
+
+              return (
+                <div className="space-y-4">
+                  {/* Barra de Ações em Lote */}
+                  <MixBatchActionsBar
+                    selectedCount={selectedProdsInGlobal.length}
+                    selectedProducts={selectedProdsInGlobal}
+                    contextIndustryName={filteredIndObj?.nome}
+                    canEdit={canEdit}
+                    isProcessing={isBatchProcessing}
+                    onClearSelection={handleClearProductSelection}
+                    onExecuteAction={handleExecuteMixBatchAction}
+                  />
+
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                    <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">Catálogo Mestre Completo</span>
+                        <Badge variant="outline" className="text-slate-600">
+                          {filteredTodosProdutos.length} de {produtos.length} produtos
+                        </Badge>
+                      </div>
+                      <span className="text-slate-500 text-[11px]">
+                        Selecione múltiplos produtos para adicionar, remover ou promover ao Mix
+                        Oficial.
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200">
+                          <tr>
+                            <th className="p-3 w-10 text-center">
+                              <input
+                                type="checkbox"
+                                aria-label="Selecionar todos os produtos visíveis"
+                                checked={allFilteredSelected}
+                                ref={(input) => {
+                                  if (input) input.indeterminate = someFilteredSelected
+                                }}
+                                onChange={() =>
+                                  handleSelectAllVisibleProducts(filteredTodosProdutos)
                                 }
-                              >
-                                {prod.tipo_mix === 'oficial_industria'
-                                  ? 'Mix Oficial'
-                                  : 'Mix Observado'}
-                              </Badge>
-                            </td>
-                            <td className="p-3">
-                              <Badge
-                                variant={prod.status === 'ativo' ? 'default' : 'secondary'}
-                                className="text-[10px] capitalize"
-                              >
-                                {prod.status}
-                              </Badge>
-                            </td>
-                            <td className="p-3 text-right space-x-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs h-7 px-2"
-                                onClick={() => handleOpenProductFicha(prod)}
-                              >
-                                <Eye className="w-3.5 h-3.5 mr-1" /> Ficha
-                              </Button>
-                              {canEdit && (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs h-7 px-2"
-                                    onClick={() => handleToggleMixOficial(prod)}
-                                  >
-                                    {prod.tipo_mix === 'oficial_industria'
-                                      ? 'Remover Mix'
-                                      : 'Adicionar Mix'}
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-xs h-7 px-2 text-indigo-600"
-                                    onClick={() => handleOpenEdit('produtos', prod)}
-                                  >
-                                    Editar
-                                  </Button>
-                                </>
-                              )}
-                            </td>
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </th>
+                            <th className="p-3">Código TradePro</th>
+                            <th className="p-3">Produto Oficial</th>
+                            <th className="p-3">Indústria / Marca</th>
+                            <th className="p-3">Categoria / Família</th>
+                            <th className="p-3">Nível do Mix</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3 text-right">Ação</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredTodosProdutos.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="p-6 text-center text-slate-400">
+                                Nenhum produto encontrado com os filtros selecionados.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredTodosProdutos.map((prod) => {
+                              const isSelected = selectedProductIds.includes(prod.id)
+                              return (
+                                <tr
+                                  key={prod.id}
+                                  className={`transition-colors ${
+                                    isSelected
+                                      ? 'bg-indigo-50/70 hover:bg-indigo-50'
+                                      : 'hover:bg-slate-50/80'
+                                  }`}
+                                >
+                                  <td className="p-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Selecionar produto ${prod.nome_produto}`}
+                                      checked={isSelected}
+                                      onChange={() => handleToggleSelectProduct(prod.id)}
+                                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="p-3 font-mono font-medium text-slate-700">
+                                    {prod.codigo_produto || '—'}
+                                  </td>
+                                  <td className="p-3 font-semibold text-slate-900">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProductFicha(prod)}
+                                      className="hover:underline text-left text-indigo-700"
+                                    >
+                                      {prod.nome_produto}
+                                    </button>
+                                    {prod.gramatura && (
+                                      <span className="text-slate-400 font-normal ml-1">
+                                        ({prod.gramatura})
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 font-medium text-indigo-600">
+                                    {prod.industry_name}
+                                  </td>
+                                  <td className="p-3 text-slate-600">
+                                    {prod.categoria || 'Geral'}{' '}
+                                    {prod.familia ? `• ${prod.familia}` : ''}
+                                  </td>
+                                  <td className="p-3">
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        prod.tipo_mix === 'oficial_industria'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : 'bg-blue-50 text-blue-700 border-blue-200'
+                                      }
+                                    >
+                                      {prod.tipo_mix === 'oficial_industria'
+                                        ? 'Mix Oficial'
+                                        : 'Mix Observado'}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-3">
+                                    <Badge
+                                      variant={prod.status === 'ativo' ? 'default' : 'secondary'}
+                                      className="text-[10px] capitalize"
+                                    >
+                                      {prod.status}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-3 text-right space-x-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-7 px-2"
+                                      onClick={() => handleOpenProductFicha(prod)}
+                                    >
+                                      <Eye className="w-3.5 h-3.5 mr-1" /> Ficha
+                                    </Button>
+                                    {canEdit && (
+                                      <>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-xs h-7 px-2"
+                                          onClick={() => handleToggleMixOficial(prod)}
+                                        >
+                                          {prod.tipo_mix === 'oficial_industria'
+                                            ? 'Remover Mix'
+                                            : 'Adicionar Mix'}
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-xs h-7 px-2 text-indigo-600"
+                                          onClick={() => handleOpenEdit('produtos', prod)}
+                                        >
+                                          Editar
+                                        </Button>
+                                      </>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              )
+            })()
           )}
         </div>
       )}

@@ -205,6 +205,87 @@ export async function saveCadastroProduto(
   return record
 }
 
+export interface MixBatchActionResult {
+  totalSolicitados: number
+  sucessos: number
+  falhas: number
+  erros: { id: string; nome: string; erro: string }[]
+  acao: 'adicionar_mix_oficial' | 'remover_mix_oficial' | 'promover_observado_oficial'
+}
+
+/**
+ * Executa ações em lote sobre o Mix Oficial de Produtos
+ * - 'adicionar_mix_oficial': define tipo_mix = 'oficial_industria' para os produtos selecionados
+ * - 'remover_mix_oficial': define tipo_mix = 'observado_operacional' para os produtos selecionados (sem deletar nem perder histórico)
+ * - 'promover_observado_oficial': promove produtos observados para mix oficial de forma explícita
+ *
+ * REGRA OBRIGATÓRIA: NUNCA promove automaticamente. Sempre disparado por ação explícita com auditoria.
+ */
+export async function executeMixBatchAction(
+  produtosIds: string[],
+  acao: 'adicionar_mix_oficial' | 'remover_mix_oficial' | 'promover_observado_oficial',
+  produtosBase: CadastroProduto[],
+  options?: AuditLogOptions,
+): Promise<MixBatchActionResult> {
+  const result: MixBatchActionResult = {
+    totalSolicitados: produtosIds.length,
+    sucessos: 0,
+    falhas: 0,
+    erros: [],
+    acao,
+  }
+
+  const novoTipoMix = acao === 'remover_mix_oficial' ? 'observado_operacional' : 'oficial_industria'
+
+  const produtosAlvo = produtosBase.filter((p) => produtosIds.includes(p.id))
+
+  for (const produto of produtosAlvo) {
+    // Se for promoção de observado para oficial, garantir que apenas os observados são afetados
+    if (acao === 'promover_observado_oficial' && produto.tipo_mix !== 'observado_operacional') {
+      continue
+    }
+
+    try {
+      await pb.collection('industry_product_mix').update(produto.id, {
+        tipo_mix: novoTipoMix,
+      })
+      result.sucessos += 1
+    } catch (err: any) {
+      result.falhas += 1
+      result.erros.push({
+        id: produto.id,
+        nome: produto.nome_produto,
+        erro: err?.message || 'Erro desconhecido ao atualizar produto',
+      })
+    }
+  }
+
+  // Registrar auditoria em lote
+  await logCadastroAudit(
+    'mix_acao_em_lote',
+    `Ação em Lote: ${acao} (${result.sucessos}/${result.totalSolicitados})`,
+    'batch_mix',
+    {
+      ...options,
+      detalhes: {
+        ...options?.detalhes,
+        acao,
+        totalSolicitados: result.totalSolicitados,
+        sucessos: result.sucessos,
+        falhas: result.falhas,
+        novoTipoMix,
+        produtosAfetados: produtosAlvo.map((p) => ({
+          id: p.id,
+          nome: p.nome_produto,
+          industria: p.industry_name,
+        })),
+      },
+    },
+  )
+
+  return result
+}
+
 // ---------------------------------------------------------------------------------
 // 4. REDES
 // ---------------------------------------------------------------------------------
