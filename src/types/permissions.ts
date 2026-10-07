@@ -40,8 +40,12 @@ export type PermissionKey =
   | 'devolucoes:visualizar_documentos'
   | 'devolucoes:anexar_documentos'
   | 'devolucoes:visualizar_financeiro'
+  // Cadastros Mestres
+  | 'cadastros:visualizar'
+  | 'cadastros:editar'
   // Indústrias
   | 'industrias:visualizar'
+  | 'industrias:editar'
   | 'industrias:editar_cadastro'
   | 'industrias:alterar_mix'
   | 'industrias:alterar_pesquisas'
@@ -221,6 +225,21 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     area: 'Indústrias',
     description: 'Ajustar faixas de dias para crítico, atenção e moderado',
   },
+  // Cadastros Mestres
+  {
+    key: 'cadastros:visualizar',
+    label: 'Visualizar Cadastros Mestres',
+    area: 'Cadastros',
+    description:
+      'Consultar cadastros de indústrias, produtos, redes, lojas, promotores e supervisores',
+  },
+  {
+    key: 'cadastros:editar',
+    label: 'Editar Cadastros Mestres',
+    area: 'Cadastros',
+    description: 'Criar e atualizar entidades cadastrais e resolver pendências estruturais',
+    sensitive: true,
+  },
   // Rede / Lojas
   {
     key: 'rede:visualizar',
@@ -314,6 +333,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
   gestao: [
     'central:visualizar',
     'operacao:visualizar',
+    'cadastros:visualizar',
+    'cadastros:editar',
     'validades:visualizar',
     'rupturas:visualizar',
     'devolucoes:visualizar',
@@ -330,6 +351,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
   operacao: [
     'central:visualizar',
     'operacao:visualizar',
+    'cadastros:visualizar',
     'operacao:registrar',
     'operacao:editar',
     'validades:visualizar',
@@ -354,6 +376,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
   supervisao: [
     'central:visualizar',
     'operacao:visualizar',
+    'cadastros:visualizar',
     'validades:visualizar',
     'validades:tratar',
     'rupturas:visualizar',
@@ -370,6 +393,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
   desenvolvedor: [
     'central:visualizar',
     'operacao:visualizar',
+    'cadastros:visualizar',
     'validades:visualizar',
     'rupturas:visualizar',
     'devolucoes:visualizar', // Vê fila de devoluções sem docs/valores sensíveis
@@ -381,6 +405,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
 
   industria: [
     'central:visualizar',
+    'cadastros:visualizar',
     'validades:visualizar',
     'rupturas:visualizar',
     'devolucoes:visualizar',

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T11:30:37.022Z",
+  "generatedAt": "2026-10-07T12:48:48.265Z",
   "collections": [
     {
       "name": "users",
@@ -749,6 +749,18 @@
         },
         {
           "name": "rede_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "regiao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "app_diretoria_store_id",
           "type": "text",
           "required": false,
           "system": false
@@ -2502,6 +2514,12 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "app_diretoria_industry_id",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2688,6 +2706,42 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "familia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sabor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gramatura",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "embalagem",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo_interno",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "app_diretoria_product_id",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -4318,7 +4372,18 @@
             "outro",
             "limpeza_operacional_executada",
             "backup_operacional_restaurado",
-            "limpeza_operacional_preparada"
+            "limpeza_operacional_preparada",
+            "cadastro_industria_alterado",
+            "cadastro_produto_alterado",
+            "cadastro_rede_alterado",
+            "cadastro_loja_alterado",
+            "cadastro_promotor_alterado",
+            "cadastro_supervisor_alterado",
+            "vinculo_tradepro_cliente",
+            "desvinculo_tradepro_cliente",
+            "mix_oficial_alterado",
+            "mix_definido_loja_alterado",
+            "pendencia_cadastro_resolvida"
           ]
         },
         {
@@ -4647,6 +4712,393 @@
         "CREATE UNIQUE INDEX idx_op_backup_code ON operational_data_backups (backup_code)",
         "CREATE INDEX idx_op_backup_status ON operational_data_backups (status)",
         "CREATE INDEX idx_op_backup_created ON operational_data_backups (created DESC)"
+      ]
+    },
+    {
+      "name": "supervisors",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_externo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "inativo"]
+        },
+        {
+          "name": "regiao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "app_diretoria_supervisor_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_supervisors_cod ON supervisors (codigo_externo)",
+        "CREATE INDEX idx_supervisors_nome ON supervisors (nome)"
+      ]
+    },
+    {
+      "name": "promoters",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_externo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cpf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "supervisor_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "supervisors"
+        },
+        {
+          "name": "supervisor_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "inativo"]
+        },
+        {
+          "name": "regiao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "app_diretoria_promoter_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_promoters_cod ON promoters (codigo_externo)",
+        "CREATE INDEX idx_promoters_nome ON promoters (nome)",
+        "CREATE INDEX idx_promoters_sup ON promoters (supervisor_id)"
+      ]
+    },
+    {
+      "name": "store_promoter_assignments",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "promoter_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "promoters"
+        },
+        {
+          "name": "promoter_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "stores"
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "encerrado"]
+        },
+        {
+          "name": "data_inicio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fim",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_assignment_prom ON store_promoter_assignments (promoter_id)",
+        "CREATE INDEX idx_assignment_store ON store_promoter_assignments (store_code)",
+        "CREATE INDEX idx_assignment_ind ON store_promoter_assignments (industry_id)"
+      ]
+    },
+    {
+      "name": "cadastros_pendencias",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "tipo_entidade",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["industria", "rede", "loja", "produto", "promotor", "supervisor"]
+        },
+        {
+          "name": "valor_identificador",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "codigo_externo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_identificado",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contexto_adicional",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pendente", "vinculado", "ignorado"]
+        },
+        {
+          "name": "volume_ocorrencias",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "entidade_resolvida_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "entidade_resolvida_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolvido_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolvido_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacao_resolucao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_cad_pend_tipo ON cadastros_pendencias (tipo_entidade, status)",
+        "CREATE INDEX idx_cad_pend_val ON cadastros_pendencias (valor_identificador)"
       ]
     }
   ]

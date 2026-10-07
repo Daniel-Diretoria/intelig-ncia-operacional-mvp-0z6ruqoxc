@@ -23,6 +23,7 @@ import { ConfiguracoesPage } from '@/pages/Configuracoes'
 import { AssistantPage } from '@/pages/AssistantPage'
 import { ImportacaoPage } from '@/pages/Importacao'
 import { DevolucoesPage } from '@/pages/DevolucoesPage'
+import { CadastrosPage } from '@/pages/CadastrosPage'
 import NotFound from '@/pages/NotFound'
 
 const App = () => (
@@ -49,6 +50,14 @@ const App = () => (
               element={
                 <ProtectedRoute requiredPermission="inteligencia:visualizar">
                   <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cadastros"
+              element={
+                <ProtectedRoute requiredPermission="cadastros:visualizar">
+                  <CadastrosPage />
                 </ProtectedRoute>
               }
             />

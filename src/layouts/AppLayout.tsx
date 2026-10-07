@@ -23,6 +23,7 @@ import {
   Factory,
   Boxes,
   HelpCircle,
+  Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
@@ -75,6 +76,12 @@ const PRIMARY_AREAS: NavSection[] = [
         icon: RotateCcw,
       },
     ],
+  },
+  {
+    id: 'cadastros',
+    label: 'Cadastros',
+    to: '/cadastros',
+    icon: Database,
   },
   {
     id: 'industrias',
@@ -213,6 +220,7 @@ export const AppLayout: React.FC = () => {
   // Obtém o título da página atual
   const getPageTitle = () => {
     if (location.pathname === '/') return 'Central de Trabalho'
+    if (location.pathname === '/cadastros') return 'Cadastros Mestres'
     if (location.pathname === '/visao-geral') return 'Visão Estratégica'
     if (location.pathname.startsWith('/industrias')) return 'Indústrias & Fornecedores'
     if (location.pathname === '/validades') return 'Validades'
@@ -290,6 +298,7 @@ export const AppLayout: React.FC = () => {
               const hasChildren = section.children && section.children.length > 0
 
               // Filtrar itens por permissão
+              if (section.id === 'cadastros' && !can('cadastros:visualizar')) return null
               if (section.id === 'industrias' && !can('industrias:visualizar')) return null
               if (section.id === 'operacao' && !can('operacao:visualizar')) return null
               if (section.id === 'rede' && !can('rede:visualizar')) return null
@@ -515,6 +524,7 @@ export const AppLayout: React.FC = () => {
               const hasChildren = section.children && section.children.length > 0
 
               // Filtrar por permissão
+              if (section.id === 'cadastros' && !can('cadastros:visualizar')) return null
               if (section.id === 'industrias' && !can('industrias:visualizar')) return null
               if (section.id === 'operacao' && !can('operacao:visualizar')) return null
               if (section.id === 'rede' && !can('rede:visualizar')) return null
