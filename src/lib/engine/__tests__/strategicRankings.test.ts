@@ -780,8 +780,8 @@ describe('Camada 4 — Central Estratégica e Regras Confirmadas', () => {
     expect(adapted.candidato.scope).toBe('product')
   })
 
-  // 24. Adaptadores: Ruptura com descricaoAtividade===marca → scope='brand_total'
-  it('24. Adaptadores: Ruptura com descricaoAtividade===marca → scope="brand_total"', () => {
+  // 24. Adaptadores: Ruptura com descricaoAtividade===marca/indústria resolvida → scope='brand_total'
+  it('24. Adaptadores: Ruptura com descricaoAtividade===marca/indústria resolvida → scope="brand_total"', () => {
     const rawRupturaTotal: TradeProRupturaItem = {
       idSupervisor: 'S1',
       nomeSupervisor: 'SUP 1',
@@ -822,7 +822,15 @@ describe('Camada 4 — Central Estratégica e Regras Confirmadas', () => {
       dataHoraExecucaoAtividade: '2026-08-11 08:30:00',
     }
 
-    const adapted = adaptRupturaItem(rawRupturaTotal)
+    // Sem indústria resolvida no contexto: não assume razão social ou fornecedor como indústria, scope fica 'product'
+    const adaptedSemContexto = adaptRupturaItem(rawRupturaTotal)
+    expect(adaptedSemContexto.status).toBe('valid')
+    expect(adaptedSemContexto.candidato.produto).toBe('MARIGOLD')
+    expect(adaptedSemContexto.candidato.cliente).toBe('') // Razão social não vira indústria
+    expect(adaptedSemContexto.candidato.scope).toBe('product') // Fornecedor não define brand_total
+
+    // Com indústria resolvida MARIGOLD via contexto:
+    const adapted = adaptRupturaItem(rawRupturaTotal, { industryClient: 'MARIGOLD' })
     expect(adapted.status).toBe('valid')
     expect(adapted.candidato.produto).toBe('MARIGOLD')
     expect(adapted.candidato.cliente).toBe('MARIGOLD')

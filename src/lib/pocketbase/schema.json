@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T21:11:59.658Z",
+  "generatedAt": "2026-10-07T21:45:07.082Z",
   "collections": [
     {
       "name": "users",
@@ -1147,6 +1147,27 @@
           "required": false,
           "system": false,
           "selectValues": ["completo", "parcial", "pendente", "conflito"]
+        },
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_product_mix"
+        },
+        {
+          "name": "promoter_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "promoters"
+        },
+        {
+          "name": "supervisor_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "supervisors"
         }
       ],
       "indexes": [
@@ -1158,7 +1179,10 @@
         "CREATE INDEX `idx_validades_base_auditoria` ON `validades_base` (sinalizado_correcao)",
         "CREATE INDEX `idx_validades_base_atual` ON `validades_base` (is_base_atual)",
         "CREATE INDEX `idx_val_source_job` ON `validades_base` (source_job_id)",
-        "CREATE INDEX `idx_val_status_norm` ON `validades_base` (status_normalizacao)"
+        "CREATE INDEX `idx_val_status_norm` ON `validades_base` (status_normalizacao)",
+        "CREATE INDEX `idx_val_product` ON `validades_base` (product_id)",
+        "CREATE INDEX `idx_val_promoter` ON `validades_base` (promoter_id)",
+        "CREATE INDEX `idx_val_supervisor` ON `validades_base` (supervisor_id)"
       ]
     },
     {
@@ -1961,6 +1985,27 @@
           "required": false,
           "system": false,
           "collectionRef": "stores"
+        },
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_product_mix"
+        },
+        {
+          "name": "promoter_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "promoters"
+        },
+        {
+          "name": "supervisor_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "supervisors"
         }
       ],
       "indexes": [
@@ -1974,7 +2019,10 @@
         "CREATE INDEX `idx_rupturas_base_atual` ON `rupturas_base` (is_base_atual)",
         "CREATE INDEX `idx_rupturas_base_rede` ON `rupturas_base` (rede)",
         "CREATE INDEX `idx_rup_source_job` ON `rupturas_base` (source_job_id)",
-        "CREATE INDEX `idx_rup_status_norm` ON `rupturas_base` (status_normalizacao)"
+        "CREATE INDEX `idx_rup_status_norm` ON `rupturas_base` (status_normalizacao)",
+        "CREATE INDEX `idx_rup_product` ON `rupturas_base` (product_id)",
+        "CREATE INDEX `idx_rup_promoter` ON `rupturas_base` (promoter_id)",
+        "CREATE INDEX `idx_rup_supervisor` ON `rupturas_base` (supervisor_id)"
       ]
     },
     {

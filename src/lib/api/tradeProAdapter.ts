@@ -596,27 +596,49 @@ export interface RupturaAdapterContext {
   industryClient?: string
 }
 
+/**
+ * Extrai o código da loja a partir do identificador da Loja (codigoCliente da Loja)
+ * ou da Razão Social (ex: "165 - FORT ATACADISTA").
+ */
+function extractStoreCodeLocal(codigoCliente?: string, razaoSocial?: string): string {
+  const c = (codigoCliente || '').trim()
+  if (c) return c
+  const rs = (razaoSocial || '').trim()
+  if (!rs) return ''
+  const m = rs.match(/^(\d+)/)
+  if (m) return m[1]
+  const m2 = rs.match(/^([^-–]+?)[\s]*[-–]/)
+  if (m2) return m2[1].trim()
+  return ''
+}
+
 export function adaptRupturaItem(
   item: TradeProRupturaItem,
   context?: RupturaAdapterContext,
 ): RupturaCandidateSuccess {
   const produto = item.descricaoAtividade || ''
-  // Semântica oficial Bloco B.1:
-  // Cliente/Cód. Cliente -> Indústria.
-  // Fornecedor -> Fornecedor operacional. Fornecedor NÃO vira Indústria.
-  // Se o contexto fornecer industryClient ou houver tradepro_cliente_nome, prioriza a Indústria real.
-  const clienteIndustria = context?.industryClient || item.razaoSocialCliente || ''
-  const fornecedorNome = item.descricaoFornecedor || ''
 
+  // Semântica oficial Bloco B.1.1:
+  // - Indústria é resolvida APENAS via context.industryClient (quando resolvido no cadastro mestre).
+  // - NUNCA usar Razão Social, Fantasia ou Fornecedor como fallback de Indústria!
+  // - Razão Social representa a Loja (ex: "165 - FORT ATACADISTA AVENTUREIRO").
+  // - Fantasia representa a Rede (ex: "GRUPO PEREIRA").
+  // - Fornecedor representa a operação logística (ex: "DIRETORIA").
+  const clienteIndustria = (context?.industryClient || '').trim()
+
+  // brand_total: só classificado quando o produto coincide com a Indústria oficial resolvida.
+  // Fornecedor NÃO é sinônimo de Marca/Indústria. Sem Indústria resolvida, default é 'product'.
   const isTotal =
     Boolean(produto) &&
-    Boolean(fornecedorNome) &&
-    normalizeBrandKeyLocal(produto) === normalizeBrandKeyLocal(fornecedorNome)
+    Boolean(clienteIndustria) &&
+    normalizeBrandKeyLocal(produto) === normalizeBrandKeyLocal(clienteIndustria)
+
+  const codigoLojaResolvido = extractStoreCodeLocal(item.codigoCliente, item.razaoSocialCliente)
 
   return {
     status: 'valid',
     candidato: {
-      codigo_loja: item.codigoCliente,
+      codigo_loja: codigoLojaResolvido,
       nome_loja: item.razaoSocialCliente,
       razao_social: item.razaoSocialCliente,
       cnpj_loja: item.cpfCnpjCliente,
