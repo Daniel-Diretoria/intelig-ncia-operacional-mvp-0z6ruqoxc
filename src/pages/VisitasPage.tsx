@@ -30,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import pb from '@/lib/pocketbase/client'
 import {
   getOperacionalVisitas,
   getCadastrosPromotores,
@@ -69,12 +70,12 @@ export const VisitasPage: React.FC = () => {
           promoter_nome: (it.promoter_nome as string) || '',
           store_id: (it.store_id as string) || '',
           store_code: (it.store_code as string) || '',
-          store_name: (it.store_nome as string) || '',
-          hora_inicio: (it.hora_entrada as string) || (it.hora_inicio as string) || undefined,
-          hora_fim: (it.hora_saida as string) || (it.hora_fim as string) || undefined,
+          store_name: (it.store_name as string) || (it.store_nome as string) || '',
+          hora_inicio: (it.hora_inicio as string) || (it.hora_entrada as string) || undefined,
+          hora_fim: (it.hora_fim as string) || (it.hora_saida as string) || undefined,
           duracao_minutos: Number(it.duracao_minutos) || undefined,
-          status: (it.status as string) || 'realizada',
-          origem_fonte: (it.origem as string) || 'tradepro_api',
+          status_roteiro: (it.status_roteiro as string) || (it.status as string) || 'concluida',
+          origem_fonte: (it.origem_fonte as string) || (it.origem as string) || 'tradepro_api',
           observacao: it.observacao as string,
         }))
       } catch (_) {

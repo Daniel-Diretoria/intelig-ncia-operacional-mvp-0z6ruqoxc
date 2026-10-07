@@ -2707,11 +2707,11 @@ onRecordAfterUpdateSuccess((e) => {
     // Carrega promotores cadastrados para resolução de promoter_id
     const promoterMapByCod = {}
     try {
-      const allPromoters = $app.findRecordsByFilter('master_promoters', 'id != ""', 'nome', 2000, 0)
+      const allPromoters = $app.findRecordsByFilter('promoters', 'id != ""', 'nome', 2000, 0)
       if (allPromoters && allPromoters.length > 0) {
         for (let pIdx = 0; pIdx < allPromoters.length; pIdx++) {
           const pRec = allPromoters[pIdx]
-          const cod = (pRec.getString('codigo') || '').trim()
+          const cod = (pRec.getString('codigo_externo') || '').trim()
           if (cod) {
             promoterMapByCod[cod] = pRec.id
           }
@@ -2722,11 +2722,15 @@ onRecordAfterUpdateSuccess((e) => {
     // Carrega lojas cadastradas para resolução de store_id
     const storeMapByCode = {}
     try {
-      const allStores = $app.findRecordsByFilter('master_stores', 'id != ""', 'codigo', 2000, 0)
+      const allStores = $app.findRecordsByFilter('stores', 'id != ""', 'nome', 2000, 0)
       if (allStores && allStores.length > 0) {
         for (let sIdx = 0; sIdx < allStores.length; sIdx++) {
           const sRec = allStores[sIdx]
-          const cod = (sRec.getString('codigo') || '').trim()
+          const cod = (
+            sRec.getString('codigo_loja') ||
+            sRec.getString('codigo_externo') ||
+            ''
+          ).trim()
           if (cod) {
             storeMapByCode[cod] = sRec.id
           }
@@ -2980,7 +2984,7 @@ onRecordAfterUpdateSuccess((e) => {
       registrosLidos += promotoresVisitas.length
 
       const operacionalVisitasCol = $app.findCollectionByNameOrId('operacional_visitas')
-      const relationsCol = $app.findCollectionByNameOrId('promoter_store_relations')
+      const assignmentsCol = $app.findCollectionByNameOrId('store_promoter_assignments')
 
       for (let pIdx = 0; pIdx < promotoresVisitas.length; pIdx++) {
         const itemPromotor = promotoresVisitas[pIdx]
@@ -3096,22 +3100,22 @@ onRecordAfterUpdateSuccess((e) => {
                 novaVisita.set('promoter_id', promoterDbId)
               }
               novaVisita.set('store_code', storeCode)
-              novaVisita.set('store_nome', rawLojaRazao || rawLojaFantasia || 'Loja ' + storeCode)
+              novaVisita.set('store_name', rawLojaRazao || rawLojaFantasia || 'Loja ' + storeCode)
               if (storeDbId) {
                 novaVisita.set('store_id', storeDbId)
               }
               if (cleanHoraEntrada) {
-                novaVisita.set('hora_entrada', cleanHoraEntrada)
+                novaVisita.set('hora_inicio', cleanHoraEntrada)
               }
               if (cleanHoraSaida) {
-                novaVisita.set('hora_saida', cleanHoraSaida)
+                novaVisita.set('hora_fim', cleanHoraSaida)
               }
               if (duracaoCalculada > 0) {
                 novaVisita.set('duracao_minutos', duracaoCalculada)
               }
-              novaVisita.set('status', statusVisita)
-              novaVisita.set('origem', 'tradepro_api')
-              novaVisita.set('raw_data', {
+              novaVisita.set('status_roteiro', statusVisita)
+              novaVisita.set('origem_fonte', 'tradepro_api')
+              novaVisita.set('dados_brutos_json', {
                 itemPromotor: {
                   idPromotor: itemPromotor.idPromotor,
                   nomePromotor: itemPromotor.nomePromotor,
@@ -3128,18 +3132,18 @@ onRecordAfterUpdateSuccess((e) => {
               $app.save(novaVisita)
               registrosValidos++
 
-              // Vínculo promotor <-> loja como RELAÇÃO OBSERVADA (promoter_store_relations)
+              // Vínculo promotor <-> loja como RELAÇÃO OBSERVADA (store_promoter_assignments)
               // REGRA: "Visita observada não altera roteiro confirmado: vínculo com status observado ('observado_visita'), não confirmado"
-              if (rawPromotorId && storeCode && relationsCol) {
+              if (rawPromotorId && storeCode && assignmentsCol && promoterDbId) {
                 try {
                   const relFilter =
-                    'promoter_cod = "' +
-                    rawPromotorId.replace(/"/g, '\\"') +
+                    'promoter_id = "' +
+                    promoterDbId +
                     '" && store_code = "' +
                     storeCode.replace(/"/g, '\\"') +
-                    '"'
+                    '" && status = "ativo"'
                   const existingRels = $app.findRecordsByFilter(
-                    'promoter_store_relations',
+                    'store_promoter_assignments',
                     relFilter,
                     '-created',
                     1,
@@ -3147,15 +3151,19 @@ onRecordAfterUpdateSuccess((e) => {
                   )
 
                   if (!existingRels || existingRels.length === 0) {
-                    const novaRel = new Record(relationsCol)
-                    novaRel.set('promoter_cod', rawPromotorId)
+                    const novaRel = new Record(assignmentsCol)
+                    novaRel.set('promoter_id', promoterDbId)
                     novaRel.set('promoter_nome', rawPromotorNome)
                     novaRel.set('store_code', storeCode)
-                    novaRel.set('store_nome', rawLojaRazao || rawLojaFantasia)
-                    novaRel.set('origem', 'observado_visita')
-                    novaRel.set('status', 'observado') // NUNCA confirmado automaticamente
-                    novaRel.set('ativo', true)
-                    if (promoterDbId) novaRel.set('promoter_id', promoterDbId)
+                    novaRel.set('store_name', rawLojaRazao || rawLojaFantasia)
+                    novaRel.set('status', 'ativo')
+                    novaRel.set('tipo_vinculo', 'observado_visita') // NUNCA confirmado automaticamente
+                    novaRel.set('origem_vinculo', 'Visita registrada TradePro em ' + rawData)
+                    novaRel.set('data_inicio', rawData)
+                    novaRel.set(
+                      'observacao',
+                      'Relação observada através da API de Visitas. Requer confirmação de roteiro pelo administrador.',
+                    )
                     if (storeDbId) novaRel.set('store_id', storeDbId)
                     $app.save(novaRel)
                   }
@@ -3195,13 +3203,13 @@ onRecordAfterUpdateSuccess((e) => {
                 novaVisita.set('promoter_id', promoterDbId)
               }
               novaVisita.set('store_code', '')
-              novaVisita.set('store_nome', '')
+              novaVisita.set('store_name', '')
               novaVisita.set(
-                'status',
+                'status_roteiro',
                 itemPromotor.visitasRealizadas > 0 ? 'realizada' : 'pendente',
               )
-              novaVisita.set('origem', 'tradepro_api')
-              novaVisita.set('raw_data', {
+              novaVisita.set('origem_fonte', 'tradepro_api')
+              novaVisita.set('dados_brutos_json', {
                 itemPromotor: itemPromotor,
                 sincronizadoEm: new Date().toISOString(),
                 jobId: jobId,
