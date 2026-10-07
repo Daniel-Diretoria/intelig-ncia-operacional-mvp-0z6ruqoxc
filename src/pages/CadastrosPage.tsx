@@ -990,12 +990,12 @@ export const CadastrosPage: React.FC = () => {
 
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[10px] font-semibold text-slate-700 uppercase block">
-                Legados Excluídos
+                Não vigentes / legados excluídos
               </span>
               <p className="text-base font-bold text-slate-900">
                 {resultadoHomologacao.metricasOrigem?.registrosLegadosExcluidos ?? 0}
               </p>
-              <span className="text-[10px] text-slate-500">Histórico não vigente</span>
+              <span className="text-[10px] text-slate-500">TradePro anterior / inativo</span>
             </div>
 
             <div className="bg-rose-50/80 p-2.5 rounded-xl border border-rose-200 shadow-2xs">
@@ -1102,7 +1102,7 @@ export const CadastrosPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Universo Processado e Relações Detectadas vs Persistidas */}
+          {/* Universo Processado e Relações Canônicas */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-indigo-900 bg-white/70 p-2.5 rounded-xl border border-indigo-100">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold text-indigo-950">Universo Processado:</span>
@@ -1119,23 +1119,24 @@ export const CadastrosPage: React.FC = () => {
                 {resultadoHomologacao.universoProcessado?.totalPaginasPorFonte?.rupturas ?? 0} págs)
               </span>
               <span>•</span>
-              <span>
-                Visitas lidas:{' '}
-                <strong>{resultadoHomologacao.universoProcessado?.visitasLidas ?? 0}</strong> (
-                {resultadoHomologacao.universoProcessado?.totalPaginasPorFonte?.visitas ?? 0} págs)
+              <span className="text-indigo-800">
+                Visitas TradePro:{' '}
+                <strong className="text-amber-700 font-semibold">
+                  Aguardando homologação da integração (Bloco B)
+                </strong>{' '}
+                <span className="text-[10px] text-slate-500">
+                  (Visitas ainda não homologadas como fonte cadastral;{' '}
+                  {resultadoHomologacao.universoProcessado?.visitasLidas ?? 0} registradas)
+                </span>
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:justify-end">
-              <span className="font-semibold text-indigo-950">Vínculos Observados:</span>
+              <span className="font-semibold text-indigo-950">
+                Métricas de Relações (Base Canônica):
+              </span>
               <span>
-                Detectadas:{' '}
-                <strong>
-                  {resultadoHomologacao.relacoes?.detectadas ??
-                    resultadoHomologacao.vinculosObservados.promotorLoja +
-                      resultadoHomologacao.vinculosObservados.promotorIndustria +
-                      resultadoHomologacao.vinculosObservados.supervisorPromotor}
-                </strong>
+                Detectadas únicas: <strong>{resultadoHomologacao.relacoes?.detectadas ?? 0}</strong>
               </span>
               <span>•</span>
               <span className="text-emerald-700">
@@ -1144,30 +1145,47 @@ export const CadastrosPage: React.FC = () => {
               </span>
               <span>•</span>
               <span className="text-blue-700">
-                Já existentes: <strong>{resultadoHomologacao.relacoes?.jaExistentes ?? 0}</strong>
+                Já existentes ativas:{' '}
+                <strong>{resultadoHomologacao.relacoes?.jaExistentes ?? 0}</strong>
+              </span>
+              <span>•</span>
+              <span className="text-slate-600">
+                Históricas encerradas:{' '}
+                <strong>{resultadoHomologacao.relacoes?.historicasEncerradas ?? 0}</strong>
               </span>
               <span>•</span>
               <span className="text-amber-700">
-                Pendentes: <strong>{resultadoHomologacao.relacoes?.pendentes ?? 0}</strong>
+                Pendentes de resolução:{' '}
+                <strong>{resultadoHomologacao.relacoes?.pendentes ?? 0}</strong>
               </span>
             </div>
           </div>
 
           <div className="text-[11px] text-indigo-800 flex flex-wrap items-center gap-3 bg-white/60 p-2 rounded-lg border border-indigo-100">
             <span>
-              <strong>Relações Detalhadas:</strong>
+              <strong>Relações Detalhadas (Detectadas vs Persistidas):</strong>
             </span>
             <span>
               Promotor ↔ Loja:{' '}
-              <strong>{resultadoHomologacao.vinculosObservados.promotorLoja}</strong>
+              <strong>{resultadoHomologacao.vinculosObservados.promotorLoja}</strong> (Persistidas:{' '}
+              {resultadoHomologacao.relacoes?.novasPersistidas ?? 0} novas /{' '}
+              {resultadoHomologacao.relacoes?.jaExistentes ?? 0} ativas)
             </span>
+            <span>•</span>
             <span>
               Promotor ↔ Indústria:{' '}
-              <strong>{resultadoHomologacao.vinculosObservados.promotorIndustria}</strong>
+              <strong>
+                Detectadas: {resultadoHomologacao.vinculosObservados.promotorIndustria} /
+                Persistidas: 0
+              </strong>
             </span>
+            <span>•</span>
             <span>
               Supervisor ↔ Promotor:{' '}
-              <strong>{resultadoHomologacao.vinculosObservados.supervisorPromotor}</strong>
+              <strong>
+                Detectadas: {resultadoHomologacao.vinculosObservados.supervisorPromotor} /
+                Persistidas: 0
+              </strong>
             </span>
             <span className="text-slate-400">
               | Vínculos observados não alteram roteiro confirmado administrativamente

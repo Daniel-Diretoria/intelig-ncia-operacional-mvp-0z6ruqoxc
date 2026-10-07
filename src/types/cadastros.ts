@@ -156,6 +156,7 @@ export interface CadastroPromotorAssignment {
   data_inicio?: string
   data_fim?: string
   observacao?: string
+  ultima_observacao_fonte?: string
   created?: string
   updated?: string
 }
@@ -322,6 +323,7 @@ export interface HomologacaoCadastralResultado {
     detectadas: number
     novasPersistidas: number
     jaExistentes: number
+    historicasEncerradas: number
     pendentes: number
   }
   vinculosObservados: {
@@ -329,6 +331,7 @@ export interface HomologacaoCadastralResultado {
     promotorIndustria: number
     supervisorPromotor: number
   }
+  visitasStatus: string // "Visitas TradePro: Aguardando homologação da integração (Bloco B)"
 }
 
 export interface MixOpportunityAnalysis {

@@ -139,7 +139,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     expect(resultado.universoProcessado.totalPaginasPorFonte.rupturas).toBe(15)
   })
 
-  it('3. Operacional_visitas participa efetivamente da homologação e descobre Promotor e Loja sem inventar supervisor ausente', async () => {
+  it('3. Operacional_visitas fica em "Aguardando homologação da integração (Bloco B)" e não contamina cadastros', async () => {
     vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
     vi.mocked(getCadastrosRedes).mockResolvedValue([])
     vi.mocked(getCadastrosLojas).mockResolvedValue([
@@ -165,7 +165,6 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         store_code: '165',
         store_name: '165 - Fort Joinville',
         origem_fonte: 'tradepro_api',
-        // Supervisor NÃO fornecido no evento de visita
       },
     ]
 
@@ -179,7 +178,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
       }
       if (name === 'operacional_visitas') {
         return {
-          getList: vi.fn().mockResolvedValue({ items: mockVisitas, totalPages: 1 }),
+          getList: vi.fn().mockResolvedValue({ items: mockVisitas, totalPages: 1, totalItems: 1 }),
         } as any
       }
       if (name === 'store_promoter_assignments') {
@@ -198,16 +197,18 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
 
     const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
 
+    // Visitas informadas claramente em estado de aguardo sem contaminação cadastral
+    expect(resultado.visitasStatus).toBe(
+      'Visitas TradePro: Aguardando homologação da integração (Bloco B)',
+    )
     expect(resultado.universoProcessado.visitasLidas).toBe(1)
-    expect(resultado.promotores.vinculados).toBe(1)
-    expect(resultado.lojas.vinculadas).toBe(1)
-    // NUNCA inventar supervisor quando visita não fornecer
-    expect(resultado.supervisores.descobertos).toBe(0)
-    expect(resultado.supervisores.vinculados).toBe(0)
-    expect(resultado.vinculosObservados.promotorLoja).toBe(1)
+    // Sem validades/rupturas, NÃO cria vínculos a partir de visitas ainda não homologadas
+    expect(assignmentCreateSpy).not.toHaveBeenCalled()
+    expect(resultado.relacoes.novasPersistidas).toBe(0)
+    expect(resultado.vinculosObservados.promotorLoja).toBe(0)
   })
 
-  it('4. Vínculo Promotor ↔ Loja observado é persistido com tipo_vinculo = observado_visita e NÃO vira confirmado', async () => {
+  it('4. Vínculo Promotor ↔ Loja observado via operação é persistido com tipo_vinculo = observado_operacao, data_fim vazia e ultima_observacao_fonte', async () => {
     vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
     vi.mocked(getCadastrosRedes).mockResolvedValue([])
     vi.mocked(getCadastrosLojas).mockResolvedValue([
@@ -224,29 +225,30 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     ])
     vi.mocked(getCadastrosProdutos).mockResolvedValue([])
 
-    const mockVisitas = [
+    const mockValidades = [
       {
-        id: 'vis_1',
-        data: '2025-05-15',
-        promoter_cod: '99',
-        promoter_nome: 'João Visita',
-        store_code: '165',
-        store_name: '165 - Fort Joinville',
-        origem_fonte: 'tradepro_api',
+        id: 'val_1',
+        realizado: '2025-05-15',
+        cod_colaborador: '99',
+        colaborador: 'João Visita',
+        codigo_loja: '165',
+        razao_social: '165 - Fort Joinville',
+        is_base_atual: true,
+        tenant_id: 'tradepro_job',
       },
     ]
 
     const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_novo' })
 
     vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
-      if (name === 'validades_base' || name === 'rupturas_base') {
+      if (name === 'validades_base') {
         return {
-          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+          getList: vi.fn().mockResolvedValue({ items: mockValidades, totalPages: 1 }),
         } as any
       }
-      if (name === 'operacional_visitas') {
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
         return {
-          getList: vi.fn().mockResolvedValue({ items: mockVisitas, totalPages: 1 }),
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
         } as any
       }
       if (name === 'store_promoter_assignments') {
@@ -268,17 +270,20 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     expect(assignmentCreateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         promoter_id: 'prom_99',
+        store_id: 'loja_165',
         store_code: '165',
-        tipo_vinculo: 'observado_visita', // NUNCA confirmado
+        tipo_vinculo: 'observado_operacao', // NUNCA confirmado
         status: 'ativo',
-        origem_vinculo: 'Observado via operacional_visitas',
+        data_inicio: '2025-05-15',
+        data_fim: '', // Vazio em vínculo ativo!
+        ultima_observacao_fonte: '2025-05-15',
       }),
     )
     expect(resultado.relacoes.novasPersistidas).toBe(1)
     expect(resultado.relacoes.jaExistentes).toBe(0)
   })
 
-  it('5. Segunda execução não duplica vínculo: incrementa relacoes.jaExistentes e não recria', async () => {
+  it('5. Segunda execução não duplica vínculo: incrementa relacoes.jaExistentes e apenas atualiza ultima_observacao_fonte', async () => {
     vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
     vi.mocked(getCadastrosRedes).mockResolvedValue([])
     vi.mocked(getCadastrosLojas).mockResolvedValue([
@@ -295,15 +300,16 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     ])
     vi.mocked(getCadastrosProdutos).mockResolvedValue([])
 
-    const mockVisitas = [
+    const mockValidades = [
       {
-        id: 'vis_1',
-        data: '2025-05-15',
-        promoter_cod: '99',
-        promoter_nome: 'João Visita',
-        store_code: '165',
-        store_name: '165 - Fort Joinville',
-        origem_fonte: 'tradepro_api',
+        id: 'val_1',
+        realizado: '2025-05-22',
+        cod_colaborador: '99',
+        colaborador: 'João Visita',
+        codigo_loja: '165',
+        razao_social: '165 - Fort Joinville',
+        is_base_atual: true,
+        tenant_id: 'tradepro_job',
       },
     ]
 
@@ -311,26 +317,30 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     const assignmentUpdateSpy = vi.fn().mockResolvedValue({})
 
     vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
-      if (name === 'validades_base' || name === 'rupturas_base') {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: mockValidades, totalPages: 1 }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
         return {
           getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
         } as any
       }
-      if (name === 'operacional_visitas') {
-        return {
-          getList: vi.fn().mockResolvedValue({ items: mockVisitas, totalPages: 1 }),
-        } as any
-      }
       if (name === 'store_promoter_assignments') {
         return {
-          // Já existe o vínculo cadastrado previamente
+          // Já existe o vínculo cadastrado previamente como ativo
           getFullList: vi.fn().mockResolvedValue([
             {
               id: 'ass_existente',
               promoter_id: 'prom_99',
+              store_id: 'loja_165',
               store_code: '165',
-              tipo_vinculo: 'observado_visita',
+              tipo_vinculo: 'observado_operacao',
               status: 'ativo',
+              data_inicio: '2025-05-01',
+              data_fim: '',
+              ultima_observacao_fonte: '2025-05-15',
             },
           ]),
           create: assignmentCreateSpy,
@@ -347,6 +357,12 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
 
     expect(assignmentCreateSpy).not.toHaveBeenCalled()
+    expect(assignmentUpdateSpy).toHaveBeenCalledWith(
+      'ass_existente',
+      expect.objectContaining({
+        ultima_observacao_fonte: '2025-05-22',
+      }),
+    )
     expect(resultado.relacoes.novasPersistidas).toBe(0)
     expect(resultado.relacoes.jaExistentes).toBe(1)
   })
@@ -857,7 +873,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     expect(resultado.universoProcessado.validadesLidas).toBe(0)
   })
 
-  it('14. Relação por Visita gera tipo_vinculo = observado_visita e por Validade/Ruptura gera observado_operacao', async () => {
+  it('14. Validade e Ruptura geram tipo_vinculo = observado_operacao com ultima_observacao_fonte', async () => {
     vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
     vi.mocked(getCadastrosRedes).mockResolvedValue([])
     vi.mocked(getCadastrosLojas).mockResolvedValue([
@@ -879,6 +895,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
           getList: vi.fn().mockResolvedValue({
             items: [
               {
+                realizado: '2025-05-10',
                 cod_colaborador: '1',
                 colaborador: 'Promotor 1',
                 codigo_loja: '10',
@@ -892,20 +909,25 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
       }
       if (name === 'rupturas_base') {
         return {
-          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                data_visita: '2025-05-12',
+                promotor_codigo: '2',
+                promotor: 'Promotor 2',
+                codigo_loja: '20',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
         } as any
       }
       if (name === 'operacional_visitas') {
         return {
           getList: vi.fn().mockResolvedValue({
-            items: [
-              {
-                promoter_cod: '2',
-                promoter_nome: 'Promotor 2',
-                store_code: '20',
-                origem_fonte: 'tradepro_api',
-              },
-            ],
+            items: [],
             totalPages: 1,
           }),
         } as any
@@ -928,28 +950,32 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
 
     expect(resultado.relacoes.novasPersistidas).toBe(2)
 
-    // Vínculo por Validade/Ruptura DEVE ser observado_operacao
+    // Vínculo por Validade DEVE ser observado_operacao
     expect(assignmentCreateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         promoter_id: 'prom_1',
         store_code: '10',
         tipo_vinculo: 'observado_operacao',
         origem_vinculo: 'tradepro_validades',
+        ultima_observacao_fonte: '2025-05-10',
+        data_fim: '',
       }),
     )
 
-    // Vínculo por Operacional Visitas DEVE ser observado_visita
+    // Vínculo por Ruptura DEVE ser observado_operacao
     expect(assignmentCreateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         promoter_id: 'prom_2',
         store_code: '20',
-        tipo_vinculo: 'observado_visita',
-        origem_vinculo: 'tradepro_visitas',
+        tipo_vinculo: 'observado_operacao',
+        origem_vinculo: 'tradepro_rupturas',
+        ultima_observacao_fonte: '2025-05-12',
+        data_fim: '',
       }),
     )
   })
 
-  it('15. Vigência: data_fim fica VAZIO em vínculo ativo novo (nunca grava última data em data_fim)', async () => {
+  it('15. Vigência: data_fim fica VAZIO em vínculo ativo novo a partir de Validades/Rupturas', async () => {
     vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
     vi.mocked(getCadastrosRedes).mockResolvedValue([])
     vi.mocked(getCadastrosLojas).mockResolvedValue([
@@ -964,25 +990,26 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_novo' })
 
     vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
-      if (name === 'validades_base' || name === 'rupturas_base') {
-        return {
-          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
-        } as any
-      }
-      if (name === 'operacional_visitas') {
+      if (name === 'validades_base') {
         return {
           getList: vi.fn().mockResolvedValue({
             items: [
               {
-                data: '2025-05-20',
-                promoter_cod: '1',
-                promoter_nome: 'Promotor 1',
-                store_code: '10',
-                origem_fonte: 'tradepro_api',
+                realizado: '2025-05-20',
+                cod_colaborador: '1',
+                colaborador: 'Promotor 1',
+                codigo_loja: '10',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
               },
             ],
             totalPages: 1,
           }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
         } as any
       }
       if (name === 'store_promoter_assignments') {
@@ -1006,6 +1033,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         data_inicio: '2025-05-20',
         data_fim: '', // Deve ficar VAZIO!
         status: 'ativo',
+        ultima_observacao_fonte: '2025-05-20',
       }),
     )
   })
@@ -1066,5 +1094,312 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
     expect(resultado.produtos.resolvidos).toBe(1)
     expect(resultado.produtos.detalhes[0].nome).toBe('Iogurte Grego 100g')
     expect(resultado.produtos.detalhes[0].codigo).toBe('SKU999')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Bloco A.3: Blindagem de Runtime, Schema Real, Vínculo Encerrado e Canonização
+  // ---------------------------------------------------------------------------
+
+  it('17. Schema real de store_promoter_assignments contém tipo_vinculo com observado_operacao e campo ultima_observacao_fonte', async () => {
+    // Carrega o schema.json espelhado do PocketBase
+    const schemaFile = await import('../../lib/pocketbase/schema.json')
+    const schemaData = (schemaFile.default || schemaFile) as { collections?: any[] } | any[]
+    const collections: any[] = Array.isArray(schemaData) ? schemaData : schemaData.collections || []
+
+    const assignmentsCollection = collections.find(
+      (c: any) => c.name === 'store_promoter_assignments',
+    )
+    expect(assignmentsCollection).toBeDefined()
+
+    const tipoVinculoField = assignmentsCollection.fields?.find(
+      (f: any) => f.name === 'tipo_vinculo',
+    )
+    expect(tipoVinculoField).toBeDefined()
+    expect(tipoVinculoField.values).toContain('confirmado')
+    expect(tipoVinculoField.values).toContain('observado_visita')
+    expect(tipoVinculoField.values).toContain('observado_operacao')
+
+    const ultimaObsField = assignmentsCollection.fields?.find(
+      (f: any) => f.name === 'ultima_observacao_fonte',
+    )
+    expect(ultimaObsField).toBeDefined()
+  })
+
+  it('18. Vínculo histórico encerrado NÃO bloqueia criação de novo vínculo ativo se houver nova evidência', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([
+      {
+        id: 'loja_165',
+        codigo_externo: '165',
+        razao_social: '165 - Fort Joinville',
+        ativo: true,
+      } as any,
+    ])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([
+      { id: 'prom_236', codigo_externo: '236', nome: 'João Silva', status: 'ativo' } as any,
+    ])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_novo_ativo' })
+    const assignmentUpdateSpy = vi.fn().mockResolvedValue({})
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                realizado: '2026-10-07',
+                cod_colaborador: '236',
+                colaborador: 'João Silva',
+                codigo_loja: '165',
+                razao_social: '165 - Fort Joinville',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      if (name === 'store_promoter_assignments') {
+        return {
+          // Existe apenas vínculo ENCERRADO prévio (01/08/2026 até 31/08/2026)
+          getFullList: vi.fn().mockResolvedValue([
+            {
+              id: 'ass_historico_antigo',
+              promoter_id: 'prom_236',
+              store_id: 'loja_165',
+              store_code: '165',
+              status: 'encerrado',
+              data_inicio: '2026-08-01',
+              data_fim: '2026-08-31',
+              tipo_vinculo: 'confirmado',
+            },
+          ]),
+          create: assignmentCreateSpy,
+          update: assignmentUpdateSpy,
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    // Deve registrar a histórica encerrada nas métricas
+    expect(resultado.relacoes.historicasEncerradas).toBe(1)
+    // E DEVE CRIAR uma NOVA relação ativa para a nova evidência
+    expect(resultado.relacoes.novasPersistidas).toBe(1)
+    expect(resultado.relacoes.jaExistentes).toBe(0)
+
+    expect(assignmentCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promoter_id: 'prom_236',
+        store_id: 'loja_165',
+        store_code: '165',
+        status: 'ativo',
+        data_inicio: '2026-10-07',
+        data_fim: '', // Vazio
+        ultima_observacao_fonte: '2026-10-07',
+        tipo_vinculo: 'observado_operacao',
+      }),
+    )
+    // NÃO deve reativar nem sobrescrever o vínculo encerrado histórico
+    expect(assignmentUpdateSpy).not.toHaveBeenCalled()
+  })
+
+  it('19. Vínculo confirmado ativo NÃO é rebaixado para observado, preservando confirmação administrativa', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([
+      {
+        id: 'loja_165',
+        codigo_externo: '165',
+        razao_social: '165 - Fort Joinville',
+        ativo: true,
+      } as any,
+    ])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([
+      { id: 'prom_236', codigo_externo: '236', nome: 'João Silva', status: 'ativo' } as any,
+    ])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    const assignmentUpdateSpy = vi.fn().mockResolvedValue({})
+    const assignmentCreateSpy = vi.fn().mockResolvedValue({})
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                realizado: '2026-10-07',
+                cod_colaborador: '236',
+                colaborador: 'João Silva',
+                codigo_loja: '165',
+                razao_social: '165 - Fort Joinville',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      if (name === 'store_promoter_assignments') {
+        return {
+          getFullList: vi.fn().mockResolvedValue([
+            {
+              id: 'ass_confirmado_ativo',
+              promoter_id: 'prom_236',
+              store_id: 'loja_165',
+              store_code: '165',
+              status: 'ativo',
+              tipo_vinculo: 'confirmado',
+              data_inicio: '2026-01-01',
+              data_fim: '',
+            },
+          ]),
+          create: assignmentCreateSpy,
+          update: assignmentUpdateSpy,
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(assignmentCreateSpy).not.toHaveBeenCalled()
+    expect(resultado.relacoes.jaExistentes).toBe(1)
+    expect(resultado.relacoes.novasPersistidas).toBe(0)
+
+    // Apenas atualiza ultima_observacao_fonte e observação SEM rebaixar tipo_vinculo para 'observado_operacao'
+    expect(assignmentUpdateSpy).toHaveBeenCalledWith(
+      'ass_confirmado_ativo',
+      expect.objectContaining({
+        ultima_observacao_fonte: '2026-10-07',
+      }),
+    )
+    expect(assignmentUpdateSpy).not.toHaveBeenCalledWith(
+      'ass_confirmado_ativo',
+      expect.objectContaining({
+        tipo_vinculo: 'observado_operacao',
+      }),
+    )
+  })
+
+  it('20. Relações Canônicas: Mesmo Promotor e Loja descobertos por código e por nome consolidam em 1 única relação canônica', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([
+      {
+        id: 'loja_165',
+        codigo_externo: '165',
+        razao_social: '165 - Fort Joinville',
+        ativo: true,
+      } as any,
+    ])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([
+      { id: 'prom_236', codigo_externo: '236', nome: 'João Silva', status: 'ativo' } as any,
+    ])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_canonico' })
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              // Validade traz código 236 + Loja 165
+              {
+                realizado: '2026-05-10',
+                cod_colaborador: '236',
+                colaborador: 'João Silva',
+                codigo_loja: '165',
+                razao_social: '165 - Fort Joinville',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              // Ruptura traz apenas o nome "JOÃO SILVA" (sem código) + Loja 165
+              {
+                data_visita: '2026-05-12',
+                promotor_codigo: '',
+                promotor: 'JOÃO SILVA',
+                codigo_loja: '165',
+                loja: '165 - Fort Joinville',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      if (name === 'store_promoter_assignments') {
+        return {
+          getFullList: vi.fn().mockResolvedValue([]),
+          create: assignmentCreateSpy,
+          update: vi.fn().mockResolvedValue({}),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    // Como ambos resolvem para prom_236 e loja_165, a relação canônica única é 1 só!
+    expect(resultado.relacoes.detectadas).toBe(1)
+    expect(resultado.relacoes.novasPersistidas).toBe(1)
+    expect(assignmentCreateSpy).toHaveBeenCalledTimes(1)
+    expect(assignmentCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promoter_id: 'prom_236',
+        store_id: 'loja_165',
+        store_code: '165',
+        data_inicio: '2026-05-10',
+        ultima_observacao_fonte: '2026-05-12',
+      }),
+    )
   })
 })

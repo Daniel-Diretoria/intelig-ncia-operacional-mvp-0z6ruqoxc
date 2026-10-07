@@ -197,9 +197,11 @@ export async function executarHomologacaoCadastralBaseAtual(
       detectadas: 0,
       novasPersistidas: 0,
       jaExistentes: 0,
+      historicasEncerradas: 0,
       pendentes: 0,
     },
     vinculosObservados: { promotorLoja: 0, promotorIndustria: 0, supervisorPromotor: 0 },
+    visitasStatus: 'Visitas TradePro: Aguardando homologação da integração (Bloco B)',
   }
 
   try {
@@ -271,6 +273,7 @@ export async function executarHomologacaoCadastralBaseAtual(
     }
 
     // Carregar assignments existentes para verificar relações já cadastradas
+    // Separamos vínculos ATIVOS de vínculos HISTÓRICOS ENCERRADOS por par canônico (promoter_id + store_id / store_code)
     let assignmentsExistentes: CadastroPromotorAssignment[] = []
     try {
       assignmentsExistentes = await pb
@@ -279,10 +282,23 @@ export async function executarHomologacaoCadastralBaseAtual(
     } catch {
       assignmentsExistentes = []
     }
-    const assignmentsMap = new Map<string, CadastroPromotorAssignment>()
+    // Map para vínculos ATIVOS existentes: chave canônica promoter_id + store_id (ou store_code se store_id não existir)
+    const assignmentsAtivosMap = new Map<string, CadastroPromotorAssignment>()
+    // Map para vínculos ENCERRADOS históricos: chave canônica
+    const assignmentsEncerradosMap = new Map<string, CadastroPromotorAssignment[]>()
+
     for (const a of assignmentsExistentes) {
-      const key = `${a.promoter_id || a.promoter_nome}__${a.store_code}`
-      assignmentsMap.set(key, a)
+      const promKey = a.promoter_id || a.promoter_nome
+      const storeKey = a.store_id || a.store_code
+      const canonicalKey = `${promKey}__${storeKey}`
+
+      if (a.status === 'ativo') {
+        assignmentsAtivosMap.set(canonicalKey, a)
+      } else if (a.status === 'encerrado') {
+        const list = assignmentsEncerradosMap.get(canonicalKey) || []
+        list.push(a)
+        assignmentsEncerradosMap.set(canonicalKey, list)
+      }
     }
 
     // -------------------------------------------------------------------------
@@ -447,52 +463,29 @@ export async function executarHomologacaoCadastralBaseAtual(
     resultado.universoProcessado.totalPaginasPorFonte.rupturas = totalPagesR
     resultado.metricasOrigem.detalhesPorFonte.rupturas.paginasProcessadas = totalPagesR
 
-    // 2.3 Processamento de operacional_visitas (FONTE EFETIVA OBRIGATÓRIA)
-    const visitasAmostra: OperacionalVisita[] = []
-    let pageVis = 1
-    let totalPagesVis = 1
-
+    // 2.3 Processamento de operacional_visitas (BLOCO A.3 — AGUARDANDO HOMOLOGAÇÃO NO BLOCO B)
+    // Diretriz Bloco A.3 (Itens 8, 9, 15): A integração de Visitas ainda será revisada no Bloco B.
+    // NÃO utilizar operacional_visitas para produzir vínculos oficiais da homologação cadastral principal.
+    // Registros não são contabilizados como "0 Visitas realizadas", mas informados como:
+    // "Visitas TradePro: Aguardando homologação da integração (Bloco B)".
+    // Lemos a contagem apenas para auditoria técnica transparente sem produzir contaminação cadastral.
+    let totalVisitasLidasNoBanco = 0
+    let totalPagesVis = 0
     try {
-      do {
-        const resp = await pb
-          .collection('operacional_visitas')
-          .getList<OperacionalVisita>(pageVis, perPage, {
-            sort: '-data',
-          })
-        totalPagesVis = resp.totalPages || 1
-        const items = resp.items || []
-
-        for (const row of items) {
-          // Regra Visitas TradePro Oficial:
-          // origem_fonte = 'tradepro_api'
-          const orig = (row.origem_fonte || '').trim()
-          if (orig === 'tradepro_api') {
-            visitasAmostra.push(row)
-            resultado.metricasOrigem.registrosTradeProConsiderados++
-            resultado.metricasOrigem.detalhesPorFonte.visitas.consideradosTradePro++
-          } else if (
-            orig.includes('excel') ||
-            orig.includes('importacao_manual') ||
-            orig.includes('whatsapp')
-          ) {
-            resultado.metricasOrigem.registrosExcelExcluidos++
-            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosExcel++
-          } else if (orig === 'legado' || orig.includes('legacy')) {
-            resultado.metricasOrigem.registrosLegadosExcluidos++
-            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosLegados++
-          } else {
-            resultado.metricasOrigem.registrosSemOrigemConfiavelExcluidos++
-            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosSemOrigem++
-          }
-        }
-
-        pageVis++
-      } while (pageVis <= totalPagesVis)
+      const respVisCount = await pb
+        .collection('operacional_visitas')
+        .getList<OperacionalVisita>(1, 1, {
+          sort: '-data',
+        })
+      totalVisitasLidasNoBanco = respVisCount.totalItems || 0
+      totalPagesVis = respVisCount.totalPages || 0
     } catch {
-      totalPagesVis = 1
+      totalVisitasLidasNoBanco = 0
+      totalPagesVis = 0
     }
 
-    resultado.universoProcessado.visitasLidas = visitasAmostra.length
+    resultado.visitasStatus = 'Visitas TradePro: Aguardando homologação da integração (Bloco B)'
+    resultado.universoProcessado.visitasLidas = totalVisitasLidasNoBanco
     resultado.universoProcessado.totalPaginasPorFonte.visitas = totalPagesVis
     resultado.metricasOrigem.detalhesPorFonte.visitas.paginasProcessadas = totalPagesVis
 
@@ -789,90 +782,8 @@ export async function executarHomologacaoCadastralBaseAtual(
       }
     }
 
-    // -------------------------------------------------------------------------
-    // 2.3 Processar Visitas Reais (operacional_visitas)
-    // Uma Visita contribui para descobrir/confirmar Promotor e Loja; eventualmente Indústria.
-    // NUNCA inventar Supervisor ou Indústria quando ausentes do registro.
-    // tipo_vinculo: 'observado_visita' + origem_vinculo: 'tradepro_visitas' SOMENTE para visitas.
-    // -------------------------------------------------------------------------
-    for (const vis of visitasAmostra) {
-      const dataObs = (vis.data || dataHoje).split('T')[0]
-      const codProm = (vis.promoter_cod || '').trim()
-      const nomeProm = (vis.promoter_nome || '').trim()
-      const codLoja = (vis.store_code || '').trim()
-      const nomeLoja = (vis.store_name || '').trim()
-      const indNome = (vis.industry_name || '').trim()
-
-      if (codProm || nomeProm) {
-        const keyProm = codProm || normalizarChaveEntidade(nomeProm)
-        if (!descobertasProm.has(keyProm)) {
-          descobertasProm.set(keyProm, {
-            nome: nomeProm,
-            count: 0,
-            datas: [],
-          })
-        }
-        const pItem = descobertasProm.get(keyProm)!
-        pItem.count++
-        if (dataObs && !pItem.datas.includes(dataObs)) pItem.datas.push(dataObs)
-      }
-
-      if (codLoja) {
-        if (!descobertasLoja.has(codLoja)) {
-          descobertasLoja.set(codLoja, {
-            razaoSocial: nomeLoja,
-            nome: nomeLoja,
-            cidade: '',
-            estado: '',
-            fantasia: '',
-            count: 0,
-            datas: [],
-          })
-        }
-        const lItem = descobertasLoja.get(codLoja)!
-        lItem.count++
-        if (dataObs && !lItem.datas.includes(dataObs)) lItem.datas.push(dataObs)
-      }
-
-      // Relação Promotor ↔ Loja OBSERVADA via Visita (tipo_vinculo: 'observado_visita')
-      if ((codProm || nomeProm) && codLoja) {
-        const relKey = `${codProm || nomeProm}__${codLoja}`
-        if (!relPromLojaMap.has(relKey)) {
-          relPromLojaMap.set(relKey, {
-            promoterCod: codProm,
-            promoterNome: nomeProm,
-            storeCode: codLoja,
-            storeName: nomeLoja,
-            industryName: indNome,
-            datas: [],
-            tipoVinculo: 'observado_visita',
-            origemVinculo: 'tradepro_visitas',
-            origem: 'operacional_visitas',
-          })
-        } else {
-          // Se já existia por validades/rupturas, a visita tem precedência para qualificar tipo_vinculo
-          const existingRel = relPromLojaMap.get(relKey)!
-          existingRel.tipoVinculo = 'observado_visita'
-          existingRel.origemVinculo = 'tradepro_visitas'
-        }
-        const rel = relPromLojaMap.get(relKey)!
-        if (dataObs && !rel.datas.includes(dataObs)) rel.datas.push(dataObs)
-      }
-
-      // Vínculo Promotor ↔ Indústria observado se indústria fornecida
-      if ((codProm || nomeProm) && indNome) {
-        const relKey = `${codProm || nomeProm}__${indNome}`
-        if (!relPromIndMap.has(relKey)) {
-          relPromIndMap.set(relKey, {
-            promCod: codProm || nomeProm,
-            indName: indNome,
-            datas: [],
-          })
-        }
-        const rel = relPromIndMap.get(relKey)!
-        if (dataObs && !rel.datas.includes(dataObs)) rel.datas.push(dataObs)
-      }
-    }
+    // NOTA BLOCO A.3: Visitas reais de operacional_visitas NÃO são processadas aqui para vínculos oficiais.
+    // Permanecem em estado "Aguardando homologação da integração" até o Bloco B.
 
     // -------------------------------------------------------------------------
     // 3. RECONCILIAÇÃO 1: INDÚSTRIAS
@@ -1260,81 +1171,156 @@ export async function executarHomologacaoCadastralBaseAtual(
     }
 
     // -------------------------------------------------------------------------
-    // 9. PERSISTÊNCIA IDEMPOTENTE DE VÍNCULOS OBSERVADOS
-    // Regras obrigatórias do Bloco A.2:
-    // - Vínculo Promotor <-> Loja: tipo_vinculo 'observado_visita' + origem_vinculo 'tradepro_visitas'
-    //   SOMENTE quando a evidência vem de operacional_visitas.
-    // - Evidência de validades/rupturas usa 'observado_operacao' com origem 'tradepro_validades'/'tradepro_rupturas'.
-    // - Vigência: data_inicio = início real conhecido; data_fim = SÓ quando houver evidência de encerramento
-    //   (DEVE FICAR VAZIO EM VÍNCULO ATIVO — NUNCA gravar a última observação em data_fim!).
-    // - ultima_observacao_fonte = última aparição na fonte gravada no registro ou na observação.
-    // - Relação nova -> "persistida"; já existente -> "já existente"; não contar detectada em memória como persistida.
-    // - Promotor <-> Indústria e Supervisor <-> Promotor: persistir se houver estrutura adequada; se não houver segura,
-    //   NÃO informar como persistida no relatório (apenas como detectadas nas contagens de vínculos observados).
+    // 9. PERSISTÊNCIA IDEMPOTENTE DE VÍNCULOS OBSERVADOS (BLOCO A.3 - DIRETRIZES 3, 4, 5, 6, 10, 11, 12)
+    //
+    // Diretriz 10 - CANONIZAÇÃO DAS RELAÇÕES:
+    // Uma mesma relação pode ser descoberta como Cód. Promotor + Loja e Nome do Promotor + Loja.
+    // Depois de resolver Promotor e Loja no Cadastro Mestre, calcular a relação única usando
+    // promoter_id + store_id, para que nunca existam duplicatas se resolverem para as mesmas entidades.
+    //
+    // Diretriz 3 - Campo estruturado ultima_observacao_fonte:
+    // data_inicio = primeira evidência; data_fim = VAZIO em vínculo ativo;
+    // ultima_observacao_fonte = última data de evidência.
+    //
+    // Diretriz 5 - VÍNCULO ENCERRADO NÃO É VÍNCULO ATUAL:
+    // Se existir vínculo histórico encerrado e chegar nova evidência, criar NOVA relação ativa iniciada
+    // na data da evidência, com data_fim vazio e status ativo. Não reutilizar o encerrado como ativo.
+    //
+    // Diretriz 6 - VÍNCULO ATIVO EXISTENTE:
+    // Se já existir relação ativa observada: não duplicar; apenas atualizar ultima_observacao_fonte.
+    // Se for vínculo confirmado: não rebaixar para observado; preservar confirmação administrativa.
+    //
+    // Diretriz 11 - MÉTRICAS DE RELAÇÕES CANÔNICAS:
+    // Detectadas únicas; novas persistidas; já existentes ativas; históricas encerradas encontradas; pendentes.
+    //
+    // Diretriz 12 - PROMOTOR ↔ INDÚSTRIA E SUPERVISOR ↔ PROMOTOR:
+    // São relações detectadas. No relatório: Detectadas: X / Persistidas: 0.
     // -------------------------------------------------------------------------
-    resultado.vinculosObservados.promotorLoja = relPromLojaMap.size
-    resultado.vinculosObservados.promotorIndustria = relPromIndMap.size
-    resultado.vinculosObservados.supervisorPromotor = relSupPromMap.size
 
-    // Relações detectadas no universo total de relações TradePro
-    resultado.relacoes.detectadas = relPromLojaMap.size + relPromIndMap.size + relSupPromMap.size
+    // Agrupamento canônico de relações resolvidas por promoterRecord.id + lojaRecord.id
+    interface CanonicalRelInfo {
+      promoterId: string
+      promoterNome: string
+      storeId: string
+      storeCode: string
+      storeName: string
+      industryName?: string
+      datas: string[]
+      origens: string[]
+    }
 
-    for (const [, rel] of relPromLojaMap.entries()) {
+    const canonicalRelsMap = new Map<string, CanonicalRelInfo>()
+    let pendentesResolucaoCount = 0
+
+    for (const [, rawRel] of relPromLojaMap.entries()) {
       const promRecord =
-        promByCode.get(rel.promoterCod) ||
-        (rel.promoterNome ? promByName.get(normalizarChaveEntidade(rel.promoterNome)) : undefined)
+        promByCode.get(rawRel.promoterCod) ||
+        (rawRel.promoterNome
+          ? promByName.get(normalizarChaveEntidade(rawRel.promoterNome))
+          : undefined)
       const lojaRecord =
-        lojaByCode.get(rel.storeCode) ||
-        (rel.storeName ? lojaByName.get(normalizarChaveEntidade(rel.storeName)) : undefined)
+        lojaByCode.get(rawRel.storeCode) ||
+        (rawRel.storeName ? lojaByName.get(normalizarChaveEntidade(rawRel.storeName)) : undefined)
 
       if (!promRecord || !lojaRecord) {
-        resultado.relacoes.pendentes++
+        pendentesResolucaoCount++
         continue
       }
 
-      const assignmentKey = `${promRecord.id}__${lojaRecord.codigo_externo || rel.storeCode}`
-      const existingAssignment = assignmentsMap.get(assignmentKey)
+      const canonicalKey = `${promRecord.id}__${lojaRecord.id}`
+      if (!canonicalRelsMap.has(canonicalKey)) {
+        canonicalRelsMap.set(canonicalKey, {
+          promoterId: promRecord.id,
+          promoterNome: promRecord.nome,
+          storeId: lojaRecord.id,
+          storeCode: lojaRecord.codigo_externo || rawRel.storeCode,
+          storeName: lojaRecord.razao_social || lojaRecord.nome || rawRel.storeName,
+          industryName: rawRel.industryName,
+          datas: [...rawRel.datas],
+          origens: [rawRel.origemVinculo],
+        })
+      } else {
+        const cRel = canonicalRelsMap.get(canonicalKey)!
+        for (const d of rawRel.datas) {
+          if (!cRel.datas.includes(d)) cRel.datas.push(d)
+        }
+        if (!cRel.origens.includes(rawRel.origemVinculo)) {
+          cRel.origens.push(rawRel.origemVinculo)
+        }
+      }
+    }
 
-      const primeiraData = rel.datas.sort()[0] || dataHoje
-      const ultimaData = rel.datas.sort().reverse()[0] || dataHoje
+    resultado.vinculosObservados.promotorLoja = canonicalRelsMap.size
+    resultado.vinculosObservados.promotorIndustria = relPromIndMap.size
+    resultado.vinculosObservados.supervisorPromotor = relSupPromMap.size
 
-      if (existingAssignment) {
-        // Já existe o vínculo cadastrado previamente
+    // Métricas canônicas separadas
+    resultado.relacoes = {
+      detectadas: canonicalRelsMap.size,
+      novasPersistidas: 0,
+      jaExistentes: 0,
+      historicasEncerradas: 0,
+      pendentes: pendentesResolucaoCount,
+    }
+
+    for (const [canonicalKey, cRel] of canonicalRelsMap.entries()) {
+      const datasOrdenadas = cRel.datas.sort()
+      const primeiraData = datasOrdenadas[0] || dataHoje
+      const ultimaData = datasOrdenadas[datasOrdenadas.length - 1] || dataHoje
+      const origemStr = cRel.origens.join(', ') || 'tradepro_validades'
+
+      // 1. Verificar se já existe vínculo ATIVO existente
+      const existingAtivo =
+        assignmentsAtivosMap.get(canonicalKey) ||
+        assignmentsAtivosMap.get(`${cRel.promoterId}__${cRel.storeCode}`)
+
+      // 2. Verificar se existem vínculos HISTÓRICOS ENCERRADOS
+      const existingEncerrados =
+        assignmentsEncerradosMap.get(canonicalKey) ||
+        assignmentsEncerradosMap.get(`${cRel.promoterId}__${cRel.storeCode}`) ||
+        []
+
+      if (existingEncerrados.length > 0) {
+        resultado.relacoes.historicasEncerradas += existingEncerrados.length
+      }
+
+      if (existingAtivo) {
+        // Já existe vínculo ATIVO
         resultado.relacoes.jaExistentes++
 
-        // Se estiver ativo e for observado, atualiza apenas última observação sem encerrar
-        // e preservando data_fim VAZIO (ou existente se já tinha encerramento prévio)
-        if (
-          existingAssignment.tipo_vinculo === 'observado_visita' ||
-          existingAssignment.tipo_vinculo === 'observado_operacao'
-        ) {
-          try {
-            await pb.collection('store_promoter_assignments').update(existingAssignment.id, {
-              observacao: `Vínculo observado ativo mantido. Última observação: ${ultimaData} (origem: ${rel.origemVinculo}).`,
-            })
-          } catch {
-            /* non-fatal */
-          }
+        // Diretriz 6: Se for confirmado, NÃO rebaixar para observado. Apenas atualiza ultima_observacao_fonte.
+        // Se for observado: não duplicar, atualiza ultima_observacao_fonte e mantém data_fim vazio.
+        const updatePayload: Record<string, unknown> = {
+          ultima_observacao_fonte: ultimaData,
+          observacao: `Vínculo ativo mantido. Última evidência: ${ultimaData} (origem: ${origemStr}).`,
+        }
+
+        try {
+          await pb.collection('store_promoter_assignments').update(existingAtivo.id, updatePayload)
+        } catch {
+          /* non-fatal */
         }
       } else {
-        // Novo vínculo observado persistido
-        // Vigência: data_inicio = primeira data observada; data_fim = VAZIO (vínculo ativo!)
+        // Não existe vínculo ativo. (Mesmo que existam vínculos encerrados históricos, cria uma NOVA relação ativa!)
+        // Diretriz 4 e 5: data_inicio = primeira data observada; data_fim = VAZIO; status = ativo;
+        // ultima_observacao_fonte = última observação; tipo_vinculo = 'observado_operacao'.
         try {
           const novo = await pb.collection('store_promoter_assignments').create({
-            promoter_id: promRecord.id,
-            promoter_nome: promRecord.nome,
-            store_id: lojaRecord.id,
-            store_code: lojaRecord.codigo_externo || rel.storeCode,
-            store_name: lojaRecord.razao_social || lojaRecord.nome || rel.storeName,
-            industry_name: rel.industryName || '',
+            promoter_id: cRel.promoterId,
+            promoter_nome: cRel.promoterNome,
+            store_id: cRel.storeId,
+            store_code: cRel.storeCode,
+            store_name: cRel.storeName,
+            industry_name: cRel.industryName || '',
             status: 'ativo',
-            tipo_vinculo: rel.tipoVinculo,
-            origem_vinculo: rel.origemVinculo,
+            tipo_vinculo: 'observado_operacao',
+            origem_vinculo: origemStr,
             data_inicio: primeiraData,
-            data_fim: '', // VAZIO em vínculo ativo — nunca gravar última data como término!
-            observacao: `Vínculo observado ativo iniciado em ${primeiraData}. Última observação: ${ultimaData}. Origem: ${rel.origemVinculo}.`,
+            data_fim: '', // VAZIO em vínculo ativo!
+            ultima_observacao_fonte: ultimaData,
+            observacao: `Vínculo observado ativo iniciado em ${primeiraData}. Última evidência operacional: ${ultimaData} (origem: ${origemStr}).`,
           })
-          assignmentsMap.set(assignmentKey, novo as any)
+          assignmentsAtivosMap.set(canonicalKey, novo as any)
           resultado.relacoes.novasPersistidas++
         } catch {
           resultado.relacoes.pendentes++

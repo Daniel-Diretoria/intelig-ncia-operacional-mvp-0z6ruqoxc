@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T20:04:00.830Z",
+  "generatedAt": "2026-10-07T20:37:23.934Z",
   "collections": [
     {
       "name": "users",
@@ -5081,10 +5081,16 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["confirmado", "observado_visita"]
+          "selectValues": ["confirmado", "observado_visita", "observado_operacao"]
         },
         {
           "name": "origem_vinculo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_observacao_fonte",
           "type": "text",
           "required": false,
           "system": false
