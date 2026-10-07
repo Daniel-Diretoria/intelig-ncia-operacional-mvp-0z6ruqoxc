@@ -1050,9 +1050,60 @@ export const CadastrosPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-[11px] text-indigo-800 flex items-center gap-4 bg-white/60 p-2 rounded-lg border border-indigo-100">
+          {/* Universo Processado e Relações Detectadas vs Persistidas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-indigo-900 bg-white/70 p-2.5 rounded-xl border border-indigo-100">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold text-indigo-950">Universo Processado:</span>
+              <span>
+                Validades lidas:{' '}
+                <strong>{resultadoHomologacao.universoProcessado?.validadesLidas ?? 0}</strong> (
+                {resultadoHomologacao.universoProcessado?.totalPaginasPorFonte?.validades ?? 0}{' '}
+                págs)
+              </span>
+              <span>•</span>
+              <span>
+                Rupturas lidas:{' '}
+                <strong>{resultadoHomologacao.universoProcessado?.rupturasLidas ?? 0}</strong> (
+                {resultadoHomologacao.universoProcessado?.totalPaginasPorFonte?.rupturas ?? 0} págs)
+              </span>
+              <span>•</span>
+              <span>
+                Visitas lidas:{' '}
+                <strong>{resultadoHomologacao.universoProcessado?.visitasLidas ?? 0}</strong> (
+                {resultadoHomologacao.universoProcessado?.totalPaginasPorFonte?.visitas ?? 0} págs)
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:justify-end">
+              <span className="font-semibold text-indigo-950">Vínculos Observados:</span>
+              <span>
+                Detectadas:{' '}
+                <strong>
+                  {resultadoHomologacao.relacoes?.detectadas ??
+                    resultadoHomologacao.vinculosObservados.promotorLoja +
+                      resultadoHomologacao.vinculosObservados.promotorIndustria +
+                      resultadoHomologacao.vinculosObservados.supervisorPromotor}
+                </strong>
+              </span>
+              <span>•</span>
+              <span className="text-emerald-700">
+                Novas persistidas:{' '}
+                <strong>{resultadoHomologacao.relacoes?.novasPersistidas ?? 0}</strong>
+              </span>
+              <span>•</span>
+              <span className="text-blue-700">
+                Já existentes: <strong>{resultadoHomologacao.relacoes?.jaExistentes ?? 0}</strong>
+              </span>
+              <span>•</span>
+              <span className="text-amber-700">
+                Pendentes: <strong>{resultadoHomologacao.relacoes?.pendentes ?? 0}</strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-indigo-800 flex flex-wrap items-center gap-3 bg-white/60 p-2 rounded-lg border border-indigo-100">
             <span>
-              <strong>Vínculos Observados:</strong>
+              <strong>Relações Detalhadas:</strong>
             </span>
             <span>
               Promotor ↔ Loja:{' '}
@@ -1067,7 +1118,7 @@ export const CadastrosPage: React.FC = () => {
               <strong>{resultadoHomologacao.vinculosObservados.supervisorPromotor}</strong>
             </span>
             <span className="text-slate-400">
-              | Sem alteração em eventos operacionais (item 36)
+              | Vínculos observados não alteram roteiro confirmado administrativamente
             </span>
           </div>
         </div>

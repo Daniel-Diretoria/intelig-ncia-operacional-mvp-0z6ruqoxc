@@ -230,6 +230,16 @@ export interface CadastroPendencia {
 // 7. Resultado Completo da Homologação Cadastral (Bloco A)
 export interface HomologacaoCadastralResultado {
   dataExecucao: string
+  universoProcessado: {
+    validadesLidas: number
+    rupturasLidas: number
+    visitasLidas: number
+    totalPaginasPorFonte: {
+      validades: number
+      rupturas: number
+      visitas: number
+    }
+  }
   industrias: {
     descobertas: number
     vinculadas: number
@@ -274,6 +284,12 @@ export interface HomologacaoCadastralResultado {
     vinculados: number
     pendentes: number
     detalhes: Array<{ id: string; codigo?: string; nome: string; status: string }>
+  }
+  relacoes: {
+    detectadas: number
+    novasPersistidas: number
+    jaExistentes: number
+    pendentes: number
   }
   vinculosObservados: {
     promotorLoja: number
