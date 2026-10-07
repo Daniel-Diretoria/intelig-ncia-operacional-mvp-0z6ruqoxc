@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T20:37:23.934Z",
+  "generatedAt": "2026-10-07T21:11:59.658Z",
   "collections": [
     {
       "name": "users",
@@ -1104,6 +1104,49 @@
           "required": false,
           "system": false,
           "collectionRef": "industry_registry"
+        },
+        {
+          "name": "source_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_job_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_endpoint",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_synced_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dados_brutos_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fabricacao",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_normalizacao",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["completo", "parcial", "pendente", "conflito"]
         }
       ],
       "indexes": [
@@ -1113,7 +1156,9 @@
         "CREATE INDEX idx_validades_base_import ON validades_base (import_id)",
         "CREATE INDEX idx_validades_base_loja ON validades_base (nome_loja)",
         "CREATE INDEX `idx_validades_base_auditoria` ON `validades_base` (sinalizado_correcao)",
-        "CREATE INDEX `idx_validades_base_atual` ON `validades_base` (is_base_atual)"
+        "CREATE INDEX `idx_validades_base_atual` ON `validades_base` (is_base_atual)",
+        "CREATE INDEX `idx_val_source_job` ON `validades_base` (source_job_id)",
+        "CREATE INDEX `idx_val_status_norm` ON `validades_base` (status_normalizacao)"
       ]
     },
     {
@@ -1769,6 +1814,153 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "source_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_job_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_endpoint",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source_synced_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dados_brutos_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_promotor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_supervisor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_cliente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_atividade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_atividade_ruptura",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_roteiro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "id_roteiro_padrao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao_roteiro_padrao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "hora_inicio_execucao_roteiro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "hora_final_execucao_roteiro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_hora_execucao_atividade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj_fornecedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao_fornecedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo_familia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao_familia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_normalizacao",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["completo", "parcial", "pendente", "conflito"]
+        },
+        {
+          "name": "industry_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "industry_registry"
+        },
+        {
+          "name": "store_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "stores"
         }
       ],
       "indexes": [
@@ -1780,7 +1972,9 @@
         "CREATE INDEX idx_rupturas_base_visita ON rupturas_base (data_visita)",
         "CREATE INDEX idx_rupturas_base_import ON rupturas_base (source_import_id)",
         "CREATE INDEX `idx_rupturas_base_atual` ON `rupturas_base` (is_base_atual)",
-        "CREATE INDEX `idx_rupturas_base_rede` ON `rupturas_base` (rede)"
+        "CREATE INDEX `idx_rupturas_base_rede` ON `rupturas_base` (rede)",
+        "CREATE INDEX `idx_rup_source_job` ON `rupturas_base` (source_job_id)",
+        "CREATE INDEX `idx_rup_status_norm` ON `rupturas_base` (status_normalizacao)"
       ]
     },
     {

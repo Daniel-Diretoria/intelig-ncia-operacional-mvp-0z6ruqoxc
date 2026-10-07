@@ -592,14 +592,26 @@ function normalizeBrandKeyLocal(s: string): string {
  *   define `scope='brand_total'`; caso contrário, `scope='product'`.
  * - `codigo_produto` permanece ausente/opcional, sem inventar códigos.
  */
-export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuccess {
+export interface RupturaAdapterContext {
+  industryClient?: string
+}
+
+export function adaptRupturaItem(
+  item: TradeProRupturaItem,
+  context?: RupturaAdapterContext,
+): RupturaCandidateSuccess {
   const produto = item.descricaoAtividade || ''
-  const clienteMarca = item.descricaoFornecedor || ''
+  // Semântica oficial Bloco B.1:
+  // Cliente/Cód. Cliente -> Indústria.
+  // Fornecedor -> Fornecedor operacional. Fornecedor NÃO vira Indústria.
+  // Se o contexto fornecer industryClient ou houver tradepro_cliente_nome, prioriza a Indústria real.
+  const clienteIndustria = context?.industryClient || item.razaoSocialCliente || ''
+  const fornecedorNome = item.descricaoFornecedor || ''
 
   const isTotal =
     Boolean(produto) &&
-    Boolean(clienteMarca) &&
-    normalizeBrandKeyLocal(produto) === normalizeBrandKeyLocal(clienteMarca)
+    Boolean(fornecedorNome) &&
+    normalizeBrandKeyLocal(produto) === normalizeBrandKeyLocal(fornecedorNome)
 
   return {
     status: 'valid',
@@ -610,7 +622,7 @@ export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuc
       cnpj_loja: item.cpfCnpjCliente,
       cidade: item.cidadeCliente,
       estado: item.siglaEstadoCliente,
-      cliente: clienteMarca,
+      cliente: clienteIndustria,
       fornecedor_cnpj: item.cnpjFornecedor,
       categoria: item.descricaoCategoria,
       familia: item.descricaoFamilia,

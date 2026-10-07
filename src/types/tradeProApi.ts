@@ -37,6 +37,18 @@ export interface TradeProValidadeItem {
   diasParaVencimento: number
   quantidade: number
   validade: string
+  // Campos operacionais adicionais observados na API
+  fabricacao?: string
+  dataFabricacao?: string
+  lote?: string
+  numeroLote?: string
+  representante?: string
+  codigoBarras?: string
+  fornecedor?: string
+  idSupervisor?: string | number
+  nomeSupervisor?: string
+  codCliente?: string | number
+  clienteNome?: string
 }
 
 /** Metadados aceitam string | number na borda externa (API retorna strings no JSON real) */

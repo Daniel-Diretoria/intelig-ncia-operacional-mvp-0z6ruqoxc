@@ -1800,6 +1800,33 @@ onRecordAfterUpdateSuccess((e) => {
             .toString()
             .trim()
 
+          // Preservação de identificadores fortes adicionais de Rupturas
+          const rawIdPromotor = (item.idPromotor != null ? String(item.idPromotor) : '').trim()
+          const rawNomePromotor = (item.nomePromotor || item.colaborador || '').toString().trim()
+          const rawIdSupervisor = (
+            item.idSupervisor != null ? String(item.idSupervisor) : ''
+          ).trim()
+          const rawNomeSupervisor = (item.nomeSupervisor || '').toString().trim()
+          const rawIdCliente = (item.idCliente != null ? String(item.idCliente) : '').trim()
+          const rawIdAtividade = (item.idAtividade != null ? String(item.idAtividade) : '').trim()
+          const rawIdAtividadeRuptura = (
+            item.idAtividadeRuptura != null ? String(item.idAtividadeRuptura) : ''
+          ).trim()
+          const rawStatusRoteiro = (item.statusRoteiro || '').toString().trim()
+          const rawIdRoteiroPadrao = (
+            item.idRoteiroPadrao != null ? String(item.idRoteiroPadrao) : ''
+          ).trim()
+          const rawDescricaoRoteiroPadrao = (item.descricaoRoteiroPadrao || '').toString().trim()
+          const rawHoraInicioRoteiro = (item.horaInicioExecucaoRoteiro || '').toString().trim()
+          const rawHoraFinalRoteiro = (item.horaFinalExecucaoRoteiro || '').toString().trim()
+          const rawDataHoraExecucao = (item.dataHoraExecucaoAtividade || '').toString().trim()
+          const rawCnpjFornecedor = (item.cnpjFornecedor || '').toString().trim()
+          const rawDescricaoFornecedor = (item.descricaoFornecedor || '').toString().trim()
+          const rawCodigoFamilia = (
+            item.codigoFamilia != null ? String(item.codigoFamilia) : ''
+          ).trim()
+          const rawDescricaoFamilia = (item.descricaoFamilia || '').toString().trim()
+
           // Resolução estrita da Indústria SKIP via tradepro_client_id (Cadastro Operacional)
           // Regra Semântica Crucial:
           // Se não houver indústria homologada para o Cód. Cliente, a Indústria fica "Não identificada".
@@ -1815,8 +1842,126 @@ onRecordAfterUpdateSuccess((e) => {
           // Rede real vem de fantasiaCliente (ou item.redeCliente se fornecido)
           const redeReal = rawFantasia || (item.redeCliente || '').toString().trim()
 
-          const dedupKey = codigoLoja + '|' + rawProduto + '|' + industriaNormalizada
+          // Resolução de Loja no cadastro mestre
+          let storeDbId = ''
+          if (codigoLoja) {
+            try {
+              const stList = $app.findRecordsByFilter(
+                'stores',
+                'codigo_externo = "' +
+                  codigoLoja.replace(/"/g, '\\"') +
+                  '" || codigo_loja = "' +
+                  codigoLoja.replace(/"/g, '\\"') +
+                  '"',
+                '-created',
+                1,
+                0,
+              )
+              if (stList && stList.length > 0) {
+                storeDbId = stList[0].id
+              }
+            } catch (_) {}
+          }
+
+          // Resolução de Promotor no cadastro mestre
+          let promoterDbId = ''
+          if (rawIdPromotor) {
+            try {
+              const pList = $app.findRecordsByFilter(
+                'promoters',
+                'codigo_externo = "' + rawIdPromotor.replace(/"/g, '\\"') + '"',
+                '-created',
+                1,
+                0,
+              )
+              if (pList && pList.length > 0) {
+                promoterDbId = pList[0].id
+              }
+            } catch (_) {}
+          }
+
+          // Resolução de Produto no cadastro mestre (Indústria conhecida + Nome da atividade/produto)
+          let productDbId = ''
+          if (resolvedIndustryId && rawProduto) {
+            try {
+              const prList = $app.findRecordsByFilter(
+                'industry_product_mix',
+                'industry_id = "' +
+                  resolvedIndustryId +
+                  '" && nome_produto = "' +
+                  rawProduto.replace(/"/g, '\\"') +
+                  '"',
+                '-created',
+                1,
+                0,
+              )
+              if (prList && prList.length > 0) {
+                productDbId = prList[0].id
+              }
+            } catch (_) {}
+          }
+
+          // Status factual de normalização: completo | parcial | pendente
+          const isComplete = Boolean(
+            resolvedIndustryId && storeDbId && (rawIdPromotor ? promoterDbId : true) && productDbId,
+          )
+          const hasAnyPending =
+            !resolvedIndustryId || !storeDbId || !productDbId || (rawIdPromotor && !promoterDbId)
+          const statusNormalizacao = isComplete
+            ? 'completo'
+            : hasAnyPending
+              ? 'parcial'
+              : 'pendente'
+
+          // Deduplicação determinística refinada:
+          // Se houver idAtividadeRuptura ou idAtividade, usa identificador externo exclusivo
+          // Caso contrário, combina loja + produto + dataVisita + idPromotor + motivo
+          const eventoIdExterno = rawIdAtividadeRuptura || rawIdAtividade
+          const dedupKey = eventoIdExterno
+            ? 'ext_' + eventoIdExterno
+            : [
+                codigoLoja,
+                rawProduto,
+                industriaNormalizada,
+                rawDataVisita,
+                rawIdPromotor,
+                motivoNormalizado,
+              ].join('|')
           const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
+
+          // Payload bruto sanitizado (sem tokens nem segredos) para auditoria e reprocessamento local
+          const sanitizedRawPayload = {
+            idSupervisor: rawIdSupervisor,
+            nomeSupervisor: rawNomeSupervisor,
+            idPromotor: rawIdPromotor,
+            nomePromotor: rawNomePromotor,
+            idCliente: rawIdCliente,
+            cpfCnpjCliente: item.cpfCnpjCliente || '',
+            codigoCliente: rawCodigoCliente,
+            razaoSocialCliente: rawRazaoSocial,
+            fantasiaCliente: rawFantasia,
+            redeCliente: item.redeCliente || '',
+            cidadeCliente: item.cidadeCliente || '',
+            siglaEstadoCliente: item.siglaEstadoCliente || '',
+            idAtividade: rawIdAtividade,
+            descricaoAtividade: rawProduto,
+            descricaoCategoria: item.descricaoCategoria || '',
+            descricaoMotivo: rawMotivo,
+            statusRoteiro: rawStatusRoteiro,
+            idRoteiroPadrao: rawIdRoteiroPadrao,
+            descricaoRoteiroPadrao: rawDescricaoRoteiroPadrao,
+            dataVisita: rawDataVisita,
+            horaInicioExecucaoRoteiro: rawHoraInicioRoteiro,
+            horaFinalExecucaoRoteiro: rawHoraFinalRoteiro,
+            observacaoRuptura: item.observacaoRuptura || '',
+            cnpjFornecedor: rawCnpjFornecedor,
+            descricaoFornecedor: rawDescricaoFornecedor,
+            idAtividadeRuptura: rawIdAtividadeRuptura,
+            codigoFamilia: rawCodigoFamilia,
+            descricaoFamilia: rawDescricaoFamilia,
+            dataHoraExecucaoAtividade: rawDataHoraExecucao,
+            sincronizadoEm: new Date().toISOString(),
+          }
 
           const rupRecord = new Record(rupturasBaseCol)
           rupRecord.set('produto', rawProduto)
@@ -1832,7 +1977,7 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')
           rupRecord.set('codigo_cliente', rawCodigoCliente)
           rupRecord.set('cliente', industriaNormalizada)
-          rupRecord.set('colaborador', item.nomePromotor || item.colaborador || '')
+          rupRecord.set('colaborador', rawNomePromotor)
           rupRecord.set('categoria', item.descricaoCategoria || item.categoria || '')
           rupRecord.set('observacao', item.observacaoRuptura || item.observacao || '')
           rupRecord.set('data_visita', rawDataVisita)
@@ -1849,8 +1994,197 @@ onRecordAfterUpdateSuccess((e) => {
           // Armazena tenant_id com marcador do job para promoção atômica segura
           rupRecord.set('tenant_id', 'tradepro_job_' + jobId)
 
+          // Campos explícitos do Bloco B.1
+          rupRecord.set('source_type', 'tradepro_api')
+          rupRecord.set('source_job_id', jobId)
+          rupRecord.set('source_endpoint', 'relatorio-rupturas')
+          rupRecord.set('source_synced_at', new Date().toISOString())
+          rupRecord.set('dados_brutos_json', sanitizedRawPayload)
+          rupRecord.set('status_normalizacao', statusNormalizacao)
+          rupRecord.set('id_promotor', rawIdPromotor)
+          rupRecord.set('id_supervisor', rawIdSupervisor)
+          rupRecord.set('nome_supervisor', rawNomeSupervisor)
+          rupRecord.set('id_cliente', rawIdCliente)
+          rupRecord.set('id_atividade', rawIdAtividade)
+          rupRecord.set('id_atividade_ruptura', rawIdAtividadeRuptura)
+          rupRecord.set('status_roteiro', rawStatusRoteiro)
+          rupRecord.set('id_roteiro_padrao', rawIdRoteiroPadrao)
+          rupRecord.set('descricao_roteiro_padrao', rawDescricaoRoteiroPadrao)
+          rupRecord.set('hora_inicio_execucao_roteiro', rawHoraInicioRoteiro)
+          rupRecord.set('hora_final_execucao_roteiro', rawHoraFinalRoteiro)
+          rupRecord.set('data_hora_execucao_atividade', rawDataHoraExecucao)
+          rupRecord.set('cnpj_fornecedor', rawCnpjFornecedor)
+          rupRecord.set('descricao_fornecedor', rawDescricaoFornecedor)
+          rupRecord.set('codigo_familia', rawCodigoFamilia)
+          rupRecord.set('descricao_familia', rawDescricaoFamilia)
+          if (resolvedIndustryId) rupRecord.set('industry_id', resolvedIndustryId)
+          if (storeDbId) rupRecord.set('store_id', storeDbId)
+
           try {
             $app.save(rupRecord)
+
+            // Vínculo Promotor -> Loja via Ruptura gera 'observado_operacao' (NUNCA observado_visita nem confirmado)
+            if (rawIdPromotor && codigoLoja && promoterDbId) {
+              try {
+                const assignCol = $app.findCollectionByNameOrId('store_promoter_assignments')
+                if (assignCol) {
+                  const assignFilter =
+                    'promoter_id = "' +
+                    promoterDbId +
+                    '" && store_code = "' +
+                    codigoLoja.replace(/"/g, '\\"') +
+                    '" && status = "ativo"'
+                  const existingAssigns = $app.findRecordsByFilter(
+                    'store_promoter_assignments',
+                    assignFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+
+                  if (existingAssigns && existingAssigns.length > 0) {
+                    const existingAss = existingAssigns[0]
+                    // Se o vínculo já é confirmado, NUNCA rebaixa nem sobrescreve observação manual!
+                    existingAss.set(
+                      'ultima_observacao_fonte',
+                      'Ruptura registrada em ' + rawDataVisita + ' (Job ' + jobId + ')',
+                    )
+                    $app.save(existingAss)
+                  } else {
+                    const newAss = new Record(assignCol)
+                    newAss.set('promoter_id', promoterDbId)
+                    newAss.set('promoter_nome', rawNomePromotor)
+                    newAss.set('store_code', codigoLoja)
+                    newAss.set('store_name', rawRazaoSocial)
+                    if (storeDbId) newAss.set('store_id', storeDbId)
+                    if (resolvedIndustryId) {
+                      newAss.set('industry_id', resolvedIndustryId)
+                      newAss.set('industry_name', resolvedIndustryName)
+                    }
+                    newAss.set('status', 'ativo')
+                    newAss.set('tipo_vinculo', 'observado_operacao') // estritamente observado_operacao
+                    newAss.set('origem_vinculo', 'Ruptura registrada em ' + rawDataVisita)
+                    newAss.set('data_inicio', rawDataVisita)
+                    newAss.set(
+                      'ultima_observacao_fonte',
+                      'Atividade operacional de Ruptura (Job ' + jobId + ')',
+                    )
+                    $app.save(newAss)
+                  }
+                }
+              } catch (_) {}
+            }
+
+            // Geração de Pendências consolidadas e idempotentes para entidades não resolvidas
+            if (rawCodigoCliente && !resolvedIndustryId) {
+              try {
+                const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+                if (pendCol) {
+                  const pendFilter =
+                    'tipo_entidade = "industria" && valor_identificador = "' +
+                    rawCodigoCliente.replace(/"/g, '\\"') +
+                    '" && status = "pendente"'
+                  const existingPend = $app.findRecordsByFilter(
+                    'cadastros_pendencias',
+                    pendFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+                  if (existingPend && existingPend.length > 0) {
+                    const pRec = existingPend[0]
+                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
+                    $app.save(pRec)
+                  } else {
+                    const pRec = new Record(pendCol)
+                    pRec.set('tipo_entidade', 'industria')
+                    pRec.set('valor_identificador', rawCodigoCliente)
+                    pRec.set('codigo_externo', rawCodigoCliente)
+                    pRec.set('nome_identificado', rawClienteNome || 'Cliente #' + rawCodigoCliente)
+                    pRec.set('origem_fonte', 'tradepro_api_rupturas')
+                    pRec.set('status', 'pendente')
+                    pRec.set('volume_ocorrencias', 1)
+                    pRec.set('contexto_adicional', {
+                      job_id: jobId,
+                      endpoint: 'relatorio-rupturas',
+                    })
+                    $app.save(pRec)
+                  }
+                }
+              } catch (_) {}
+            }
+
+            if (codigoLoja && !storeDbId) {
+              try {
+                const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+                if (pendCol) {
+                  const pendFilter =
+                    'tipo_entidade = "loja" && valor_identificador = "' +
+                    codigoLoja.replace(/"/g, '\\"') +
+                    '" && status = "pendente"'
+                  const existingPend = $app.findRecordsByFilter(
+                    'cadastros_pendencias',
+                    pendFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+                  if (existingPend && existingPend.length > 0) {
+                    const pRec = existingPend[0]
+                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
+                    $app.save(pRec)
+                  } else {
+                    const pRec = new Record(pendCol)
+                    pRec.set('tipo_entidade', 'loja')
+                    pRec.set('valor_identificador', codigoLoja)
+                    pRec.set('codigo_externo', codigoLoja)
+                    pRec.set('nome_identificado', rawRazaoSocial)
+                    pRec.set('origem_fonte', 'tradepro_api_rupturas')
+                    pRec.set('status', 'pendente')
+                    pRec.set('volume_ocorrencias', 1)
+                    pRec.set('contexto_adicional', {
+                      razaoSocial: rawRazaoSocial,
+                      fantasia: rawFantasia,
+                    })
+                    $app.save(pRec)
+                  }
+                }
+              } catch (_) {}
+            }
+
+            if (rawIdPromotor && !promoterDbId) {
+              try {
+                const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+                if (pendCol) {
+                  const pendFilter =
+                    'tipo_entidade = "promotor" && valor_identificador = "' +
+                    rawIdPromotor.replace(/"/g, '\\"') +
+                    '" && status = "pendente"'
+                  const existingPend = $app.findRecordsByFilter(
+                    'cadastros_pendencias',
+                    pendFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+                  if (existingPend && existingPend.length > 0) {
+                    const pRec = existingPend[0]
+                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
+                    $app.save(pRec)
+                  } else {
+                    const pRec = new Record(pendCol)
+                    pRec.set('tipo_entidade', 'promotor')
+                    pRec.set('valor_identificador', rawIdPromotor)
+                    pRec.set('codigo_externo', rawIdPromotor)
+                    pRec.set('nome_identificado', rawNomePromotor)
+                    pRec.set('origem_fonte', 'tradepro_api_rupturas')
+                    pRec.set('status', 'pendente')
+                    pRec.set('volume_ocorrencias', 1)
+                    $app.save(pRec)
+                  }
+                }
+              } catch (_) {}
+            }
           } catch (saveErr) {
             // se falhar gravação individual, incrementa rejeitados e prossegue
             registrosRejeitados++
@@ -2377,18 +2711,24 @@ onRecordAfterUpdateSuccess((e) => {
         // Cód. Produto preservando zeros à esquerda como texto estrito
         const rawCodProduto = (produtoObj.codigo != null ? String(produtoObj.codigo) : '').trim()
 
-        // Cliente TradePro (Indústria): extrai código e nome do item ou do contexto
+        // Auditoria estrita da regra Cód. Cliente em Validades:
+        // Cód. Cliente TradePro -> Indústria.
+        // NUNCA utilizar código da unidade/loja (ex: cliente.codigo) como Cód. Cliente da Indústria!
+        // No payload de Validades:
+        // item.codCliente ou item.cod_cliente ou item.codigoCliente representam a Indústria se presentes.
+        // Já cliente.codigo representa o código da LOJA!
         const rawCodCliente = (
           item.codCliente != null
             ? String(item.codCliente)
             : item.cod_cliente != null
               ? String(item.cod_cliente)
-              : cliente.codigoCliente != null
-                ? String(cliente.codigoCliente)
-                : cliente.codigo != null
-                  ? String(cliente.codigo)
-                  : ''
+              : item.codigoCliente != null
+                ? String(item.codigoCliente)
+                : ''
         ).trim()
+
+        const rawLojaCodigoUnidade = (cliente.codigo != null ? String(cliente.codigo) : '').trim()
+
         const rawClienteNome = (
           item.clienteNome != null
             ? String(item.clienteNome)
@@ -2396,10 +2736,40 @@ onRecordAfterUpdateSuccess((e) => {
               ? String(item.cliente_nome)
               : item.nomeCliente != null
                 ? String(item.nomeCliente)
-                : cliente.cliente != null
-                  ? String(cliente.cliente)
-                  : ''
+                : ''
         ).trim()
+
+        // Preservação de campos operacionais reais adicionais de Validades
+        const rawDataFabricacao = (
+          item.fabricacao ||
+          item.dataFabricacao ||
+          item.data_fabricacao ||
+          ''
+        )
+          .toString()
+          .trim()
+        const rawNumeroLote = (item.lote || item.numeroLote || item.numero_lote || '')
+          .toString()
+          .trim()
+        const rawRepresentante = (item.representante || '').toString().trim()
+        const rawCodigoBarras = (
+          item.codigoBarras ||
+          item.codigo_barras ||
+          item.ean ||
+          (produtoObj.codigoBarras ? String(produtoObj.codigoBarras) : '')
+        )
+          .toString()
+          .trim()
+        const rawSupervisorId = (
+          item.idSupervisor != null
+            ? String(item.idSupervisor)
+            : promotor.idSupervisor != null
+              ? String(promotor.idSupervisor)
+              : ''
+        ).trim()
+        const rawSupervisorNome = (item.nomeSupervisor || promotor.nomeSupervisor || '')
+          .toString()
+          .trim()
 
         // Resolução de Indústria SKIP via tradepro_client_id:
         // A chave primária de vínculo é SEMPRE o código (tradepro_client_id)
@@ -2410,38 +2780,146 @@ onRecordAfterUpdateSuccess((e) => {
           resolvedIndustryName = industryMapByClientId[rawCodCliente].nome
         }
 
+        // Quantidade 0 CONTINUA VÁLIDA: nunca descartar nem tratar como ausente
         const rawQuantidade =
-          typeof item.quantidade === 'number' ? item.quantidade : Number(item.quantidade) || 0
+          typeof item.quantidade === 'number'
+            ? item.quantidade
+            : item.quantidade !== undefined && item.quantidade !== null && item.quantidade !== ''
+              ? Number(item.quantidade)
+              : 0
         const rawDiasParaVencimento =
           typeof item.diasParaVencimento === 'number'
             ? item.diasParaVencimento
             : Number(item.diasParaVencimento) || 0
 
-        // Validação: campos mínimos essenciais
-        if (!rawRazaoSocial || !rawProduto || !rawValidade || !rawRealizado || rawQuantidade < 0) {
+        // Validação: campos mínimos essenciais (quantidade 0 é estritamente permitida)
+        if (
+          !rawRazaoSocial ||
+          !rawProduto ||
+          !rawValidade ||
+          !rawRealizado ||
+          isNaN(rawQuantidade) ||
+          rawQuantidade < 0
+        ) {
           totalRejeitados++
           continue
         }
 
-        const codigoLoja = extractStoreCode(rawRazaoSocial)
+        const codigoLoja = rawLojaCodigoUnidade || extractStoreCode(rawRazaoSocial)
         // O fornecedor é preservado separadamente e NUNCA substitui nem infere a Indústria
         const fornecedor = (item.fornecedor || 'DIRETORIA').toString().trim()
+
+        // Resolução de Loja mestre
+        let storeDbId = ''
+        if (codigoLoja) {
+          try {
+            const stList = $app.findRecordsByFilter(
+              'stores',
+              'codigo_externo = "' +
+                codigoLoja.replace(/"/g, '\\"') +
+                '" || codigo_loja = "' +
+                codigoLoja.replace(/"/g, '\\"') +
+                '"',
+              '-created',
+              1,
+              0,
+            )
+            if (stList && stList.length > 0) storeDbId = stList[0].id
+          } catch (_) {}
+        }
+
+        // Resolução de Promotor mestre por cod_colaborador / idPromotor
+        let promoterDbId = ''
+        if (rawPromotorId) {
+          try {
+            const prList = $app.findRecordsByFilter(
+              'promoters',
+              'codigo_externo = "' + rawPromotorId.replace(/"/g, '\\"') + '"',
+              '-created',
+              1,
+              0,
+            )
+            if (prList && prList.length > 0) promoterDbId = prList[0].id
+          } catch (_) {}
+        }
+
+        // Resolução de Produto mestre: Indústria conhecida + Cód. Produto prioritariamente, ou Nome
+        let productDbId = ''
+        if (resolvedIndustryId) {
+          try {
+            if (rawCodProduto) {
+              const pByCode = $app.findRecordsByFilter(
+                'industry_product_mix',
+                'industry_id = "' +
+                  resolvedIndustryId +
+                  '" && codigo_produto = "' +
+                  rawCodProduto.replace(/"/g, '\\"') +
+                  '"',
+                '-created',
+                1,
+                0,
+              )
+              if (pByCode && pByCode.length > 0) productDbId = pByCode[0].id
+            }
+            if (!productDbId && rawProduto) {
+              const pByName = $app.findRecordsByFilter(
+                'industry_product_mix',
+                'industry_id = "' +
+                  resolvedIndustryId +
+                  '" && nome_produto = "' +
+                  rawProduto.replace(/"/g, '\\"') +
+                  '"',
+                '-created',
+                1,
+                0,
+              )
+              if (pByName && pByName.length > 0) productDbId = pByName[0].id
+            }
+          } catch (_) {}
+        }
+
+        // Status factual de normalização
+        const isComplete = Boolean(
+          resolvedIndustryId && storeDbId && (rawPromotorId ? promoterDbId : true) && productDbId,
+        )
+        const hasAnyPending =
+          !resolvedIndustryId || !storeDbId || !productDbId || (rawPromotorId && !promoterDbId)
+        const statusNormalizacao = isComplete ? 'completo' : hasAnyPending ? 'parcial' : 'pendente'
+
+        // Deduplicação não colapsa ocorrências legítimas distintas
         const chaveOperacional = [
           normKey(fornecedor),
           normKey(rawRazaoSocial),
           normKey(rawProduto),
           rawValidade,
+          rawNumeroLote,
         ].join('|')
-        const chaveDedup = chaveOperacional + '|' + rawRealizado
+        const chaveDedup =
+          chaveOperacional + '|' + rawRealizado + '|' + rawPromotorId + '|' + String(rawQuantidade)
         const statusOp = computeStatusOperacional(rawDiasParaVencimento)
 
+        // Payload bruto sanitizado para auditoria e reprocessamento
+        const sanitizedRawValidadePayload = {
+          promotor: promotor,
+          cliente: cliente,
+          produto: produtoObj,
+          validade: rawValidade,
+          realizado: rawRealizado,
+          quantidade: rawQuantidade,
+          diasParaVencimento: rawDiasParaVencimento,
+          fabricacao: rawDataFabricacao,
+          lote: rawNumeroLote,
+          representante: rawRepresentante,
+          codigoBarras: rawCodigoBarras,
+          fornecedor: fornecedor,
+          idSupervisor: rawSupervisorId,
+          nomeSupervisor: rawSupervisorNome,
+          codCliente: rawCodCliente,
+          clienteNome: rawClienteNome,
+          sincronizadoEm: new Date().toISOString(),
+        }
+
         try {
-          // Regra Semântica Crucial Validades:
-          // Indústria = Cliente/Cód. Cliente (apenas via industry_registry; se não vinculado => "Não identificada")
-          // NUNCA fazer fallback para Fantasia/Rede nem para Razão Social/Loja!
-          // Rede = Fantasia (item.fantasia)
-          // Loja = Razão Social (rawRazaoSocial)
-          // Fornecedor = campo próprio (nunca usado como indústria)
           const industriaValidade = resolvedIndustryName || 'Não identificada'
           const redeValidade = rawFantasia || ''
 
@@ -2456,6 +2934,9 @@ onRecordAfterUpdateSuccess((e) => {
             valRecord.set('industry_id', resolvedIndustryId)
           } else {
             valRecord.set('industry_id', '')
+          }
+          if (storeDbId) {
+            valRecord.set('store_id', storeDbId)
           }
           valRecord.set('fantasia', rawFantasia)
           valRecord.set('codigo_loja', codigoLoja)
@@ -2483,12 +2964,113 @@ onRecordAfterUpdateSuccess((e) => {
           valRecord.set('is_base_atual', false) // staging durante a sincronização
           valRecord.set('data_importacao', stagingMarker) // marcador de staging
 
+          // Campos explícitos do Bloco B.1
+          valRecord.set('source_type', 'tradepro_api')
+          valRecord.set('source_job_id', jobId)
+          valRecord.set('source_endpoint', 'relatorio-validade')
+          valRecord.set('source_synced_at', new Date().toISOString())
+          valRecord.set('dados_brutos_json', sanitizedRawValidadePayload)
+          valRecord.set('status_normalizacao', statusNormalizacao)
+          if (rawDataFabricacao) valRecord.set('data_fabricacao', rawDataFabricacao)
+          if (rawNumeroLote) valRecord.set('lote', rawNumeroLote)
+          if (rawCodigoBarras) valRecord.set('codigo_barras', rawCodigoBarras)
+          if (rawSupervisorId) valRecord.set('id_supervisor', rawSupervisorId)
+          if (rawSupervisorNome) valRecord.set('supervisor', rawSupervisorNome)
+          if (rawRepresentante) valRecord.set('representante', rawRepresentante)
+
           if (requestedBy) {
             valRecord.set('created_by', requestedBy)
           }
 
           $app.save(valRecord)
           totalValidos++
+
+          // Vínculo Promotor -> Loja via Validade gera 'observado_operacao' (NUNCA observado_visita nem confirmado)
+          if (rawPromotorId && codigoLoja && promoterDbId) {
+            try {
+              const assignCol = $app.findCollectionByNameOrId('store_promoter_assignments')
+              if (assignCol) {
+                const assignFilter =
+                  'promoter_id = "' +
+                  promoterDbId +
+                  '" && store_code = "' +
+                  codigoLoja.replace(/"/g, '\\"') +
+                  '" && status = "ativo"'
+                const existingAssigns = $app.findRecordsByFilter(
+                  'store_promoter_assignments',
+                  assignFilter,
+                  '-created',
+                  1,
+                  0,
+                )
+
+                if (existingAssigns && existingAssigns.length > 0) {
+                  const existingAss = existingAssigns[0]
+                  existingAss.set(
+                    'ultima_observacao_fonte',
+                    'Validade registrada em ' + rawRealizado + ' (Job ' + jobId + ')',
+                  )
+                  $app.save(existingAss)
+                } else {
+                  const newAss = new Record(assignCol)
+                  newAss.set('promoter_id', promoterDbId)
+                  newAss.set('promoter_nome', rawPromotorNome)
+                  newAss.set('store_code', codigoLoja)
+                  newAss.set('store_name', rawRazaoSocial)
+                  if (storeDbId) newAss.set('store_id', storeDbId)
+                  if (resolvedIndustryId) {
+                    newAss.set('industry_id', resolvedIndustryId)
+                    newAss.set('industry_name', resolvedIndustryName)
+                  }
+                  newAss.set('status', 'ativo')
+                  newAss.set('tipo_vinculo', 'observado_operacao') // estritamente observado_operacao
+                  newAss.set('origem_vinculo', 'Validade registrada em ' + rawRealizado)
+                  newAss.set('data_inicio', rawRealizado)
+                  newAss.set(
+                    'ultima_observacao_fonte',
+                    'Atividade operacional de Validade (Job ' + jobId + ')',
+                  )
+                  $app.save(newAss)
+                }
+              }
+            } catch (_) {}
+          }
+
+          // Geração de Pendências consolidadas para entidades não resolvidas em Validades
+          if (rawCodCliente && !resolvedIndustryId) {
+            try {
+              const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+              if (pendCol) {
+                const pendFilter =
+                  'tipo_entidade = "industria" && valor_identificador = "' +
+                  rawCodCliente.replace(/"/g, '\\"') +
+                  '" && status = "pendente"'
+                const existingPend = $app.findRecordsByFilter(
+                  'cadastros_pendencias',
+                  pendFilter,
+                  '-created',
+                  1,
+                  0,
+                )
+                if (existingPend && existingPend.length > 0) {
+                  const pRec = existingPend[0]
+                  pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
+                  $app.save(pRec)
+                } else {
+                  const pRec = new Record(pendCol)
+                  pRec.set('tipo_entidade', 'industria')
+                  pRec.set('valor_identificador', rawCodCliente)
+                  pRec.set('codigo_externo', rawCodCliente)
+                  pRec.set('nome_identificado', rawClienteNome || 'Cliente #' + rawCodCliente)
+                  pRec.set('origem_fonte', 'tradepro_api_validades')
+                  pRec.set('status', 'pendente')
+                  pRec.set('volume_ocorrencias', 1)
+                  pRec.set('contexto_adicional', { job_id: jobId, endpoint: 'relatorio-validade' })
+                  $app.save(pRec)
+                }
+              }
+            } catch (_) {}
+          }
 
           // Alimentação do Mix Operacional Observado (industry_product_mix):
           // Tupla: Cliente (Indústria vinculada) + Produto observado
