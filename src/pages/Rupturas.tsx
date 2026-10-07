@@ -23,7 +23,7 @@ import {
 } from '@/components/rupturas/RupturasKpisCards'
 import { formatStoreIdentityTable } from '@/lib/export/validadeTableViewExport'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { deriveNetworkName, buildStoreCompositeKey } from '@/lib/format/storeIdentity'
+import { deriveNetworkName, navigateToStore } from '@/lib/format/storeIdentity'
 import { normalizeStoreCode } from '@/lib/format/storeCode'
 import { exportRupturasTableViewXLSX } from '@/lib/export/rupturaTableViewExport'
 import type { Ruptura, RupturaMotivo } from '@/types/rupturas'
@@ -901,13 +901,6 @@ export function RupturasPage() {
                           codigoLoja: item.codigo_loja,
                           loja: item.nome_loja,
                         })
-                        const storeKey = buildStoreCompositeKey({
-                          codigoLoja: item.codigo_loja,
-                          nomeLoja: item.nome_loja,
-                          rede: deriveNetworkName(item.nome_loja),
-                          cidade: item.cidade,
-                          uf: item.estado,
-                        })
                         const codProd = (item as unknown as { cod_produto?: string }).cod_produto
 
                         // Badge de Motivo
@@ -942,11 +935,17 @@ export function RupturasPage() {
                             <td className="py-3 px-4 min-w-[200px]">
                               <div
                                 className="min-w-0 cursor-pointer group"
-                                onClick={() => {
-                                  if (storeKey) {
-                                    navigate(`/lojas/${encodeURIComponent(storeKey)}`)
-                                  }
-                                }}
+                                onClick={() =>
+                                  navigateToStore(
+                                    {
+                                      codigoLoja: item.codigo_loja,
+                                      nomeLoja: item.nome_loja,
+                                      cidade: item.cidade,
+                                      uf: item.estado,
+                                    },
+                                    navigate,
+                                  )
+                                }
                               >
                                 <p
                                   className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate"

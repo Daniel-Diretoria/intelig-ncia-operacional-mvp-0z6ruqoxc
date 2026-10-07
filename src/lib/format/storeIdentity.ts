@@ -625,9 +625,7 @@ export function navigateToStore(
   navigate: (path: string) => void,
 ): void {
   const compositeKey =
-    store.storeId && store.storeId.includes('|')
-      ? store.storeId
-      : buildStoreCompositeKey(store)
+    store.storeId && store.storeId.includes('|') ? store.storeId : buildStoreCompositeKey(store)
 
   navigate(`/lojas/${encodeURIComponent(compositeKey)}`)
 }

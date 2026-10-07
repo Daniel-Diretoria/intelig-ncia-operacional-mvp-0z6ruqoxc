@@ -26,7 +26,7 @@ import {
 } from '@/components/validades/ValidadesFilters'
 import { CriticidadeBadge } from '@/components/validades/CriticidadeBadge'
 import { formatDisplayDate } from '@/lib/format/dateParser'
-import { formatCityUf, buildStoreCompositeKey } from '@/lib/format/storeIdentity'
+import { formatCityUf, navigateToStore } from '@/lib/format/storeIdentity'
 import {
   formatStoreIdentityTable,
   exportValidadesTableViewXLSX,
@@ -312,21 +312,21 @@ export const ValidadesPage: React.FC = () => {
             codigoLoja: row.codigoLoja,
             loja: row.loja,
           })
-          const storeKey = buildStoreCompositeKey({
-            codigoLoja: row.codigoLoja,
-            nomeLoja: row.loja,
-            rede: row.rede,
-            cidade: row.cidade,
-            uf: row.uf,
-          })
           return (
             <div
               className="min-w-0 cursor-pointer group"
               onClick={(e) => {
                 e.stopPropagation()
-                if (storeKey) {
-                  navigate(`/lojas/${encodeURIComponent(storeKey)}`)
-                }
+                navigateToStore(
+                  {
+                    codigoLoja: row.codigoLoja,
+                    nomeLoja: row.loja,
+                    rede: row.rede,
+                    cidade: row.cidade,
+                    uf: row.uf,
+                  },
+                  navigate,
+                )
               }}
             >
               <p

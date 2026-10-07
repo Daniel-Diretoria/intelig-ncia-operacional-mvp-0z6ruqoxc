@@ -29,6 +29,7 @@ import {
   formatCityUf,
   parseCityUf,
   deriveNetworkName,
+  navigateToStore,
 } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { ContextPanel, type ContextPanelTarget } from '@/components/common/ContextPanel'
@@ -262,12 +263,7 @@ export const CentralDeTrabalhoPage: React.FC = () => {
         motivo,
         subtexto: `${formatCityUf(st.city, st.uf)} • ${st.network}`,
         severidade: st.criticasCount > 0 ? 'critica' : 'atencao',
-        targetAction: () =>
-          setPanelTarget({
-            type: 'store',
-            id: st.storeCode || st.storeName,
-            label: storeDisplay,
-          }),
+        targetAction: () => navigateToStore(st, navigate),
       })
     })
 
@@ -637,7 +633,8 @@ export const CentralDeTrabalhoPage: React.FC = () => {
               .map((item) => (
                 <div
                   key={item.id}
-                  className="p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-slate-50/70 transition-all flex flex-col justify-between group"
+                  onClick={() => navigateToStore(item, navigate)}
+                  className="p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-slate-50/70 transition-all flex flex-col justify-between group cursor-pointer"
                 >
                   <div>
                     {/* Linha 1: Indústria / Loja / Produto */}
@@ -735,7 +732,10 @@ export const CentralDeTrabalhoPage: React.FC = () => {
 
                     <Button
                       size="sm"
-                      onClick={() => setTrackingModalItem(item)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTrackingModalItem(item)
+                      }}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-7 px-3 gap-1 shadow-2xs"
                     >
                       <span>Registrar acompanhamento</span>
@@ -852,13 +852,7 @@ export const CentralDeTrabalhoPage: React.FC = () => {
               return (
                 <div
                   key={idx}
-                  onClick={() =>
-                    setPanelTarget({
-                      type: 'store',
-                      id: st.storeCode || st.storeName,
-                      label: storeDisplay,
-                    })
-                  }
+                  onClick={() => navigateToStore(st, navigate)}
                   className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/70 p-2 rounded-xl transition-colors cursor-pointer group"
                 >
                   <div className="truncate pr-2">

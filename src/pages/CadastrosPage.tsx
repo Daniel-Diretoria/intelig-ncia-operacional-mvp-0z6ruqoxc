@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Factory,
   Package,
@@ -92,11 +93,13 @@ import {
   deleteStoreCoverage,
 } from '@/services/industryService'
 import type { IndustryStoreCoverage } from '@/types/industryOperational'
+import { navigateToStore } from '@/lib/format/storeIdentity'
 
 // 4 Grandes Famílias Consolidadas
 export type CadastrosFamilia = 'industrias' | 'redes_lojas' | 'equipe_campo' | 'pendencias'
 
 export const CadastrosPage: React.FC = () => {
+  const navigate = useNavigate()
   const { user, can } = useAuth()
   const { toast } = useToast()
 
@@ -2073,7 +2076,18 @@ export const CadastrosPage: React.FC = () => {
                             <td className="p-3 font-semibold text-slate-900">
                               <button
                                 type="button"
-                                onClick={() => setSelectedLojaFicha(loja)}
+                                onClick={() =>
+                                  navigateToStore(
+                                    {
+                                      codigoLoja: loja.codigo_externo || loja.codigo_loja,
+                                      nomeLoja: loja.razao_social || loja.nome,
+                                      rede: loja.rede_nome,
+                                      cidade: loja.cidade,
+                                      uf: loja.estado,
+                                    },
+                                    navigate,
+                                  )
+                                }
                                 className="hover:underline text-left text-blue-700"
                               >
                                 {loja.razao_social || loja.nome}

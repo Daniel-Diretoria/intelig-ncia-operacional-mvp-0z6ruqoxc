@@ -23,8 +23,8 @@ import {
   Layers,
   MapPin,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { formatStoreIdentityTable, formatCityUf } from '@/lib/format/storeIdentity'
+import { Link, useNavigate } from 'react-router-dom'
+import { formatStoreIdentityTable, formatCityUf, navigateToStore } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import type { ValidadeItem, Ruptura } from '@/types'
 
@@ -50,6 +50,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   validades,
   rupturas,
 }) => {
+  const navigate = useNavigate()
   const isOpen = target !== null && target.type !== null
 
   // 1. Painel de Loja
@@ -599,7 +600,21 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                       : null
 
                     return (
-                      <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+                      <div
+                        key={idx}
+                        onClick={() =>
+                          navigateToStore(
+                            {
+                              codigoLoja: st.storeCode,
+                              nomeLoja: st.storeName,
+                              cidade: st.city,
+                              uf: st.uf,
+                            },
+                            navigate,
+                          )
+                        }
+                        className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50/70 p-1.5 rounded-lg transition-colors cursor-pointer group"
+                      >
                         <div className="truncate pr-2">
                           <p className="font-semibold text-slate-900 truncate">{storeDisplay}</p>
                           <p className="text-[11px] text-slate-500">

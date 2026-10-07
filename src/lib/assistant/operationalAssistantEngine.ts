@@ -14,6 +14,7 @@ import {
   formatStoreIdentity,
   extractStoreRealCode,
   extractStoreCleanName,
+  buildStoreCompositeKey,
 } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import type { CrossEvidence } from '@/types'

@@ -21,6 +21,7 @@ import {
   formatStoreIdentityTable,
   formatCityUf,
   buildCityUfCanonicalizer,
+  navigateToStore,
 } from '@/lib/format/storeIdentity'
 import { formatDisplayDate } from '@/lib/format/dateParser'
 import { classificarCriticidade } from '@/lib/data/criticidade'
@@ -2168,9 +2169,7 @@ export const LojasPage: React.FC = () => {
                           return (
                             <tr
                               key={store.storeId}
-                              onClick={() =>
-                                navigate(`/lojas/${encodeURIComponent(store.storeId)}`)
-                              }
+                              onClick={() => navigateToStore(store, navigate)}
                               className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
                             >
                               {/* 1. Loja */}
