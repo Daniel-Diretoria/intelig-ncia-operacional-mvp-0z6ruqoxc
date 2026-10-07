@@ -204,10 +204,14 @@ export function RupturasPage() {
     const produtosSet = new Set<string>()
 
     // Extrai de filteredRupturas para opções contextuais
+    // Item 3: Fantasia/Rede real tem precedência. Fallback pelo nome da loja é marcado como derivado/legado.
     for (const r of filteredRupturas) {
       if (r.cliente && r.cliente.trim()) clientesSet.add(r.cliente.trim())
-      const rede = deriveNetworkName(r.nome_loja)
-      if (rede && rede !== 'Rede não identificada') redesSet.add(rede)
+      const redeReal = (r.rede || r.fantasia || '').trim()
+      const rede =
+        redeReal ||
+        (deriveNetworkName(r.nome_loja) ? `${deriveNetworkName(r.nome_loja)} (derivado)` : '')
+      if (rede && !rede.startsWith('Rede não identificada')) redesSet.add(rede)
       if (r.cidade && r.cidade.trim()) cidadesSet.add(r.cidade.trim())
       if (r.produto && r.produto.trim()) produtosSet.add(r.produto.trim())
 
@@ -822,11 +826,13 @@ export function RupturasPage() {
             <div className="space-y-3">
               {/* Barra de Contagem e Paginação */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-                <span className="font-medium text-slate-700">
-                  {sortedItems.length} ocorrência(s) encontrada(s)
-                  {selectedKpi === 'lojasCriticas' && ' • Filtro: Lojas críticas'}
-                  {selectedKpi === 'rupturaTotal' && ' • Filtro: Ruptura Total'}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-slate-700">
+                    Base Atual Oficial: 6.780 | Após filtro: {sortedItems.length} ocorrência(s)
+                    {selectedKpi === 'lojasCriticas' && ' • Filtro: Lojas críticas'}
+                    {selectedKpi === 'rupturaTotal' && ' • Filtro: Ruptura Total'}
+                  </span>
+                </div>
 
                 <div className="flex items-center gap-4">
                   {/* Seletor de Page Size */}

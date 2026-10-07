@@ -86,6 +86,12 @@ import {
   confirmarVinculoObservado,
   getProductOperationalStats,
 } from '@/services/cadastrosService'
+import {
+  getIndustryStoreCoverages,
+  saveStoreCoverage,
+  deleteStoreCoverage,
+} from '@/services/industryService'
+import type { IndustryStoreCoverage } from '@/types/industryOperational'
 
 // 4 Grandes Famílias Consolidadas
 export type CadastrosFamilia = 'industrias' | 'redes_lojas' | 'equipe_campo' | 'pendencias'
@@ -187,6 +193,12 @@ export const CadastrosPage: React.FC = () => {
   const [loadingAssignments, setLoadingAssignments] = React.useState(false)
   const [newAssignmentStoreCode, setNewAssignmentStoreCode] = React.useState('')
   const [newAssignmentIndName, setNewAssignmentIndName] = React.useState('')
+
+  // Cobertura de Lojas por Indústria
+  const [industryCoverages, setIndustryCoverages] = React.useState<IndustryStoreCoverage[]>([])
+  const [loadingCoverages, setLoadingCoverages] = React.useState(false)
+  const [selectedLojaToAddCoverage, setSelectedLojaToAddCoverage] = React.useState('')
+  const [addingCoverage, setAddingCoverage] = React.useState(false)
 
   // Reavaliação de rupturas
   const [reavaliandoRupturas, setReavaliandoRupturas] = React.useState(false)
@@ -1103,7 +1115,18 @@ export const CadastrosPage: React.FC = () => {
                   <Button
                     size="sm"
                     variant={industryFichaSection === 'lojas_cobertura' ? 'default' : 'ghost'}
-                    onClick={() => setIndustryFichaSection('lojas_cobertura')}
+                    onClick={async () => {
+                      setIndustryFichaSection('lojas_cobertura')
+                      if (selectedIndustryFicha) {
+                        setLoadingCoverages(true)
+                        try {
+                          const data = await getIndustryStoreCoverages(selectedIndustryFicha.id)
+                          setIndustryCoverages(data)
+                        } finally {
+                          setLoadingCoverages(false)
+                        }
+                      }
+                    }}
                     className="text-xs h-7"
                   >
                     Lojas / Cobertura
@@ -1334,26 +1357,266 @@ export const CadastrosPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Seção 3: Lojas / Cobertura */}
+                {/* Seção 3: Lojas / Cobertura Auto-suficiente */}
                 {industryFichaSection === 'lojas_cobertura' && (
-                  <div className="space-y-3 pt-2 text-xs">
-                    <p className="text-slate-600">
-                      Lojas que trabalham com o catálogo de {selectedIndustryFicha.nome}. A
-                      cobertura é configurável no Cockpit Operacional e cruzada com as visitas
-                      registradas.
-                    </p>
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-800">
-                          Total de Lojas na Base: {lojas.length} lojas
+                  <div className="space-y-4 pt-2 text-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <div>
+                        <span className="font-bold text-slate-800 text-sm block">
+                          Cobertura Operacional de Lojas — {selectedIndustryFicha.nome}
                         </span>
-                        <a
-                          href={`/industrias/${selectedIndustryFicha.id}`}
-                          className="text-indigo-600 font-semibold hover:underline"
-                        >
-                          Gerenciar Cobertura Específica no Cockpit &rarr;
-                        </a>
+                        <p className="text-slate-500 mt-0.5">
+                          Lojas autorizadas/monitoradas para {selectedIndustryFicha.nome}. Adicione
+                          lojas, confirme detecções e controle a relação.
+                        </p>
                       </div>
+                      <Badge
+                        variant="outline"
+                        className="bg-white text-indigo-700 border-indigo-200 font-semibold self-start sm:self-auto"
+                      >
+                        {industryCoverages.length} lojas cobertas
+                      </Badge>
+                    </div>
+
+                    {/* Adicionar Loja à Cobertura */}
+                    {canEdit && (
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center gap-2">
+                        <select
+                          value={selectedLojaToAddCoverage}
+                          onChange={(e) => setSelectedLojaToAddCoverage(e.target.value)}
+                          className="flex-1 w-full h-8 px-2.5 bg-white border border-slate-300 rounded-md text-xs"
+                        >
+                          <option value="">
+                            -- Selecione uma loja da base para adicionar à cobertura --
+                          </option>
+                          {lojas
+                            .filter(
+                              (l) =>
+                                !industryCoverages.some(
+                                  (c) =>
+                                    c.store_code === l.codigo_externo ||
+                                    c.store_name.toLowerCase() === l.razao_social.toLowerCase(),
+                                ),
+                            )
+                            .map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.codigo_externo ? `[${l.codigo_externo}] ` : ''}
+                                {l.razao_social} ({l.rede_nome || 'Sem Rede'}
+                                {l.cidade ? ` - ${l.cidade}` : ''})
+                              </option>
+                            ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          disabled={!selectedLojaToAddCoverage || addingCoverage}
+                          onClick={async () => {
+                            const targetStore = lojas.find(
+                              (l) => l.id === selectedLojaToAddCoverage,
+                            )
+                            if (!targetStore || !selectedIndustryFicha) return
+                            setAddingCoverage(true)
+                            try {
+                              await saveStoreCoverage(
+                                {
+                                  industry_id: selectedIndustryFicha.id,
+                                  industry_name: selectedIndustryFicha.nome,
+                                  store_code: targetStore.codigo_externo,
+                                  store_name: targetStore.razao_social,
+                                  network_name: targetStore.rede_nome || '',
+                                  city: targetStore.cidade || '',
+                                  state: targetStore.estado || 'SC',
+                                  status_relacao: 'ativa',
+                                  observacao: 'Adicionada manualmente pela Central de Cadastros',
+                                },
+                                user?.name || 'Operador',
+                              )
+                              toast({
+                                title: 'Loja adicionada à cobertura',
+                                description: `${targetStore.razao_social} vinculada à ${selectedIndustryFicha.nome}.`,
+                              })
+                              setSelectedLojaToAddCoverage('')
+                              const updated = await getIndustryStoreCoverages(
+                                selectedIndustryFicha.id,
+                              )
+                              setIndustryCoverages(updated)
+                            } catch (err: any) {
+                              toast({
+                                title: 'Erro ao adicionar cobertura',
+                                description: err.message,
+                                variant: 'destructive',
+                              })
+                            } finally {
+                              setAddingCoverage(false)
+                            }
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-3 gap-1.5 w-full sm:w-auto shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Adicionar Loja</span>
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Tabela de Lojas com Cobertura */}
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                      {loadingCoverages ? (
+                        <div className="p-8 text-center text-slate-400">
+                          Carregando cobertura da indústria...
+                        </div>
+                      ) : industryCoverages.length === 0 ? (
+                        <div className="p-8 text-center text-slate-400">
+                          Nenhuma loja cadastrada na cobertura de {selectedIndustryFicha.nome}. Use
+                          o seletor acima para adicionar.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200">
+                              <tr>
+                                <th className="p-3">Código</th>
+                                <th className="p-3">Loja</th>
+                                <th className="p-3">Rede</th>
+                                <th className="p-3">Cidade/UF</th>
+                                <th className="p-3">Origem</th>
+                                <th className="p-3">Status Relação</th>
+                                {canEdit && <th className="p-3 text-right">Ações</th>}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {industryCoverages.map((cov) => (
+                                <tr key={cov.id} className="hover:bg-slate-50/80">
+                                  <td className="p-3 font-mono font-medium text-slate-700">
+                                    {cov.store_code || '—'}
+                                  </td>
+                                  <td className="p-3 font-semibold text-slate-900">
+                                    {cov.store_name}
+                                  </td>
+                                  <td className="p-3 text-slate-600">
+                                    {cov.network_name || 'Sem Rede'}
+                                  </td>
+                                  <td className="p-3 text-slate-500">
+                                    {cov.city ? `${cov.city}/${cov.state || 'SC'}` : '—'}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className="text-[11px] text-slate-500">
+                                      {cov.origem_deteccao || 'Cadastro Central'}
+                                    </span>
+                                  </td>
+                                  <td className="p-3">
+                                    <Badge
+                                      variant={
+                                        cov.status_relacao === 'ativa' ? 'default' : 'secondary'
+                                      }
+                                      className="capitalize text-[10px]"
+                                    >
+                                      {cov.status_relacao}
+                                    </Badge>
+                                  </td>
+                                  {canEdit && (
+                                    <td className="p-3 text-right space-x-1.5">
+                                      {cov.status_relacao === 'detectada' && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-[11px] h-7 px-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                          onClick={async () => {
+                                            try {
+                                              await saveStoreCoverage(
+                                                {
+                                                  ...cov,
+                                                  status_relacao: 'ativa',
+                                                },
+                                                user?.name || 'Operador',
+                                              )
+                                              toast({ title: 'Cobertura confirmada como ativa' })
+                                              const updated = await getIndustryStoreCoverages(
+                                                selectedIndustryFicha.id,
+                                              )
+                                              setIndustryCoverages(updated)
+                                            } catch (err: any) {
+                                              toast({
+                                                title: 'Erro ao confirmar',
+                                                description: err.message,
+                                                variant: 'destructive',
+                                              })
+                                            }
+                                          }}
+                                        >
+                                          Confirmar
+                                        </Button>
+                                      )}
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-[11px] h-7 px-2 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                        onClick={async () => {
+                                          const nextStatus =
+                                            cov.status_relacao === 'ativa' ? 'inativa' : 'ativa'
+                                          try {
+                                            await saveStoreCoverage(
+                                              {
+                                                ...cov,
+                                                status_relacao: nextStatus,
+                                              },
+                                              user?.name || 'Operador',
+                                            )
+                                            toast({ title: `Status alterado para ${nextStatus}` })
+                                            const updated = await getIndustryStoreCoverages(
+                                              selectedIndustryFicha.id,
+                                            )
+                                            setIndustryCoverages(updated)
+                                          } catch (err: any) {
+                                            toast({
+                                              title: 'Erro ao alterar status',
+                                              description: err.message,
+                                              variant: 'destructive',
+                                            })
+                                          }
+                                        }}
+                                      >
+                                        {cov.status_relacao === 'ativa' ? 'Desativar' : 'Ativar'}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-[11px] h-7 px-2 text-red-600 hover:bg-red-50"
+                                        onClick={async () => {
+                                          if (
+                                            !confirm(
+                                              `Remover a loja "${cov.store_name}" da cobertura de ${selectedIndustryFicha.nome}?`,
+                                            )
+                                          )
+                                            return
+                                          try {
+                                            await deleteStoreCoverage(
+                                              cov.id,
+                                              selectedIndustryFicha.id,
+                                              user?.name || 'Operador',
+                                            )
+                                            toast({ title: 'Loja removida da cobertura' })
+                                            const updated = await getIndustryStoreCoverages(
+                                              selectedIndustryFicha.id,
+                                            )
+                                            setIndustryCoverages(updated)
+                                          } catch (err: any) {
+                                            toast({
+                                              title: 'Erro ao remover',
+                                              description: err.message,
+                                              variant: 'destructive',
+                                            })
+                                          }
+                                        }}
+                                      >
+                                        Remover
+                                      </Button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

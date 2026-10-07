@@ -1531,21 +1531,24 @@ onRecordAfterUpdateSuccess((e) => {
       // 6c & 6d. Deduplicação e normalização já foram executadas na inserção do staging
 
       // 6e. Promoção Atômica:
-      // Primeiro desativa a base atual anterior (todos exceto os do staging atual)
-      // Depois ativa todos os registros do staging deste job
-      $app
-        .db()
-        .newQuery(
-          'UPDATE rupturas_base SET is_base_atual = 0 WHERE is_base_atual = 1 AND tenant_id != {:jobTenant}',
-        )
-        .bind({ jobTenant: stagingJobTenant })
-        .execute()
+      // Executa em transação única atômica (runInTransaction):
+      // 1) Desativa a base atual anterior (todos os registros com is_base_atual = 1 cujo tenant_id != jobTenant)
+      // 2) Ativa os registros do staging deste job (is_base_atual = 1 WHERE tenant_id = jobTenant)
+      $app.runInTransaction((txApp) => {
+        txApp
+          .db()
+          .newQuery(
+            'UPDATE rupturas_base SET is_base_atual = 0 WHERE is_base_atual = 1 AND tenant_id != {:jobTenant}',
+          )
+          .bind({ jobTenant: stagingJobTenant })
+          .execute()
 
-      $app
-        .db()
-        .newQuery('UPDATE rupturas_base SET is_base_atual = 1 WHERE tenant_id = {:jobTenant}')
-        .bind({ jobTenant: stagingJobTenant })
-        .execute()
+        txApp
+          .db()
+          .newQuery('UPDATE rupturas_base SET is_base_atual = 1 WHERE tenant_id = {:jobTenant}')
+          .bind({ jobTenant: stagingJobTenant })
+          .execute()
+      })
 
       // Contagem segura dos registros promovidos
       const promovidosRecords = $app.findRecordsByFilter(

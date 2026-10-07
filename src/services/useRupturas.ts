@@ -107,11 +107,18 @@ export function useRupturas(filters?: ExtendedRupturasFilters): UseRupturasResul
       }
 
       if (filters?.rede && filters.rede !== 'all' && filters.rede !== 'Todos') {
+        const filterRedeNorm = filters.rede.trim().toLowerCase()
         items = items.filter((i) => {
-          const itemRede = (i.rede || i.fantasia || deriveNetworkName(i.nome_loja) || '')
-            .trim()
-            .toLowerCase()
-          return itemRede === filters.rede!.trim().toLowerCase()
+          const redeReal = (i.rede || i.fantasia || '').trim()
+          const redeComMarcador =
+            redeReal ||
+            (deriveNetworkName(i.nome_loja) ? `${deriveNetworkName(i.nome_loja)} (derivado)` : '')
+          const rawDerivado = (deriveNetworkName(i.nome_loja) || '').trim().toLowerCase()
+          return (
+            redeReal.toLowerCase() === filterRedeNorm ||
+            redeComMarcador.toLowerCase() === filterRedeNorm ||
+            rawDerivado === filterRedeNorm
+          )
         })
       }
 
