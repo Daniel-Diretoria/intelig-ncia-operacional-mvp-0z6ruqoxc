@@ -209,6 +209,8 @@ export interface ValidadeItem {
   cliente?: string
   industria?: string
   rede?: string
+  fantasia?: string
+  razao_social?: string
   /** Código externo da loja extraído da Razão Social (ex.: "305"). */
   codigoLoja?: string
   loja?: string

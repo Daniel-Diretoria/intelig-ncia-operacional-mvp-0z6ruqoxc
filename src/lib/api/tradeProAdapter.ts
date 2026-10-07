@@ -108,6 +108,7 @@ export interface RupturaCandidateSuccess {
   candidato: {
     codigo_loja: string
     nome_loja: string
+    razao_social: string
     cnpj_loja: string
     cidade: string
     estado: string
@@ -120,6 +121,7 @@ export interface RupturaCandidateSuccess {
     colaborador: string
     codColaborador: string
     rede: string
+    fantasia: string
     observacao: string
     ruptura_flag: number
     produto: string
