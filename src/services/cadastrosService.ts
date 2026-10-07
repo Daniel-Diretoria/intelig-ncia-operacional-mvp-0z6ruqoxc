@@ -325,6 +325,35 @@ export async function saveCadastroLoja(
   return record
 }
 
+/**
+ * Move uma Loja para outra Rede de forma auditada
+ */
+export async function moverLojaDeRede(
+  lojaId: string,
+  novaRedeId: string | null,
+  novaRedeNome: string,
+  options?: AuditLogOptions,
+): Promise<CadastroLoja> {
+  const lojaAtual = await pb.collection('stores').getOne<CadastroLoja>(lojaId)
+  const redeAnterior = lojaAtual.rede_nome || 'Sem Rede'
+
+  const record = await pb.collection('stores').update<CadastroLoja>(lojaId, {
+    network_id: novaRedeId || null,
+    rede_nome: novaRedeNome || '',
+  })
+
+  await logCadastroAudit('loja_movida_de_rede', record.razao_social || record.nome, record.id, {
+    ...options,
+    detalhes: {
+      rede_anterior: redeAnterior,
+      nova_rede: novaRedeNome,
+      novo_network_id: novaRedeId,
+    },
+  })
+
+  return record
+}
+
 // ---------------------------------------------------------------------------------
 // 6. SUPERVISORES
 // ---------------------------------------------------------------------------------
@@ -987,6 +1016,128 @@ export function detectarConflitoCadastro(
  * Nunca afirma "o produto vende bem" ou "tem maior faturamento" sem fonte comercial.
  * Analisa estritamente presença física observada nas lojas do grupo.
  */
+/**
+ * Estatísticas e evidências operacionais de um Produto no SKIP
+ * Retorna contagem de lojas com mix definido, lojas com mix observado,
+ * data da última observação, total de rupturas e validades relacionadas.
+ */
+export async function getProductOperationalStats(
+  productName: string,
+  productCode?: string,
+): Promise<{
+  lojasComMixDefinido: Array<{ store_code: string; store_name: string }>
+  lojasObservadas: Array<{ store_code: string; store_name: string; ultima_data: string }>
+  ultimaObservacao?: string
+  totalRupturasRelacionadas: number
+  totalValidadesRelacionadas: number
+}> {
+  const normName = productName.trim().toUpperCase()
+
+  try {
+    // 1. Lojas com Mix Definido
+    const mixDefinidoRecords = await pb
+      .collection('industry_store_product_mix')
+      .getFullList<IndustryStoreProductMix>({
+        filter: "status = 'ativo'",
+      })
+    const lojasDefinidasMap = new Map<string, string>()
+    for (const m of mixDefinidoRecords) {
+      if (m.nome_produto?.trim().toUpperCase() === normName) {
+        lojasDefinidasMap.set(m.store_code, m.store_name)
+      }
+    }
+
+    // 2. Rupturas relacionadas
+    let totalRupturas = 0
+    let ultimaDataRuptura = ''
+    try {
+      const rupturasList = await pb.collection('rupturas_base').getList<{
+        id: string
+        produto?: string
+        data?: string
+        created?: string
+      }>(1, 100, {
+        filter: `produto ~ '${normName.replace(/'/g, "\\'")}'`,
+        sort: '-created',
+      })
+      totalRupturas = rupturasList.totalItems
+      if (rupturasList.items.length > 0) {
+        ultimaDataRuptura = rupturasList.items[0].data || rupturasList.items[0].created || ''
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    // 3. Validades relacionadas e lojas observadas
+    let totalValidades = 0
+    let ultimaDataValidade = ''
+    const lojasObsMap = new Map<string, { store_name: string; ultima_data: string }>()
+
+    try {
+      const validadesList = await pb.collection('validades_base').getList<{
+        id: string
+        produto?: string
+        codigo_loja?: string
+        loja?: string
+        data_pesquisa?: string
+        created?: string
+      }>(1, 200, {
+        filter: `produto ~ '${normName.replace(/'/g, "\\'")}'`,
+        sort: '-created',
+      })
+      totalValidades = validadesList.totalItems
+
+      for (const v of validadesList.items) {
+        const d = v.data_pesquisa || v.created || ''
+        if (!ultimaDataValidade && d) ultimaDataValidade = d
+        if (v.codigo_loja) {
+          if (!lojasObsMap.has(v.codigo_loja)) {
+            lojasObsMap.set(v.codigo_loja, {
+              store_name: v.loja || `Loja ${v.codigo_loja}`,
+              ultima_data: d,
+            })
+          }
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    // Identifica a data mais recente de observação
+    const datas = [ultimaDataValidade, ultimaDataRuptura].filter(Boolean).sort().reverse()
+    const ultimaObservacao = datas[0] || undefined
+
+    const lojasComMixDefinido = Array.from(lojasDefinidasMap.entries()).map(
+      ([store_code, store_name]) => ({
+        store_code,
+        store_name,
+      }),
+    )
+
+    const lojasObservadas = Array.from(lojasObsMap.entries()).map(([store_code, info]) => ({
+      store_code,
+      store_name: info.store_name,
+      ultima_data: info.ultima_data,
+    }))
+
+    return {
+      lojasComMixDefinido,
+      lojasObservadas,
+      ultimaObservacao,
+      totalRupturasRelacionadas: totalRupturas,
+      totalValidadesRelacionadas: totalValidades,
+    }
+  } catch (err) {
+    console.warn('[cadastrosService] Erro ao obter estatísticas de produto:', err)
+    return {
+      lojasComMixDefinido: [],
+      lojasObservadas: [],
+      totalRupturasRelacionadas: 0,
+      totalValidadesRelacionadas: 0,
+    }
+  }
+}
+
 export async function getMixOpportunityAnalyses(
   storeCode: string,
 ): Promise<MixOpportunityAnalysis[]> {
