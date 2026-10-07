@@ -1020,6 +1020,7 @@ export async function reavaliarRupturasNaoIdentificadas(
   return resultado
 }
 
+// Item 1 verificado: reavaliação de rupturas não identificadas com paginação em loop completa
 // ---------------------------------------------------------------------------------
 // 10.1 VISITAS OPERACIONAIS (Fundação de Controle de Visitas)
 // ---------------------------------------------------------------------------------
