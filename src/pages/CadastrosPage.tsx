@@ -503,8 +503,9 @@ export const CadastrosPage: React.FC = () => {
       const res = await reavaliarRupturasNaoIdentificadas(user?.name || 'Operador')
       toast({
         title: 'Reavaliação de Rupturas Concluída',
-        description: `${res.recuperadas} de ${res.processadas} rupturas identificadas com sucesso a partir do Cadastro Mestre.`,
+        description: `Analisados: ${res.analisados} | Identificados automaticamente: ${res.identificados} | Precisam de revisão: ${res.precisamRevisao} | Sem identificação: ${res.semIdentificacao}`,
       })
+      loadAll()
     } catch (err: any) {
       toast({
         title: 'Falha na reavaliação',

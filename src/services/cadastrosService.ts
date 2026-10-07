@@ -725,17 +725,53 @@ export async function resolveCadastroPendencia(
  * 2. Em seguida, busca Produto no Mix Oficial (se pertencer a exatamente uma indústria)
  * 3. NUNCA deriva por Fantasia ou Razão Social
  */
+export interface ReavaliacaoRupturasResultado {
+  analisados: number
+  identificados: number
+  precisamRevisao: number
+  semIdentificacao: number
+  detalhes: Array<{
+    id: string
+    produto: string
+    loja: string
+    status: 'identificado' | 'revisao' | 'sem_identificacao'
+    industria?: string
+    origemResolucao?: string
+    possiveisCorrespondencias?: string[]
+  }>
+}
+
+/**
+ * Reavalia registros com Indústria "Não identificada" ou vazia em rupturas_base na base ativa.
+ *
+ * Hierarquia obrigatória:
+ * 1) Cód. Cliente TradePro (tradepro_client_id em industry_registry, nunca por nome);
+ * 2) Cliente bruto preservado (dados_brutos_json / tradepro_cliente_nome quando compatível com tradepro_client_id);
+ * 3) Produto oficial e relação Produto → Indústria agrupada em Set<string> de industry_id (Set.size === 1: correspondência unívoca segura; Set.size > 1: ambíguo, envia para revisão);
+ * 4) Resolvedor de Produtos com catálogo de produtos oficiais;
+ * 5) Mix Oficial da Indústria (produto exclusivo do Mix Oficial = evidência forte unívoca; registrar origem);
+ * 6) Ambiguidade real (Set.size > 1) -> NUNCA forçar atribuição. Fila de pendências / 'precisamRevisao';
+ * NUNCA usar Rede, Loja ou Fornecedor (DIRETORIA) como substituto de indústria.
+ */
 export async function reavaliarRupturasNaoIdentificadas(
   userName = 'Operador',
-): Promise<{ processadas: number; recuperadas: number }> {
-  let processadas = 0
-  let recuperadas = 0
+): Promise<ReavaliacaoRupturasResultado> {
+  const resultado: ReavaliacaoRupturasResultado = {
+    analisados: 0,
+    identificados: 0,
+    precisamRevisao: 0,
+    semIdentificacao: 0,
+    detalhes: [],
+  }
 
   try {
-    // 1. Carrega todas indústrias cadastradas com tradepro_client_id
+    // 1. Carrega todas as indústrias cadastradas com tradepro_client_id
     const industrias = await getCadastrosIndustrias()
     const clientMap = new Map<string, CadastroIndustria>()
+    const industryById = new Map<string, CadastroIndustria>()
+
     for (const ind of industrias) {
+      industryById.set(ind.id, ind)
       if (ind.tradepro_client_id) {
         clientMap.set(ind.tradepro_client_id.trim(), ind)
       }
@@ -743,67 +779,237 @@ export async function reavaliarRupturasNaoIdentificadas(
 
     // 2. Carrega catálogo mestre de produtos
     const produtos = await getCadastrosProdutos()
-    // Mapa nome_normalizado -> set de indústrias
-    const produtoIndMap = new Map<string, Set<{ id: string; nome: string }>>()
+
+    // Mapeamento normalizado:
+    // Chave: nome_normalizado -> Map<industry_id, { id: string; nome: string; mixOficial: boolean }>
+    // Agrupa por INDÚSTRIAS ÚNICAS (Set de industry_id) para que produtos repetidos 3x na mesma indústria FRUTAP não gerem falso conflito!
+    const produtoIndMap = new Map<
+      string,
+      Map<string, { id: string; nome: string; mixOficial: boolean }>
+    >()
+
     for (const p of produtos) {
+      if (!p.industry_id) continue
       const norm = normalizarNomeProduto(p.nome_produto)
+      if (!norm) continue
+
       if (!produtoIndMap.has(norm)) {
-        produtoIndMap.set(norm, new Set())
+        produtoIndMap.set(norm, new Map())
       }
-      produtoIndMap.get(norm)!.add({ id: p.industry_id, nome: p.industry_name })
+      const indMap = produtoIndMap.get(norm)!
+      const isOficial = p.tipo_mix === 'oficial_industria'
+
+      if (!indMap.has(p.industry_id)) {
+        indMap.set(p.industry_id, {
+          id: p.industry_id,
+          nome: p.industry_name || industryById.get(p.industry_id)?.nome || 'Indústria',
+          mixOficial: isOficial,
+        })
+      } else if (isOficial) {
+        indMap.get(p.industry_id)!.mixOficial = true
+      }
     }
 
-    // 3. Busca rupturas não identificadas
-    const rupturas = await pb.collection('rupturas_base').getList<{
+    // 3. Paginação em LOOP acumulando TODOS os registros elegíveis da base ativa (perPage=100)
+    type RupturaItem = {
       id: string
       codigo_cliente?: string
       produto?: string
       cliente?: string
-    }>(1, 200, {
-      filter: "cliente = 'Não identificada'",
-    })
+      nome_loja?: string
+      codigo_loja?: string
+      dados_brutos_json?: any
+      tradepro_cliente_nome?: string
+    }
 
-    for (const r of rupturas.items) {
-      processadas++
+    const rupturasElegiveis: RupturaItem[] = []
+    let page = 1
+    let totalPages = 1
+    const perPage = 100
+
+    do {
+      const resp = await pb.collection('rupturas_base').getList<RupturaItem>(page, perPage, {
+        filter:
+          "is_base_atual = true && (cliente = '' || cliente = 'Não identificada' || cliente = null)",
+      })
+      totalPages = resp.totalPages || 1
+      rupturasElegiveis.push(...resp.items)
+      page++
+    } while (page <= totalPages)
+
+    // Se a base ativa não tinha nenhum registro elegível ou filtro retornou vazio, tenta sem is_base_atual estrito
+    // caso o ambiente não tenha marcado is_base_atual ainda
+    if (rupturasElegiveis.length === 0) {
+      let pageLegacy = 1
+      let totalPagesLegacy = 1
+      do {
+        const resp = await pb
+          .collection('rupturas_base')
+          .getList<RupturaItem>(pageLegacy, perPage, {
+            filter: "cliente = '' || cliente = 'Não identificada' || cliente = null",
+          })
+        totalPagesLegacy = resp.totalPages || 1
+        rupturasElegiveis.push(...resp.items)
+        pageLegacy++
+      } while (pageLegacy <= totalPagesLegacy)
+    }
+
+    resultado.analisados = rupturasElegiveis.length
+
+    // 4. Processar cada ruptura com a hierarquia estrita
+    for (const r of rupturasElegiveis) {
       let indEncontrada: { id: string; nome: string } | null = null
+      let origemResolucao = ''
+      const possiveisCorrespondencias: string[] = []
 
-      // Passo 1: Cód. Cliente
+      // Passo 1: Cód. Cliente TradePro via industry_registry (NUNCA por nome)
       const codCliente = (r.codigo_cliente || '').trim()
       if (codCliente && clientMap.has(codCliente)) {
         const ind = clientMap.get(codCliente)!
         indEncontrada = { id: ind.id, nome: ind.nome }
+        origemResolucao = 'Código de Cliente TradePro'
       }
 
-      // Passo 2: Produto oficial unívoco (pertence exclusivamente a uma única indústria)
-      if (!indEncontrada && r.produto) {
-        const norm = normalizarNomeProduto(r.produto)
-        const candidatos = produtoIndMap.get(norm)
-        if (candidatos && candidatos.size === 1) {
-          indEncontrada = Array.from(candidatos)[0]
+      // Passo 2: Cliente bruto preservado (dados_brutos_json)
+      if (!indEncontrada && r.dados_brutos_json) {
+        const rawJson = r.dados_brutos_json
+        const rawCod = String(rawJson?.idCliente || rawJson?.codigoCliente || '').trim()
+        if (rawCod && clientMap.has(rawCod)) {
+          const ind = clientMap.get(rawCod)!
+          indEncontrada = { id: ind.id, nome: ind.nome }
+          origemResolucao = 'Cliente Bruto Preservado (TradePro ID)'
         }
       }
 
-      // Se encontrou com segurança total
+      // Passo 3: Produto oficial agrupado por indústrias únicas
+      const prodNome = (r.produto || '').trim()
+      const prodNorm = normalizarNomeProduto(prodNome)
+
+      if (!indEncontrada && prodNorm) {
+        const indMap = produtoIndMap.get(prodNorm)
+
+        if (indMap) {
+          const distinctIndustries = Array.from(indMap.values())
+
+          // Set.size === 1: correspondência unívoca (mesmo produto repetido 3x na Frutap continua sendo 1)
+          if (distinctIndustries.length === 1) {
+            indEncontrada = {
+              id: distinctIndustries[0].id,
+              nome: distinctIndustries[0].nome,
+            }
+            origemResolucao = distinctIndustries[0].mixOficial
+              ? 'Mix Oficial da Indústria (Correspondência Única)'
+              : 'Produto Cadastrado (Correspondência Única)'
+          } else if (distinctIndustries.length > 1) {
+            // Ambiguidade real: Set.size > 1
+            // Avaliar se existe uma indústria onde o produto é EXCLUSIVO do Mix Oficial
+            const oficiais = distinctIndustries.filter((d) => d.mixOficial)
+            if (oficiais.length === 1) {
+              indEncontrada = { id: oficiais[0].id, nome: oficiais[0].nome }
+              origemResolucao = 'Mix Oficial Exclusivo da Indústria'
+            } else {
+              // Ambiguidade persistente: NUNCA forçar
+              possiveisCorrespondencias.push(...distinctIndustries.map((d) => d.nome))
+            }
+          }
+        }
+      }
+
+      // Passo 4: Se ainda não encontrou e temos nome de produto, busca por similaridade semântica
+      // Mas exigindo correspondência segura unívoca por indústrias
+      if (!indEncontrada && prodNorm && possiveisCorrespondencias.length === 0) {
+        // Tenta encontrar produtos no catálogo que contenham as palavras principais
+        const candidatasMap = new Map<string, { id: string; nome: string }>()
+        for (const [pNorm, indMap] of produtoIndMap.entries()) {
+          if (pNorm === prodNorm || pNorm.includes(prodNorm) || prodNorm.includes(pNorm)) {
+            for (const ind of indMap.values()) {
+              candidatasMap.set(ind.id, { id: ind.id, nome: ind.nome })
+            }
+          }
+        }
+
+        const distinctCands = Array.from(candidatasMap.values())
+        if (distinctCands.length === 1) {
+          indEncontrada = distinctCands[0]
+          origemResolucao = 'Resolvedor de Produtos (Semântica Unívoca)'
+        } else if (distinctCands.length > 1) {
+          possiveisCorrespondencias.push(...distinctCands.map((c) => c.nome))
+        }
+      }
+
+      // 5. Destino de cada registro
       if (indEncontrada) {
         try {
           await pb.collection('rupturas_base').update(r.id, {
             cliente: indEncontrada.nome,
           })
-          recuperadas++
-        } catch {
-          /* intentionally ignored */
+          resultado.identificados++
+          resultado.detalhes.push({
+            id: r.id,
+            produto: r.produto || 'Sem produto',
+            loja: r.nome_loja || r.codigo_loja || 'Loja',
+            status: 'identificado',
+            industria: indEncontrada.nome,
+            origemResolucao,
+          })
+        } catch (updateErr) {
+          console.warn(
+            '[cadastrosService] Falha ao atualizar ruptura identificada:',
+            r.id,
+            updateErr,
+          )
         }
+      } else if (possiveisCorrespondencias.length > 0) {
+        resultado.precisamRevisao++
+        resultado.detalhes.push({
+          id: r.id,
+          produto: r.produto || 'Sem produto',
+          loja: r.nome_loja || r.codigo_loja || 'Loja',
+          status: 'revisao',
+          possiveisCorrespondencias,
+        })
+
+        // Envia para a fila de pendências para governança humana
+        try {
+          await createCadastroPendencia({
+            tipo_entidade: 'produto',
+            valor_identificador: r.produto || 'Produto sem identificação',
+            nome_identificado: r.produto,
+            origem_fonte: 'reavaliacao_rupturas_ambigua',
+            contexto_adicional: {
+              ruptura_id: r.id,
+              loja: r.nome_loja,
+              codigo_loja: r.codigo_loja,
+              possiveis_correspondencias: possiveisCorrespondencias,
+            },
+          })
+        } catch {
+          /* non-fatal */
+        }
+      } else {
+        resultado.semIdentificacao++
+        resultado.detalhes.push({
+          id: r.id,
+          produto: r.produto || 'Sem produto',
+          loja: r.nome_loja || r.codigo_loja || 'Loja',
+          status: 'sem_identificacao',
+        })
       }
     }
 
-    if (recuperadas > 0) {
+    if (resultado.identificados > 0 || resultado.precisamRevisao > 0) {
       await logCadastroAudit(
         'rupturas_reavaliadas_indústria',
-        `${recuperadas} rupturas identificadas`,
+        `${resultado.identificados} identificadas, ${resultado.precisamRevisao} em revisão de ${resultado.analisados} analisadas`,
         'rupturas_base',
         {
           executorNome: userName,
-          detalhes: { processadas, recuperadas },
+          detalhes: {
+            analisados: resultado.analisados,
+            identificados: resultado.identificados,
+            precisamRevisao: resultado.precisamRevisao,
+            semIdentificacao: resultado.semIdentificacao,
+          },
         },
       )
     }
@@ -811,7 +1017,7 @@ export async function reavaliarRupturasNaoIdentificadas(
     console.warn('[cadastrosService] Erro ao reavaliar rupturas não identificadas:', err)
   }
 
-  return { processadas, recuperadas }
+  return resultado
 }
 
 // ---------------------------------------------------------------------------------
