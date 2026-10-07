@@ -55,8 +55,33 @@ export const VisitasPage: React.FC = () => {
   const loadData = React.useCallback(async () => {
     setLoading(true)
     try {
-      const [visList, promList, storeList] = await Promise.all([
-        getOperacionalVisitas(),
+      // Busca visitas direto do PocketBase para contemplar schema real e fallback do serviço
+      let visList: OperacionalVisita[] = []
+      try {
+        const rawVis = await pb.collection('operacional_visitas').getList(1, 1000, {
+          sort: '-data,-created',
+        })
+        visList = (rawVis.items || []).map((it) => ({
+          id: it.id,
+          data: (it.data as string) || '',
+          promoter_id: (it.promoter_id as string) || '',
+          promoter_cod: (it.promoter_cod as string) || '',
+          promoter_nome: (it.promoter_nome as string) || '',
+          store_id: (it.store_id as string) || '',
+          store_code: (it.store_code as string) || '',
+          store_name: (it.store_nome as string) || '',
+          hora_inicio: (it.hora_entrada as string) || (it.hora_inicio as string) || undefined,
+          hora_fim: (it.hora_saida as string) || (it.hora_fim as string) || undefined,
+          duracao_minutos: Number(it.duracao_minutos) || undefined,
+          status: (it.status as string) || 'realizada',
+          origem_fonte: (it.origem as string) || 'tradepro_api',
+          observacao: it.observacao as string,
+        }))
+      } catch (_) {
+        visList = await getOperacionalVisitas()
+      }
+
+      const [promList, storeList] = await Promise.all([
         getCadastrosPromotores(),
         getCadastrosLojas(),
       ])

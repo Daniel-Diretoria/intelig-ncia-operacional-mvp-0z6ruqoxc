@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T18:14:46.911Z",
+  "generatedAt": "2026-10-07T18:35:45.384Z",
   "collections": [
     {
       "name": "users",
@@ -2272,7 +2272,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["sync_rupturas", "sync_validades"]
+          "selectValues": ["sync_rupturas", "sync_validades", "sync_visitas"]
         },
         {
           "name": "requested_by",
@@ -5260,7 +5260,8 @@
       "indexes": [
         "CREATE INDEX idx_visitas_data ON operacional_visitas (data)",
         "CREATE INDEX idx_visitas_promoter ON operacional_visitas (promoter_id, data)",
-        "CREATE INDEX idx_visitas_store ON operacional_visitas (store_code, data)"
+        "CREATE INDEX idx_visitas_store ON operacional_visitas (store_code, data)",
+        "CREATE INDEX `idx_visitas_dedup_promoter_store_data` ON `operacional_visitas` (promoter_cod,store_code,data)"
       ]
     }
   ]

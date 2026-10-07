@@ -3,6 +3,9 @@ import type {
   ValidadesApiResponse,
   TradeProRupturaItem,
   RupturasApiResponse,
+  TradeProVisitaItem,
+  TradeProVisitaCliente,
+  VisitasApiResponse,
 } from '@/types/tradeProApi'
 import type { RupturaMotivo } from '@/types'
 
@@ -621,6 +624,111 @@ export function adaptRupturaItem(item: TradeProRupturaItem): RupturaCandidateSuc
       ruptura_flag: item.ruptura,
       produto,
       scope: isTotal ? 'brand_total' : 'product',
+    },
+  }
+}
+
+// ===== ADAPTER DE VISITAS FACTUAL =====
+
+export interface VisitaNormalizadaOperacional {
+  data: string
+  promoter_cod: string
+  promoter_nome: string
+  store_code: string
+  store_nome: string
+  hora_entrada?: string
+  hora_saida?: string
+  duracao_minutos?: number
+  status: 'realizada' | 'pendente' | 'cancelada'
+  origem: 'tradepro_api'
+  vinculo_relacao: 'observado'
+  origem_relacao: 'observado_visita'
+  raw_data: Record<string, unknown>
+}
+
+/**
+ * Calcula duração em minutos estritamente quando ambos os horários estiverem presentes.
+ * NUNCA inventa minutos nem arredonda se faltar um dos limites.
+ */
+export function computeVisitaDurationMinutes(
+  horaEntrada?: string | null,
+  horaSaida?: string | null,
+): number | undefined {
+  if (!horaEntrada || !horaSaida) return undefined
+  const p1 = String(horaEntrada).trim().split(':')
+  const p2 = String(horaSaida).trim().split(':')
+  if (p1.length < 2 || p2.length < 2) return undefined
+  const m1 = parseInt(p1[0], 10) * 60 + parseInt(p1[1], 10)
+  const m2 = parseInt(p2[0], 10) * 60 + parseInt(p2[1], 10)
+  if (isNaN(m1) || isNaN(m2) || m2 < m1) return undefined
+  return m2 - m1
+}
+
+/**
+ * Normaliza um item factual de visita vindo da TradePro.
+ * Respeita regras do produto:
+ * - Não inventa check-in nem check-out
+ * - Duração somente se ambos os lados existirem
+ * - Vínculo promotor-loja sempre como 'observado' (origem 'observado_visita')
+ * - Preserva dados brutos integrais
+ */
+export function adaptVisitaItem(
+  promotorItem: TradeProVisitaItem,
+  clienteItem?: TradeProVisitaCliente,
+  defaultData?: string,
+): VisitaNormalizadaOperacional {
+  const promoterCod = String(
+    promotorItem.idPromotor != null ? promotorItem.idPromotor : promotorItem.promotor?.id || '',
+  ).trim()
+
+  const promoterNome = (promotorItem.nomePromotor || promotorItem.promotor?.nome || '').trim()
+
+  const rawStoreCod = clienteItem?.codigo != null ? String(clienteItem.codigo).trim() : ''
+  const rawStoreNome = (
+    clienteItem?.razaoSocial ||
+    clienteItem?.nome ||
+    clienteItem?.fantasia ||
+    ''
+  ).trim()
+
+  const rawData = (
+    clienteItem?.data ||
+    clienteItem?.dataVisita ||
+    defaultData ||
+    new Date().toISOString().split('T')[0]
+  )
+    .split('T')[0]
+    .split(' ')[0]
+
+  const rawEntrada =
+    clienteItem?.horaEntrada || clienteItem?.checkIn || clienteItem?.horaInicio || clienteItem?.hora
+  const rawSaida = clienteItem?.horaSaida || clienteItem?.checkOut || clienteItem?.horaFim
+
+  const cleanEntrada = rawEntrada ? String(rawEntrada).trim() : undefined
+  const cleanSaida = rawSaida ? String(rawSaida).trim() : undefined
+  const duracao = computeVisitaDurationMinutes(cleanEntrada, cleanSaida)
+
+  const isRealizada =
+    clienteItem?.realizada === true ||
+    clienteItem?.status === 'realizada' ||
+    Number(promotorItem.visitasRealizadas || 0) > 0
+
+  return {
+    data: rawData,
+    promoter_cod: promoterCod,
+    promoter_nome: promoterNome,
+    store_code: rawStoreCod,
+    store_nome: rawStoreNome,
+    hora_entrada: cleanEntrada,
+    hora_saida: cleanSaida,
+    duracao_minutos: duracao,
+    status: isRealizada ? 'realizada' : 'pendente',
+    origem: 'tradepro_api',
+    vinculo_relacao: 'observado',
+    origem_relacao: 'observado_visita',
+    raw_data: {
+      promotorItem,
+      clienteItem,
     },
   }
 }

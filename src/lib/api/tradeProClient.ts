@@ -109,7 +109,7 @@ export interface AmostraEstruturaDiagnostic {
 
 export interface SyncJobRecord {
   id: string
-  action: 'sync_rupturas' | 'sync_validades'
+  action: 'sync_rupturas' | 'sync_validades' | 'sync_visitas'
   requested_by: string
   date_start: string
   date_end: string
@@ -292,7 +292,8 @@ export async function testTradeProConnection(
 function mapSyncJobRecord(record: Record<string, unknown>): SyncJobRecord {
   return {
     id: (record.id as string) || '',
-    action: (record.action as 'sync_rupturas' | 'sync_validades') || 'sync_rupturas',
+    action:
+      (record.action as 'sync_rupturas' | 'sync_validades' | 'sync_visitas') || 'sync_rupturas',
     requested_by: (record.requested_by as string) || '',
     date_start: (record.date_start as string) || '',
     date_end: (record.date_end as string) || '',
@@ -484,6 +485,89 @@ export async function startValidadesSync(
 }
 
 /**
+ * Cria job de prévia de Visitas e retorna o registro processado com o total de itens e páginas.
+ */
+export async function requestVisitasPreview(
+  dataInicial: string,
+  dataFinal: string,
+): Promise<SyncJobRecord> {
+  const userId = pb.authStore.record?.id || pb.authStore.model?.id
+  if (!userId) {
+    throw new Error('Usuário não autenticado. Faça login para consultar a prévia de visitas.')
+  }
+
+  const created = await pb.collection('tradepro_sync_jobs').create({
+    action: 'sync_visitas',
+    requested_by: userId,
+    date_start: dataInicial,
+    date_end: dataFinal,
+    status: 'pending',
+    total_informado: 0,
+    paginas_total: 0,
+    paginas_processadas: 0,
+    registros_lidos: 0,
+    registros_validos: 0,
+    registros_rejeitados: 0,
+    registros_deduplicados: 0,
+    registros_consolidados: 0,
+    message: '',
+  })
+
+  // Hook onRecordAfterCreateSuccess processa a prévia
+  const processed = await pb.collection('tradepro_sync_jobs').getOne(created.id)
+  return mapSyncJobRecord(processed as unknown as Record<string, unknown>)
+}
+
+/**
+ * Atualiza o job de Visitas para status='syncing' e faz polling até conclusão, erro ou pausa.
+ */
+export async function startVisitasSync(
+  jobId: string,
+  onProgress?: (job: SyncJobRecord) => void,
+): Promise<SyncJobRecord> {
+  const POLLING_INTERVAL_MS = 1000
+  const MAX_POLLS = 600 // até 10 minutos para grandes volumes
+
+  const updatePromise = pb
+    .collection('tradepro_sync_jobs')
+    .update(jobId, {
+      status: 'syncing',
+      message: 'Sincronização de visitas iniciada...',
+    })
+    .catch((err) => {
+      console.error('[startVisitasSync] Erro no PATCH inicial:', err)
+    })
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    try {
+      const current = await pb.collection('tradepro_sync_jobs').getOne(jobId)
+      const mapped = mapSyncJobRecord(current as unknown as Record<string, unknown>)
+
+      if (onProgress) {
+        onProgress(mapped)
+      }
+
+      if (
+        mapped.status === 'success' ||
+        mapped.status === 'error' ||
+        mapped.status === 'paused' ||
+        mapped.status === 'cancelled'
+      ) {
+        await updatePromise
+        return mapped
+      }
+    } catch (_) {
+      // Ignora falhas esporádicas de consulta durante polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS))
+  }
+
+  await updatePromise
+  const timeoutRec = await pb.collection('tradepro_sync_jobs').getOne(jobId)
+  return mapSyncJobRecord(timeoutRec as unknown as Record<string, unknown>)
+}
+
+/**
  * Cancela um job em andamento marcando status='cancelled'.
  */
 export async function cancelSyncJob(jobId: string): Promise<void> {
@@ -505,7 +589,7 @@ export async function cancelSyncJob(jobId: string): Promise<void> {
 export async function findRetryableSyncJob(
   dataInicial: string,
   dataFinal: string,
-  action: 'sync_rupturas' | 'sync_validades' = 'sync_rupturas',
+  action: 'sync_rupturas' | 'sync_validades' | 'sync_visitas' = 'sync_rupturas',
 ): Promise<SyncJobRecord | null> {
   try {
     const filter = `action = "${action}" && date_start = "${dataInicial}" && date_end = "${dataFinal}" && (status = "error" || status = "paused") && paginas_processadas > 0`

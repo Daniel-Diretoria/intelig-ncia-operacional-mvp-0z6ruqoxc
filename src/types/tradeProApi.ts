@@ -98,3 +98,46 @@ export interface RupturasApiResponse {
   totalDePaginas: string | number
   totalDeRegistros: string | number
 }
+
+// ===== VISITAS =====
+
+export interface TradeProVisitaCliente {
+  codigo?: string | number
+  razaoSocial?: string
+  nome?: string
+  fantasia?: string
+  data?: string
+  dataVisita?: string
+  horaEntrada?: string
+  checkIn?: string
+  horaInicio?: string
+  hora?: string
+  horaSaida?: string
+  checkOut?: string
+  horaFim?: string
+  realizada?: boolean
+  status?: string
+}
+
+export interface TradeProVisitaItem {
+  idPromotor: string | number
+  nomePromotor: string
+  idSupervisor?: string | number
+  nomeSupervisor?: string
+  visitasPrevistas?: number | string
+  visitasRealizadas?: number | string
+  percentualVisitas?: string | number
+  promotor?: {
+    id?: string | number
+    nome?: string
+    carteiraClientes?: TradeProVisitaCliente[]
+  }
+}
+
+export interface VisitasApiResponse {
+  visitas: TradeProVisitaItem[]
+  paginaAtual: string | number
+  quantidadePorPagina: string | number
+  totalDePaginas: string | number
+  totalDeRegistros: string | number
+}

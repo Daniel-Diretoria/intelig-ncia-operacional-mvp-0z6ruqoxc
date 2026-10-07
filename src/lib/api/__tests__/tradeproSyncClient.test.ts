@@ -3,6 +3,8 @@ import pb from '@/lib/pocketbase/client'
 import {
   requestRupturasPreview,
   startRupturasSync,
+  requestVisitasPreview,
+  startVisitasSync,
   cancelSyncJob,
   findRetryableSyncJob,
   type SyncJobRecord,
@@ -111,6 +113,83 @@ describe('TradePro Sync Client — Fluxo de Prévia e Sincronização Paginada',
     expect(onProgress).toHaveBeenCalled()
     expect(result.status).toBe('success')
     expect(result.registros_consolidados).toBe(50)
+  })
+
+  it('requestVisitasPreview: cria job com action="sync_visitas" e retorna dados processados', async () => {
+    vi.spyOn(pb.authStore, 'record', 'get').mockReturnValue({ id: 'user_456' } as any)
+
+    const mockCreate = vi.fn().mockResolvedValue({ id: 'job_visitas_01' })
+    const mockGetOne = vi.fn().mockResolvedValue({
+      id: 'job_visitas_01',
+      action: 'sync_visitas',
+      requested_by: 'user_456',
+      date_start: '2026-10-01',
+      date_end: '2026-10-06',
+      status: 'preview',
+      total_informado: 120,
+      paginas_total: 4,
+      paginas_processadas: 0,
+      registros_lidos: 0,
+      registros_validos: 0,
+      registros_rejeitados: 0,
+      registros_deduplicados: 0,
+      registros_consolidados: 0,
+      message: 'Prévia de visitas carregada.',
+      created: '2026-10-06T12:00:00.000Z',
+      updated: '2026-10-06T12:00:02.000Z',
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({
+      create: mockCreate,
+      getOne: mockGetOne,
+    } as any)
+
+    const result = await requestVisitasPreview('2026-10-01', '2026-10-06')
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'sync_visitas',
+        requested_by: 'user_456',
+        date_start: '2026-10-01',
+        date_end: '2026-10-06',
+        status: 'pending',
+      }),
+    )
+    expect(result.action).toBe('sync_visitas')
+    expect(result.status).toBe('preview')
+    expect(result.total_informado).toBe(120)
+    expect(result.paginas_total).toBe(4)
+  })
+
+  it('startVisitasSync: atualiza para syncing e faz polling até success', async () => {
+    const mockUpdate = vi.fn().mockResolvedValue({ id: 'job_visitas_sync_01', status: 'syncing' })
+    const mockGetOne = vi.fn().mockResolvedValue({
+      id: 'job_visitas_sync_01',
+      action: 'sync_visitas',
+      status: 'success',
+      paginas_total: 4,
+      paginas_processadas: 4,
+      registros_lidos: 120,
+      registros_validos: 115,
+      registros_deduplicados: 5,
+      registros_consolidados: 115,
+      message: 'Sincronização de visitas concluída com sucesso.',
+    })
+
+    vi.spyOn(pb, 'collection').mockReturnValue({
+      update: mockUpdate,
+      getOne: mockGetOne,
+    } as any)
+
+    const onProgress = vi.fn()
+    const result = await startVisitasSync('job_visitas_sync_01', onProgress)
+
+    expect(mockUpdate).toHaveBeenCalledWith('job_visitas_sync_01', {
+      status: 'syncing',
+      message: 'Sincronização de visitas iniciada...',
+    })
+    expect(result.status).toBe('success')
+    expect(result.registros_consolidados).toBe(115)
+    expect(result.registros_deduplicados).toBe(5)
   })
 
   it('cancelSyncJob: atualiza job para cancelled', async () => {

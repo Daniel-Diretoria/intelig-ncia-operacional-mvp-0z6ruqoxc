@@ -1028,6 +1028,367 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     $app.save(record)
+  } else if (action === 'sync_visitas' && status === 'pending') {
+    // =========================================================================
+    // BLOCO VISITAS — PRÉVIA
+    // =========================================================================
+    const userId = record.getString('requested_by')
+    const dateStart = record.getString('date_start').split(' ')[0].split('T')[0]
+    const dateEnd = record.getString('date_end').split(' ')[0].split('T')[0]
+
+    const nowIso = new Date().toISOString()
+    record.set('started_at', nowIso)
+
+    // 1. Validação estrita de formato e calendário das datas (máximo 31 dias)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    const isValidCalendarDate = (str) => {
+      if (!dateRegex.test(str)) return false
+      const parts = str.split('-')
+      const y = parseInt(parts[0], 10)
+      const m = parseInt(parts[1], 10)
+      const d = parseInt(parts[2], 10)
+      if (m < 1 || m > 12 || d < 1 || d > 31) return false
+      const dt = new Date(Date.UTC(y, m - 1, d))
+      if (isNaN(dt.getTime())) return false
+      return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+    }
+
+    if (!isValidCalendarDate(dateStart) || !isValidCalendarDate(dateEnd) || dateStart > dateEnd) {
+      record.set('status', 'error')
+      record.set('error_code', 'invalid_period')
+      record.set('message', 'Período inválido. A data inicial deve ser menor ou igual à final.')
+      record.set('total_informado', 0)
+      record.set('paginas_total', 0)
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    const d1 = new Date(dateStart + 'T00:00:00Z')
+    const d2 = new Date(dateEnd + 'T00:00:00Z')
+    const diffDays = Math.ceil(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays > 31) {
+      record.set('status', 'error')
+      record.set('error_code', 'invalid_period')
+      record.set('message', 'O intervalo máximo permitido para consulta é de 31 dias.')
+      record.set('total_informado', 0)
+      record.set('paginas_total', 0)
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    // 2. Proteção contra abuso e Rate Limit
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      const recentJobs = $app.findRecordsByFilter(
+        'tradepro_sync_jobs',
+        'requested_by = "' +
+          userId +
+          '" && created >= "' +
+          fiveMinutesAgo +
+          '" && action = "sync_visitas" && id != "' +
+          record.id +
+          '"',
+        '-created',
+        20,
+        0,
+      )
+
+      if (recentJobs && recentJobs.length > 10) {
+        record.set('status', 'error')
+        record.set('error_code', 'rate_limited')
+        record.set(
+          'message',
+          'Muitas consultas recentes. Aguarde alguns minutos antes de consultar novamente.',
+        )
+        record.set('total_informado', 0)
+        record.set('paginas_total', 0)
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+    } catch (_) {}
+
+    // 3. Previne execuções concorrentes do mesmo usuário para sync_visitas
+    try {
+      const concurrentSyncing = $app.findRecordsByFilter(
+        'tradepro_sync_jobs',
+        'requested_by = "' +
+          userId +
+          '" && status = "syncing" && action = "sync_visitas" && id != "' +
+          record.id +
+          '"',
+        '-created',
+        5,
+        0,
+      )
+
+      if (concurrentSyncing && concurrentSyncing.length > 0) {
+        record.set('status', 'error')
+        record.set('error_code', 'rate_limited')
+        record.set(
+          'message',
+          'Já existe uma sincronização de visitas em andamento. Aguarde a conclusão.',
+        )
+        record.set('total_informado', 0)
+        record.set('paginas_total', 0)
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+    } catch (_) {}
+
+    // 4. Obtenção Segura do Token
+    const rawToken = $os.getenv('TRADEPRO_BASIC_TOKEN') || ''
+    if (!rawToken || rawToken.trim() === '') {
+      record.set('status', 'error')
+      record.set('error_code', 'not_configured')
+      record.set('message', 'Token de autenticação TradePro não configurado.')
+      record.set('total_informado', 0)
+      record.set('paginas_total', 0)
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    const trimmedToken = rawToken.trim()
+    const authHeader = trimmedToken.startsWith('Basic ') ? trimmedToken : 'Basic ' + trimmedToken
+    const toTradeProDate = (isoDate) => isoDate.replace(/-/g, '')
+
+    // Endpoint oficial de Visitas: /v1/relatorio-visitas/{dataInicial}/{dataFinal}?paginaAtual=1&quantidadePorPagina=1
+    const url =
+      'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-visitas/' +
+      toTradeProDate(dateStart) +
+      '/' +
+      toTradeProDate(dateEnd) +
+      '?paginaAtual=1&quantidadePorPagina=1'
+
+    const sanitizeErrorMessage = (rawText, defaultMsg) => {
+      if (!rawText) return defaultMsg
+      try {
+        const parsed = JSON.parse(rawText)
+        if (parsed && typeof parsed === 'object') {
+          const candidate =
+            parsed.mensagem ||
+            parsed.message ||
+            parsed.error ||
+            parsed.descricao ||
+            (Array.isArray(parsed.erros) &&
+              parsed.erros[0] &&
+              (parsed.erros[0].mensagem || parsed.erros[0].message))
+          if (candidate && typeof candidate === 'string') {
+            const clean = candidate.trim()
+            if (!/secret|key|token|auth|bearer|pass|pwd|header/i.test(clean)) {
+              return clean.length > 200 ? clean.substring(0, 197) + '...' : clean
+            }
+          }
+        }
+      } catch (_) {}
+      const trimmed = rawText.trim()
+      if (!/secret|key|token|auth|bearer|pass|pwd|header|<html|<!doctype/i.test(trimmed)) {
+        return trimmed.length > 200 ? trimmed.substring(0, 197) + '...' : trimmed
+      }
+      return defaultMsg
+    }
+
+    let res = null
+    let httpError = null
+    const startTime = Date.now()
+
+    try {
+      res = $http.send({
+        url: url,
+        method: 'GET',
+        headers: {
+          Authorization: authHeader,
+          Accept: 'application/json',
+        },
+        timeout: 20,
+      })
+    } catch (err) {
+      httpError = err
+    }
+
+    const latencyMs = Date.now() - startTime
+
+    if (httpError) {
+      const errStr = String(httpError || '')
+      const isTimeout = /timeout|deadline|exceeded|timed out/i.test(errStr)
+      record.set('status', 'error')
+      record.set('error_code', isTimeout ? 'timeout' : 'tradepro_unavailable')
+      record.set(
+        'message',
+        isTimeout
+          ? 'Serviço não respondeu dentro do limite de 20 segundos.'
+          : 'Erro de comunicação ao conectar à API TradePro.',
+      )
+      record.set('total_informado', 0)
+      record.set('paginas_total', 0)
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    const statusCode = res.statusCode || 0
+    const rawBodyText =
+      typeof res.raw === 'string'
+        ? res.raw
+        : typeof res.body === 'string'
+          ? res.body
+          : JSON.stringify(res.json || {})
+
+    if (statusCode === 200) {
+      let totalDetectado = 0
+      let paginasTotal = 0
+      let itensRetornados = 0
+      let amostraEstrutura = null
+
+      if (res.json && typeof res.json === 'object') {
+        const jsonBody = res.json
+
+        // Total de registros
+        if (typeof jsonBody.totalDeRegistros === 'number') {
+          totalDetectado = jsonBody.totalDeRegistros
+        } else if (typeof jsonBody.totalDeRegistros === 'string') {
+          const parsed = parseInt(jsonBody.totalDeRegistros, 10)
+          totalDetectado = isNaN(parsed) ? 0 : parsed
+        }
+
+        const TAMANHO_LOTE_SYNC = 30
+        const reqQtdPorPagina =
+          jsonBody.quantidadePorPagina != null ? parseInt(jsonBody.quantidadePorPagina, 10) : 1
+        const apiTotalPaginas =
+          jsonBody.totalDePaginas != null ? parseInt(jsonBody.totalDePaginas, 10) : 0
+
+        if (totalDetectado > 0) {
+          paginasTotal = Math.ceil(totalDetectado / TAMANHO_LOTE_SYNC)
+        } else if (apiTotalPaginas > 0) {
+          paginasTotal = Math.ceil(apiTotalPaginas / TAMANHO_LOTE_SYNC)
+          totalDetectado = apiTotalPaginas
+        }
+
+        const listaVisitas = Array.isArray(jsonBody.visitas) ? jsonBody.visitas : []
+        itensRetornados = listaVisitas.length
+
+        // Metadados seguros da amostra (sem senhas, tokens ou cabeçalhos)
+        const itemAmostra = listaVisitas[0] || null
+        if (itemAmostra) {
+          amostraEstrutura = {
+            capturadoEm: new Date().toISOString(),
+            endpoint: '/v1/relatorio-visitas',
+            totalDeRegistros: totalDetectado,
+            paginasTotalCalculadas: paginasTotal,
+            amostraPromotor: {
+              idPromotor: itemAmostra.idPromotor != null ? String(itemAmostra.idPromotor) : '',
+              nomePromotor: itemAmostra.nomePromotor || '',
+              idSupervisor:
+                itemAmostra.idSupervisor != null ? String(itemAmostra.idSupervisor) : '',
+              nomeSupervisor: itemAmostra.nomeSupervisor || '',
+              visitasPrevistas:
+                itemAmostra.visitasPrevistas != null ? Number(itemAmostra.visitasPrevistas) : 0,
+              visitasRealizadas:
+                itemAmostra.visitasRealizadas != null ? Number(itemAmostra.visitasRealizadas) : 0,
+              percentualVisitas: itemAmostra.percentualVisitas || '',
+            },
+          }
+        }
+      }
+
+      record.set('status', 'preview')
+      record.set('error_code', null)
+      record.set('total_informado', totalDetectado)
+      record.set('paginas_total', paginasTotal)
+      if (amostraEstrutura) {
+        record.set('amostra_estrutura_json', amostraEstrutura)
+      }
+      record.set('paginas_processadas', 0)
+      record.set('registros_lidos', 0)
+      record.set('registros_validos', 0)
+      record.set('registros_rejeitados', 0)
+      record.set('registros_deduplicados', 0)
+      record.set('registros_consolidados', 0)
+
+      let previewMsg = ''
+      if (totalDetectado === 0 && paginasTotal === 0 && itensRetornados === 0) {
+        previewMsg = 'Nenhum registro de visitas encontrado para o período.'
+      } else {
+        previewMsg =
+          'Prévia carregada: ' +
+          totalDetectado +
+          ' registros de promotores em ' +
+          paginasTotal +
+          ' páginas.'
+      }
+
+      record.set('message', previewMsg)
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    if (statusCode === 204) {
+      record.set('status', 'preview')
+      record.set('error_code', null)
+      record.set('total_informado', 0)
+      record.set('paginas_total', 0)
+      record.set('paginas_processadas', 0)
+      record.set('registros_lidos', 0)
+      record.set('registros_validos', 0)
+      record.set('registros_rejeitados', 0)
+      record.set('registros_deduplicados', 0)
+      record.set('registros_consolidados', 0)
+      record.set('message', 'Nenhum registro de visitas no período (HTTP 204).')
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    // Tratamento de falhas HTTP
+    record.set('status', 'error')
+    record.set('total_informado', 0)
+    record.set('paginas_total', 0)
+    record.set('finished_at', new Date().toISOString())
+
+    if (statusCode === 401) {
+      record.set('error_code', 'unauthorized')
+      record.set(
+        'message',
+        sanitizeErrorMessage(rawBodyText, 'Token inválido ou autenticação recusada.'),
+      )
+    } else if (statusCode === 403) {
+      record.set('error_code', 'forbidden')
+      record.set(
+        'message',
+        sanitizeErrorMessage(rawBodyText, 'Usuário sem permissão para acessar o recurso.'),
+      )
+    } else if (statusCode === 429) {
+      record.set('error_code', 'rate_limited')
+      record.set(
+        'message',
+        sanitizeErrorMessage(
+          rawBodyText,
+          'Limite de requisições excedido no TradePro. Tente novamente em instantes.',
+        ),
+      )
+    } else if (statusCode >= 500) {
+      record.set('error_code', 'tradepro_unavailable')
+      record.set(
+        'message',
+        sanitizeErrorMessage(rawBodyText, 'Serviço TradePro indisponível no momento.'),
+      )
+    } else {
+      record.set('error_code', 'internal_error')
+      record.set(
+        'message',
+        sanitizeErrorMessage(
+          rawBodyText,
+          'Falha na resposta do servidor TradePro (HTTP ' + statusCode + ').',
+        ),
+      )
+    }
+
+    $app.save(record)
   }
 }, 'tradepro_sync_jobs')
 
@@ -2273,5 +2634,613 @@ onRecordAfterUpdateSuccess((e) => {
       record.set('finished_at', new Date().toISOString())
       $app.save(record)
     }
+  } else if (action === 'sync_visitas' && status === 'syncing') {
+    // =========================================================================
+    // BLOCO VISITAS — SINCRONIZAÇÃO PAGINADA
+    // =========================================================================
+    try {
+      const originalStatus = record.original() ? record.original().getString('status') : ''
+      if (originalStatus === 'syncing') {
+        return
+      }
+    } catch (_) {}
+
+    const rawToken = $os.getenv('TRADEPRO_BASIC_TOKEN') || ''
+    if (!rawToken.trim()) {
+      record.set('status', 'error')
+      record.set('error_code', 'not_configured')
+      record.set('message', 'Token de autenticação TradePro não configurado.')
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    const trimmedToken = rawToken.trim()
+    const authHeader = trimmedToken.startsWith('Basic ') ? trimmedToken : 'Basic ' + trimmedToken
+    const toTradeProDate = (isoDate) => isoDate.replace(/-/g, '')
+
+    const dateStart = record.getString('date_start').split(' ')[0].split('T')[0]
+    const dateEnd = record.getString('date_end').split(' ')[0].split('T')[0]
+    const requestedBy = record.getString('requested_by')
+    const jobId = record.id
+
+    const totalInformado = record.getInt('total_informado') || 0
+    const paginasTotal = record.getInt('paginas_total') || Math.ceil(totalInformado / 30) || 1
+    let paginaInicial = record.getInt('paginas_processadas') || 0
+    if (paginaInicial < 1) paginaInicial = 1
+    else paginaInicial = paginaInicial + 1
+
+    if (totalInformado === 0) {
+      record.set('status', 'success')
+      record.set('registros_consolidados', 0)
+      record.set('message', 'Nenhum registro a ser sincronizado.')
+      record.set('finished_at', new Date().toISOString())
+      $app.save(record)
+      return
+    }
+
+    // Carrega indústrias cadastradas para resolução de vínculos seguros
+    const industryMapByClientId = {}
+    try {
+      const allIndustries = $app.findRecordsByFilter(
+        'industry_registry',
+        'id != ""',
+        'nome',
+        1000,
+        0,
+      )
+      if (allIndustries && allIndustries.length > 0) {
+        for (let indIdx = 0; indIdx < allIndustries.length; indIdx++) {
+          const indRec = allIndustries[indIdx]
+          const tId = (indRec.getString('tradepro_client_id') || '').trim()
+          if (tId) {
+            industryMapByClientId[tId] = {
+              id: indRec.id,
+              nome: indRec.getString('nome'),
+              tradepro_client_id: tId,
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Carrega promotores cadastrados para resolução de promoter_id
+    const promoterMapByCod = {}
+    try {
+      const allPromoters = $app.findRecordsByFilter('master_promoters', 'id != ""', 'nome', 2000, 0)
+      if (allPromoters && allPromoters.length > 0) {
+        for (let pIdx = 0; pIdx < allPromoters.length; pIdx++) {
+          const pRec = allPromoters[pIdx]
+          const cod = (pRec.getString('codigo') || '').trim()
+          if (cod) {
+            promoterMapByCod[cod] = pRec.id
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Carrega lojas cadastradas para resolução de store_id
+    const storeMapByCode = {}
+    try {
+      const allStores = $app.findRecordsByFilter('master_stores', 'id != ""', 'codigo', 2000, 0)
+      if (allStores && allStores.length > 0) {
+        for (let sIdx = 0; sIdx < allStores.length; sIdx++) {
+          const sRec = allStores[sIdx]
+          const cod = (sRec.getString('codigo') || '').trim()
+          if (cod) {
+            storeMapByCode[cod] = sRec.id
+          }
+        }
+      }
+    } catch (_) {}
+
+    const sanitizeErrorMessage = (rawText, defaultMsg) => {
+      let extracted = ''
+      try {
+        let json = null
+        if (rawText) json = JSON.parse(rawText)
+        if (json && typeof json === 'object') {
+          const candidate =
+            json.message ||
+            json.mensagem ||
+            json.error ||
+            json.detail ||
+            json.title ||
+            json.details ||
+            ''
+          if (typeof candidate === 'string' && candidate.trim()) extracted = candidate.trim()
+        }
+      } catch (_) {}
+
+      if (!extracted && rawText && typeof rawText === 'string') {
+        const trimmed = rawText.trim()
+        if (
+          trimmed.length > 0 &&
+          trimmed.length <= 300 &&
+          !trimmed.startsWith('<html') &&
+          !trimmed.startsWith('<!DOCTYPE')
+        ) {
+          extracted = trimmed
+        }
+      }
+
+      if (!extracted) extracted = defaultMsg
+
+      let clean = extracted
+        .replace(/Authorization:\s*[^\s,;]+/gi, '')
+        .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, '')
+        .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, '')
+        .replace(/token[=:\s]+[A-Za-z0-9\-._~+/]+/gi, '')
+        .replace(/password[=:\s]+[^\s,;]+/gi, '')
+        .replace(/senha[=:\s]+[^\s,;]+/gi, '')
+        .replace(/https?:\/\/[^\s?#]+(\?[^\s#]*)?/gi, '[URL]')
+        .replace(/cookie[=:\s]+[^\s,;]+/gi, '')
+        .replace(/[A-Za-z0-9+/=]{40,}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (!clean) clean = defaultMsg
+      if (clean.length > 300) clean = clean.substring(0, 300)
+      return clean
+    }
+
+    // Helper para extrair código de loja a partir de razão social / nome da loja
+    const extractStoreCode = (razaoSocial) => {
+      const rs = (razaoSocial || '').trim()
+      if (!rs) return ''
+      const m = rs.match(/^(\d+)/)
+      if (m) return m[1]
+      const m2 = rs.match(/^([^-–]+?)[\s]*[-–]/)
+      if (m2) return m2[1].trim()
+      return ''
+    }
+
+    // Helper para cálculo seguro de duração em minutos (somente se ambos os horários existirem)
+    const computeDurationMinutes = (inicio, fim) => {
+      if (!inicio || !fim) return 0
+      const p1 = String(inicio).trim().split(':')
+      const p2 = String(fim).trim().split(':')
+      if (p1.length < 2 || p2.length < 2) return 0
+      const m1 = parseInt(p1[0], 10) * 60 + parseInt(p1[1], 10)
+      const m2 = parseInt(p2[0], 10) * 60 + parseInt(p2[1], 10)
+      if (isNaN(m1) || isNaN(m2) || m2 < m1) return 0
+      return m2 - m1
+    }
+
+    let registrosLidos = record.getInt('registros_lidos') || 0
+    let registrosValidos = record.getInt('registros_validos') || 0
+    let registrosRejeitados = record.getInt('registros_rejeitados') || 0
+    let registrosDeduplicados = record.getInt('registros_deduplicados') || 0
+
+    // Loop paginado sequencial com retry autônomo
+    for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
+      try {
+        const checkRecord = $app.findRecordById('tradepro_sync_jobs', jobId)
+        if (checkRecord.getString('status') === 'cancelled') {
+          return
+        }
+      } catch (_) {}
+
+      const pageUrl =
+        'https://diretoria.tradepro.com.br/diretoria/servicos/v1/relatorio-visitas/' +
+        toTradeProDate(dateStart) +
+        '/' +
+        toTradeProDate(dateEnd) +
+        '?paginaAtual=' +
+        pagina +
+        '&quantidadePorPagina=30'
+
+      let res = null
+      let sendError = null
+      let statusCode = 0
+      let rawBodyText = ''
+      const maxAttempts = 5
+      const retryDelaysMs = [5000, 15000, 30000, 30000, 30000]
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        sendError = null
+        res = null
+
+        try {
+          res = $http.send({
+            url: pageUrl,
+            method: 'GET',
+            headers: {
+              Authorization: authHeader,
+              Accept: 'application/json',
+            },
+            timeout: 20,
+          })
+        } catch (err) {
+          sendError = err
+        }
+
+        statusCode = res ? res.statusCode || 0 : 0
+        rawBodyText =
+          res && typeof res.raw === 'string'
+            ? res.raw
+            : res && typeof res.body === 'string'
+              ? res.body
+              : ''
+
+        const isTransient =
+          Boolean(sendError) || statusCode === 0 || statusCode === 429 || statusCode >= 500
+
+        if (!isTransient) {
+          break
+        }
+
+        if (attempt < maxAttempts) {
+          const waitTime = retryDelaysMs[attempt - 1] || 30000
+          const concluidas = Math.max(0, pagina - 1)
+          record.set(
+            'message',
+            'Aguardando liberação do TradePro. ' +
+              concluidas +
+              ' páginas de visitas concluídas. ' +
+              registrosValidos +
+              ' visitas preservadas. Tentativa ' +
+              (attempt + 1) +
+              ' de 5...',
+          )
+          $app.save(record)
+
+          try {
+            sleep(waitTime)
+          } catch (_) {}
+        }
+      }
+
+      if (sendError || statusCode === 0) {
+        record.set('status', 'paused')
+        record.set('error_code', 'timeout')
+        record.set(
+          'message',
+          'Tempo limite esgotado após 5 tentativas na página ' +
+            pagina +
+            ' de ' +
+            paginasTotal +
+            '. Clique em Retomar para continuar.',
+        )
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 401) {
+        record.set('status', 'error')
+        record.set('error_code', 'unauthorized')
+        record.set(
+          'message',
+          sanitizeErrorMessage(rawBodyText, 'Autenticação recusada pelo TradePro.'),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 403) {
+        record.set('status', 'error')
+        record.set('error_code', 'forbidden')
+        record.set(
+          'message',
+          sanitizeErrorMessage(rawBodyText, 'Acesso não autorizado na página ' + pagina + '.'),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      if (statusCode === 429) {
+        record.set('status', 'paused')
+        record.set('error_code', 'rate_limited')
+        record.set('message', 'Limite de requisições TradePro. Clique em Retomar para continuar.')
+        $app.save(record)
+        return
+      }
+
+      if (statusCode >= 500) {
+        record.set('status', 'paused')
+        record.set('error_code', 'tradepro_unavailable')
+        record.set(
+          'message',
+          'Servidor TradePro indisponível na página ' + pagina + ' (HTTP ' + statusCode + ').',
+        )
+        $app.save(record)
+        return
+      }
+
+      if (statusCode !== 200 && statusCode !== 204) {
+        record.set('status', 'error')
+        record.set('error_code', 'internal_error')
+        record.set(
+          'message',
+          sanitizeErrorMessage(
+            rawBodyText,
+            'Falha inesperada ao processar página ' + pagina + ' (HTTP ' + statusCode + ').',
+          ),
+        )
+        record.set('finished_at', new Date().toISOString())
+        $app.save(record)
+        return
+      }
+
+      // Processamento dos itens da página de Visitas
+      let jsonBody = null
+      try {
+        jsonBody = res.json
+      } catch (_) {}
+
+      const promotoresVisitas =
+        jsonBody && Array.isArray(jsonBody.visitas)
+          ? jsonBody.visitas
+          : jsonBody && Array.isArray(jsonBody.data)
+            ? jsonBody.data
+            : []
+
+      registrosLidos += promotoresVisitas.length
+
+      const operacionalVisitasCol = $app.findCollectionByNameOrId('operacional_visitas')
+      const relationsCol = $app.findCollectionByNameOrId('promoter_store_relations')
+
+      for (let pIdx = 0; pIdx < promotoresVisitas.length; pIdx++) {
+        const itemPromotor = promotoresVisitas[pIdx]
+        if (!itemPromotor) continue
+
+        const rawPromotorId =
+          itemPromotor.idPromotor != null
+            ? String(itemPromotor.idPromotor).trim()
+            : itemPromotor.promotor && itemPromotor.promotor.id != null
+              ? String(itemPromotor.promotor.id).trim()
+              : ''
+        const rawPromotorNome = (
+          itemPromotor.nomePromotor ||
+          (itemPromotor.promotor && itemPromotor.promotor.nome) ||
+          ''
+        ).trim()
+
+        const rawSupervisorId =
+          itemPromotor.idSupervisor != null
+            ? String(itemPromotor.idSupervisor).trim()
+            : itemPromotor.supervisor && itemPromotor.supervisor.id != null
+              ? String(itemPromotor.supervisor.id).trim()
+              : ''
+        const rawSupervisorNome = (
+          itemPromotor.nomeSupervisor ||
+          (itemPromotor.supervisor && itemPromotor.supervisor.nome) ||
+          ''
+        ).trim()
+
+        const promotorObj = itemPromotor.promotor || {}
+        const carteira = Array.isArray(promotorObj.carteiraClientes)
+          ? promotorObj.carteiraClientes
+          : []
+
+        // Se o promotor tem lojas na carteira com visitas realizadas ou programadas
+        // Para cada cliente da carteira, processa a visita/presença factual
+        if (carteira.length > 0) {
+          for (let cIdx = 0; cIdx < carteira.length; cIdx++) {
+            const cliente = carteira[cIdx]
+            if (!cliente) continue
+
+            const rawLojaCodigo = cliente.codigo != null ? String(cliente.codigo).trim() : ''
+            const rawLojaRazao = (
+              cliente.razaoSocial ||
+              cliente.nome ||
+              cliente.fantasia ||
+              ''
+            ).trim()
+            const rawLojaFantasia = (cliente.fantasia || rawLojaRazao).trim()
+            const storeCode =
+              rawLojaCodigo || extractStoreCode(rawLojaRazao) || extractStoreCode(rawLojaFantasia)
+
+            // Data factual: usa a data de referência da consulta ou data do evento se fornecida
+            const rawData = (cliente.data || cliente.dataVisita || dateStart)
+              .split('T')[0]
+              .split(' ')[0]
+
+            // Horários REAIS apenas — NUNCA inventar entrada nem saída
+            const rawHoraEntrada =
+              cliente.horaEntrada || cliente.checkIn || cliente.horaInicio || cliente.hora || null
+            const rawHoraSaida = cliente.horaSaida || cliente.checkOut || cliente.horaFim || null
+            const cleanHoraEntrada = rawHoraEntrada ? String(rawHoraEntrada).trim() : null
+            const cleanHoraSaida = rawHoraSaida ? String(rawHoraSaida).trim() : null
+
+            // Duração somente se ambos os horários existirem
+            const duracaoCalculada =
+              cleanHoraEntrada && cleanHoraSaida
+                ? computeDurationMinutes(cleanHoraEntrada, cleanHoraSaida)
+                : 0
+
+            // Status factual
+            const statusVisita =
+              cliente.realizada === true ||
+              cliente.status === 'realizada' ||
+              itemPromotor.visitasRealizadas > 0
+                ? 'realizada'
+                : 'pendente'
+
+            // Resolução de IDs cadastrais seguros
+            const promoterDbId = promoterMapByCod[rawPromotorId] || null
+            const storeDbId = storeMapByCode[storeCode] || null
+
+            // Deduplicação: verifica se já existe registro com mesmo promotor_cod + store_code + data
+            const dedupFilter =
+              'promoter_cod = "' +
+              rawPromotorId.replace(/"/g, '\\"') +
+              '" && store_code = "' +
+              storeCode.replace(/"/g, '\\"') +
+              '" && data = "' +
+              rawData +
+              '"'
+
+            try {
+              const existingVisitas = $app.findRecordsByFilter(
+                'operacional_visitas',
+                dedupFilter,
+                '-created',
+                1,
+                0,
+              )
+
+              if (existingVisitas && existingVisitas.length > 0) {
+                registrosDeduplicados++
+                continue // Já gravado, idempotente
+              }
+
+              // Criação do registro de visita factual
+              const novaVisita = new Record(operacionalVisitasCol)
+              novaVisita.set('data', rawData)
+              novaVisita.set('promoter_cod', rawPromotorId)
+              novaVisita.set('promoter_nome', rawPromotorNome)
+              if (promoterDbId) {
+                novaVisita.set('promoter_id', promoterDbId)
+              }
+              novaVisita.set('store_code', storeCode)
+              novaVisita.set('store_nome', rawLojaRazao || rawLojaFantasia || 'Loja ' + storeCode)
+              if (storeDbId) {
+                novaVisita.set('store_id', storeDbId)
+              }
+              if (cleanHoraEntrada) {
+                novaVisita.set('hora_entrada', cleanHoraEntrada)
+              }
+              if (cleanHoraSaida) {
+                novaVisita.set('hora_saida', cleanHoraSaida)
+              }
+              if (duracaoCalculada > 0) {
+                novaVisita.set('duracao_minutos', duracaoCalculada)
+              }
+              novaVisita.set('status', statusVisita)
+              novaVisita.set('origem', 'tradepro_api')
+              novaVisita.set('raw_data', {
+                itemPromotor: {
+                  idPromotor: itemPromotor.idPromotor,
+                  nomePromotor: itemPromotor.nomePromotor,
+                  idSupervisor: itemPromotor.idSupervisor,
+                  nomeSupervisor: itemPromotor.nomeSupervisor,
+                  visitasPrevistas: itemPromotor.visitasPrevistas,
+                  visitasRealizadas: itemPromotor.visitasRealizadas,
+                },
+                cliente: cliente,
+                sincronizadoEm: new Date().toISOString(),
+                jobId: jobId,
+              })
+
+              $app.save(novaVisita)
+              registrosValidos++
+
+              // Vínculo promotor <-> loja como RELAÇÃO OBSERVADA (promoter_store_relations)
+              // REGRA: "Visita observada não altera roteiro confirmado: vínculo com status observado ('observado_visita'), não confirmado"
+              if (rawPromotorId && storeCode && relationsCol) {
+                try {
+                  const relFilter =
+                    'promoter_cod = "' +
+                    rawPromotorId.replace(/"/g, '\\"') +
+                    '" && store_code = "' +
+                    storeCode.replace(/"/g, '\\"') +
+                    '"'
+                  const existingRels = $app.findRecordsByFilter(
+                    'promoter_store_relations',
+                    relFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+
+                  if (!existingRels || existingRels.length === 0) {
+                    const novaRel = new Record(relationsCol)
+                    novaRel.set('promoter_cod', rawPromotorId)
+                    novaRel.set('promoter_nome', rawPromotorNome)
+                    novaRel.set('store_code', storeCode)
+                    novaRel.set('store_nome', rawLojaRazao || rawLojaFantasia)
+                    novaRel.set('origem', 'observado_visita')
+                    novaRel.set('status', 'observado') // NUNCA confirmado automaticamente
+                    novaRel.set('ativo', true)
+                    if (promoterDbId) novaRel.set('promoter_id', promoterDbId)
+                    if (storeDbId) novaRel.set('store_id', storeDbId)
+                    $app.save(novaRel)
+                  }
+                } catch (_) {}
+              }
+            } catch (errSave) {
+              registrosRejeitados++
+            }
+          }
+        } else {
+          // Caso a carteira venha vazia no item do promotor mas ele tenha resumo de visitas realizadas
+          // Grava um registro síntese para o promotor sem inventar loja fictícia
+          const rawData = dateStart
+          const dedupFilter =
+            'promoter_cod = "' +
+            rawPromotorId.replace(/"/g, '\\"') +
+            '" && store_code = "" && data = "' +
+            rawData +
+            '"'
+
+          try {
+            const existingVisitas = $app.findRecordsByFilter(
+              'operacional_visitas',
+              dedupFilter,
+              '-created',
+              1,
+              0,
+            )
+
+            if (!existingVisitas || existingVisitas.length === 0) {
+              const novaVisita = new Record(operacionalVisitasCol)
+              novaVisita.set('data', rawData)
+              novaVisita.set('promoter_cod', rawPromotorId)
+              novaVisita.set('promoter_nome', rawPromotorNome)
+              const promoterDbId = promoterMapByCod[rawPromotorId] || null
+              if (promoterDbId) {
+                novaVisita.set('promoter_id', promoterDbId)
+              }
+              novaVisita.set('store_code', '')
+              novaVisita.set('store_nome', '')
+              novaVisita.set(
+                'status',
+                itemPromotor.visitasRealizadas > 0 ? 'realizada' : 'pendente',
+              )
+              novaVisita.set('origem', 'tradepro_api')
+              novaVisita.set('raw_data', {
+                itemPromotor: itemPromotor,
+                sincronizadoEm: new Date().toISOString(),
+                jobId: jobId,
+              })
+
+              $app.save(novaVisita)
+              registrosValidos++
+            } else {
+              registrosDeduplicados++
+            }
+          } catch (_) {
+            registrosRejeitados++
+          }
+        }
+      }
+
+      record.set('paginas_processadas', pagina)
+      record.set('registros_lidos', registrosLidos)
+      record.set('registros_validos', registrosValidos)
+      record.set('registros_rejeitados', registrosRejeitados)
+      record.set('registros_deduplicados', registrosDeduplicados)
+      record.set('registros_consolidados', registrosValidos)
+      $app.save(record)
+    }
+
+    // Conclusão bem-sucedida do job de visitas
+    record.set('status', 'success')
+    record.set('error_code', null)
+    record.set('registros_consolidados', registrosValidos)
+    record.set('registros_deduplicados', registrosDeduplicados)
+    record.set(
+      'message',
+      'Sincronização de visitas concluída com sucesso: ' +
+        registrosValidos +
+        ' visitas consolidadas (' +
+        registrosDeduplicados +
+        ' deduplicadas).',
+    )
+    record.set('finished_at', new Date().toISOString())
+    $app.save(record)
   }
 }, 'tradepro_sync_jobs')
