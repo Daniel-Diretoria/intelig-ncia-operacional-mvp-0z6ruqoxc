@@ -934,12 +934,18 @@ export const CadastrosPage: React.FC = () => {
       {/* Painel do Resultado da Homologação Cadastral (Bloco A) */}
       {resultadoHomologacao && (
         <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <CheckCircle2 className="w-5 h-5 text-indigo-600" />
               <h3 className="text-sm font-bold text-indigo-900">
-                Resultado da Homologação Cadastral Real (Bloco A)
+                Resultado da Homologação Cadastral Real
               </h3>
+              <Badge
+                variant="default"
+                className="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+              >
+                Fonte homologada: {resultadoHomologacao.fonteHomologada || 'TradePro API'}
+              </Badge>
               <Badge
                 variant="outline"
                 className="text-[10px] bg-white border-indigo-200 text-indigo-700"
@@ -955,6 +961,52 @@ export const CadastrosPage: React.FC = () => {
             >
               Fechar Painel
             </Button>
+          </div>
+
+          {/* 4 Métricas de Origem do Universo TradePro Oficial */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
+              <span className="text-[10px] font-semibold text-emerald-800 uppercase block">
+                TradePro Considerados
+              </span>
+              <p className="text-base font-bold text-emerald-950">
+                {resultadoHomologacao.metricasOrigem?.registrosTradeProConsiderados ??
+                  resultadoHomologacao.universoProcessado?.validadesLidas +
+                    resultadoHomologacao.universoProcessado?.rupturasLidas +
+                    resultadoHomologacao.universoProcessado?.visitasLidas}
+              </p>
+              <span className="text-[10px] text-emerald-700">Origem oficial homologada</span>
+            </div>
+
+            <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+              <span className="text-[10px] font-semibold text-amber-800 uppercase block">
+                Excel Excluídos
+              </span>
+              <p className="text-base font-bold text-amber-950">
+                {resultadoHomologacao.metricasOrigem?.registrosExcelExcluidos ?? 0}
+              </p>
+              <span className="text-[10px] text-amber-700">Planilhas manuais isoladas</span>
+            </div>
+
+            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-semibold text-slate-700 uppercase block">
+                Legados Excluídos
+              </span>
+              <p className="text-base font-bold text-slate-900">
+                {resultadoHomologacao.metricasOrigem?.registrosLegadosExcluidos ?? 0}
+              </p>
+              <span className="text-[10px] text-slate-500">Histórico não vigente</span>
+            </div>
+
+            <div className="bg-rose-50/80 p-2.5 rounded-xl border border-rose-200 shadow-2xs">
+              <span className="text-[10px] font-semibold text-rose-800 uppercase block">
+                Sem Origem Confiável
+              </span>
+              <p className="text-base font-bold text-rose-950">
+                {resultadoHomologacao.metricasOrigem?.registrosSemOrigemConfiavelExcluidos ?? 0}
+              </p>
+              <span className="text-[10px] text-rose-700">Excluídos por governança</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">

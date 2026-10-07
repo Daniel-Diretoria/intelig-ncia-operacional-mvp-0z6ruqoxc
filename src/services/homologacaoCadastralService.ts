@@ -146,7 +146,37 @@ export async function executarHomologacaoCadastralBaseAtual(
   const dataHoje = new Date().toISOString().split('T')[0]
 
   const resultado: HomologacaoCadastralResultado = {
+    fonteHomologada: 'TradePro API',
     dataExecucao: new Date().toISOString(),
+    metricasOrigem: {
+      registrosTradeProConsiderados: 0,
+      registrosExcelExcluidos: 0,
+      registrosLegadosExcluidos: 0,
+      registrosSemOrigemConfiavelExcluidos: 0,
+      detalhesPorFonte: {
+        validades: {
+          consideradosTradePro: 0,
+          excluidosExcel: 0,
+          excluidosLegados: 0,
+          excluidosSemOrigem: 0,
+          paginasProcessadas: 0,
+        },
+        rupturas: {
+          consideradosTradePro: 0,
+          excluidosExcel: 0,
+          excluidosLegados: 0,
+          excluidosSemOrigem: 0,
+          paginasProcessadas: 0,
+        },
+        visitas: {
+          consideradosTradePro: 0,
+          excluidosExcel: 0,
+          excluidosLegados: 0,
+          excluidosSemOrigem: 0,
+          paginasProcessadas: 0,
+        },
+      },
+    },
     universoProcessado: {
       validadesLidas: 0,
       rupturasLidas: 0,
@@ -257,6 +287,7 @@ export async function executarHomologacaoCadastralBaseAtual(
 
     // -------------------------------------------------------------------------
     // 2. Extração segura de dados brutos com paginação TOTAL (SEM limite de 10 páginas)
+    // E FILTRO RIGOROSO DE ORIGEM (Bloco A.2 - Fonte Oficial TradePro)
     // -------------------------------------------------------------------------
     type ValidadeRow = {
       cod_cliente?: string
@@ -277,6 +308,13 @@ export async function executarHomologacaoCadastralBaseAtual(
       data_arquivo?: string
       realizado?: string
       dados_brutos_json?: any
+      // Campos de auditoria/origem
+      is_base_atual?: boolean
+      data_importacao?: string
+      tenant_id?: string
+      import_id?: string
+      origem_fonte?: string
+      source?: string
     }
 
     const validadesAmostra: ValidadeRow[] = []
@@ -289,12 +327,51 @@ export async function executarHomologacaoCadastralBaseAtual(
         sort: '-created',
       })
       totalPagesV = resp.totalPages || 1
-      validadesAmostra.push(...resp.items)
+      const items = resp.items || []
+
+      for (const row of items) {
+        // Regra Validades TradePro Oficial:
+        // is_base_atual = true E (data_importacao ~ 'tradepro_job' || tenant_id ~ 'tradepro_job');
+        // excluir qualquer registro com import_id (vinculado a import_history / Excel manual).
+        const hasImportId = Boolean(row.import_id && String(row.import_id).trim())
+        const isTradeProOrigin =
+          (row.data_importacao && String(row.data_importacao).includes('tradepro_job')) ||
+          (row.tenant_id && String(row.tenant_id).includes('tradepro_job')) ||
+          (row.origem_fonte && String(row.origem_fonte).includes('tradepro'))
+        const isBaseAtual = Boolean(row.is_base_atual)
+
+        if (hasImportId) {
+          resultado.metricasOrigem.registrosExcelExcluidos++
+          resultado.metricasOrigem.detalhesPorFonte.validades.excluidosExcel++
+        } else if (!isTradeProOrigin) {
+          if (
+            row.origem_fonte === 'legado' ||
+            String(row.data_importacao || '').includes('legado')
+          ) {
+            resultado.metricasOrigem.registrosLegadosExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.validades.excluidosLegados++
+          } else {
+            resultado.metricasOrigem.registrosSemOrigemConfiavelExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.validades.excluidosSemOrigem++
+          }
+        } else if (!isBaseAtual) {
+          // Não é base atual vigente
+          resultado.metricasOrigem.registrosLegadosExcluidos++
+          resultado.metricasOrigem.detalhesPorFonte.validades.excluidosLegados++
+        } else {
+          // Qualificado: TradePro + is_base_atual + sem import_id
+          validadesAmostra.push(row)
+          resultado.metricasOrigem.registrosTradeProConsiderados++
+          resultado.metricasOrigem.detalhesPorFonte.validades.consideradosTradePro++
+        }
+      }
+
       pageV++
     } while (pageV <= totalPagesV)
 
     resultado.universoProcessado.validadesLidas = validadesAmostra.length
     resultado.universoProcessado.totalPaginasPorFonte.validades = totalPagesV
+    resultado.metricasOrigem.detalhesPorFonte.validades.paginasProcessadas = totalPagesV
 
     type RupturaRow = {
       codigo_cliente?: string
@@ -309,6 +386,12 @@ export async function executarHomologacaoCadastralBaseAtual(
       produto?: string
       data_visita?: string
       dados_brutos_json?: any
+      // Campos de auditoria/origem
+      is_base_atual?: boolean
+      tenant_id?: string
+      source_import_id?: string
+      import_id?: string
+      origem_fonte?: string
     }
 
     const rupturasAmostra: RupturaRow[] = []
@@ -320,12 +403,49 @@ export async function executarHomologacaoCadastralBaseAtual(
         sort: '-created',
       })
       totalPagesR = resp.totalPages || 1
-      rupturasAmostra.push(...resp.items)
+      const items = resp.items || []
+
+      for (const row of items) {
+        // Regra Rupturas TradePro Oficial:
+        // is_base_atual = true E tenant_id ~ 'tradepro_job' (ou origem_fonte ~ 'tradepro');
+        // excluir registros com source_import_id / import_id apontando para rupturas_imports / planilhas.
+        const hasSpreadsheetImport = Boolean(
+          (row.source_import_id && String(row.source_import_id).trim()) ||
+          (row.import_id && String(row.import_id).trim()),
+        )
+        const isTradeProOrigin =
+          (row.tenant_id && String(row.tenant_id).includes('tradepro_job')) ||
+          (row.origem_fonte && String(row.origem_fonte).includes('tradepro'))
+        const isBaseAtual = Boolean(row.is_base_atual)
+
+        if (hasSpreadsheetImport) {
+          resultado.metricasOrigem.registrosExcelExcluidos++
+          resultado.metricasOrigem.detalhesPorFonte.rupturas.excluidosExcel++
+        } else if (!isTradeProOrigin) {
+          if (row.origem_fonte === 'legado' || String(row.tenant_id || '').includes('legado')) {
+            resultado.metricasOrigem.registrosLegadosExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.rupturas.excluidosLegados++
+          } else {
+            resultado.metricasOrigem.registrosSemOrigemConfiavelExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.rupturas.excluidosSemOrigem++
+          }
+        } else if (!isBaseAtual) {
+          resultado.metricasOrigem.registrosLegadosExcluidos++
+          resultado.metricasOrigem.detalhesPorFonte.rupturas.excluidosLegados++
+        } else {
+          // Qualificado: TradePro + is_base_atual + sem source_import_id
+          rupturasAmostra.push(row)
+          resultado.metricasOrigem.registrosTradeProConsiderados++
+          resultado.metricasOrigem.detalhesPorFonte.rupturas.consideradosTradePro++
+        }
+      }
+
       pageR++
     } while (pageR <= totalPagesR)
 
     resultado.universoProcessado.rupturasLidas = rupturasAmostra.length
     resultado.universoProcessado.totalPaginasPorFonte.rupturas = totalPagesR
+    resultado.metricasOrigem.detalhesPorFonte.rupturas.paginasProcessadas = totalPagesR
 
     // 2.3 Processamento de operacional_visitas (FONTE EFETIVA OBRIGATÓRIA)
     const visitasAmostra: OperacionalVisita[] = []
@@ -340,7 +460,32 @@ export async function executarHomologacaoCadastralBaseAtual(
             sort: '-data',
           })
         totalPagesVis = resp.totalPages || 1
-        visitasAmostra.push(...resp.items)
+        const items = resp.items || []
+
+        for (const row of items) {
+          // Regra Visitas TradePro Oficial:
+          // origem_fonte = 'tradepro_api'
+          const orig = (row.origem_fonte || '').trim()
+          if (orig === 'tradepro_api') {
+            visitasAmostra.push(row)
+            resultado.metricasOrigem.registrosTradeProConsiderados++
+            resultado.metricasOrigem.detalhesPorFonte.visitas.consideradosTradePro++
+          } else if (
+            orig.includes('excel') ||
+            orig.includes('importacao_manual') ||
+            orig.includes('whatsapp')
+          ) {
+            resultado.metricasOrigem.registrosExcelExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosExcel++
+          } else if (orig === 'legado' || orig.includes('legacy')) {
+            resultado.metricasOrigem.registrosLegadosExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosLegados++
+          } else {
+            resultado.metricasOrigem.registrosSemOrigemConfiavelExcluidos++
+            resultado.metricasOrigem.detalhesPorFonte.visitas.excluidosSemOrigem++
+          }
+        }
+
         pageVis++
       } while (pageVis <= totalPagesVis)
     } catch {
@@ -349,6 +494,7 @@ export async function executarHomologacaoCadastralBaseAtual(
 
     resultado.universoProcessado.visitasLidas = visitasAmostra.length
     resultado.universoProcessado.totalPaginasPorFonte.visitas = totalPagesVis
+    resultado.metricasOrigem.detalhesPorFonte.visitas.paginasProcessadas = totalPagesVis
 
     // Estruturas de Agrupamento das Descobertas
     const descobertasInd = new Map<string, { nome: string; count: number; datas: string[] }>()
@@ -374,6 +520,8 @@ export async function executarHomologacaoCadastralBaseAtual(
       string,
       {
         codProduto?: string
+        nomeProduto: string
+        nomeProdutoNormalizado: string
         codCliente?: string
         clienteNome?: string
         origemSemCodigo?: boolean
@@ -381,7 +529,7 @@ export async function executarHomologacaoCadastralBaseAtual(
       }
     >()
 
-    // Relações observadas rastreadas com metadados temporais
+    // Relações observadas rastreadas com metadados temporais e tipo/origem precisos
     interface RelPromLojaInfo {
       promoterCod: string
       promoterNome: string
@@ -389,6 +537,8 @@ export async function executarHomologacaoCadastralBaseAtual(
       storeName: string
       industryName?: string
       datas: string[]
+      tipoVinculo: 'observado_visita' | 'observado_operacao'
+      origemVinculo: 'tradepro_visitas' | 'tradepro_validades' | 'tradepro_rupturas'
       origem: string
     }
     const relPromLojaMap = new Map<string, RelPromLojaInfo>()
@@ -487,6 +637,8 @@ export async function executarHomologacaoCadastralBaseAtual(
               storeName: v.nome_loja || v.razao_social || '',
               industryName: nomeCli,
               datas: [],
+              tipoVinculo: 'observado_operacao',
+              origemVinculo: 'tradepro_validades',
               origem: 'validades_base',
             })
           }
@@ -513,14 +665,17 @@ export async function executarHomologacaoCadastralBaseAtual(
         }
       }
 
-      // Produto
+      // Produto: preservar codigoProduto, nomeProduto, nomeProdutoNormalizado
       const prodNome = (v.produto || '').trim()
       const codProd = (v.cod_produto || '').trim()
       if (prodNome) {
-        const keyProd = `${codCli || 'SEM_IND'}__${codProd || normalizarNomeProduto(prodNome)}`
+        const normNome = normalizarNomeProduto(prodNome)
+        const keyProd = `${codCli || 'SEM_IND'}__${codProd || normNome}`
         if (!descobertasProd.has(keyProd)) {
           descobertasProd.set(keyProd, {
             codProduto: codProd,
+            nomeProduto: prodNome,
+            nomeProdutoNormalizado: normNome,
             codCliente: codCli,
             clienteNome: nomeCli,
             origemSemCodigo: !codProd,
@@ -603,6 +758,8 @@ export async function executarHomologacaoCadastralBaseAtual(
               storeName: r.nome_loja || r.razao_social || '',
               industryName: nomeCli,
               datas: [],
+              tipoVinculo: 'observado_operacao',
+              origemVinculo: 'tradepro_rupturas',
               origem: 'rupturas_base',
             })
           }
@@ -612,12 +769,16 @@ export async function executarHomologacaoCadastralBaseAtual(
       }
 
       // Na exportação de rupturas NÃO há Cód. Produto obrigatoriamente.
-      // Resolução através de Indústria + nome normalizado.
+      // Preservar nome e nome normalizado. NUNCA usar código numérico como nome.
       const prodNome = (r.produto || '').trim()
       if (prodNome) {
-        const keyProd = `${codCli || 'SEM_IND'}__${normalizarNomeProduto(prodNome)}`
+        const normNome = normalizarNomeProduto(prodNome)
+        const keyProd = `${codCli || 'SEM_IND'}__${normNome}`
         if (!descobertasProd.has(keyProd)) {
           descobertasProd.set(keyProd, {
+            codProduto: undefined,
+            nomeProduto: prodNome,
+            nomeProdutoNormalizado: normNome,
             codCliente: codCli,
             clienteNome: nomeCli,
             origemSemCodigo: true,
@@ -632,6 +793,7 @@ export async function executarHomologacaoCadastralBaseAtual(
     // 2.3 Processar Visitas Reais (operacional_visitas)
     // Uma Visita contribui para descobrir/confirmar Promotor e Loja; eventualmente Indústria.
     // NUNCA inventar Supervisor ou Indústria quando ausentes do registro.
+    // tipo_vinculo: 'observado_visita' + origem_vinculo: 'tradepro_visitas' SOMENTE para visitas.
     // -------------------------------------------------------------------------
     for (const vis of visitasAmostra) {
       const dataObs = (vis.data || dataHoje).split('T')[0]
@@ -672,7 +834,7 @@ export async function executarHomologacaoCadastralBaseAtual(
         if (dataObs && !lItem.datas.includes(dataObs)) lItem.datas.push(dataObs)
       }
 
-      // Relação Promotor ↔ Loja OBSERVADA via Visita (NUNCA confirmada automaticamente)
+      // Relação Promotor ↔ Loja OBSERVADA via Visita (tipo_vinculo: 'observado_visita')
       if ((codProm || nomeProm) && codLoja) {
         const relKey = `${codProm || nomeProm}__${codLoja}`
         if (!relPromLojaMap.has(relKey)) {
@@ -683,8 +845,15 @@ export async function executarHomologacaoCadastralBaseAtual(
             storeName: nomeLoja,
             industryName: indNome,
             datas: [],
+            tipoVinculo: 'observado_visita',
+            origemVinculo: 'tradepro_visitas',
             origem: 'operacional_visitas',
           })
+        } else {
+          // Se já existia por validades/rupturas, a visita tem precedência para qualificar tipo_vinculo
+          const existingRel = relPromLojaMap.get(relKey)!
+          existingRel.tipoVinculo = 'observado_visita'
+          existingRel.origemVinculo = 'tradepro_visitas'
         }
         const rel = relPromLojaMap.get(relKey)!
         if (dataObs && !rel.datas.includes(dataObs)) rel.datas.push(dataObs)
@@ -995,6 +1164,9 @@ export async function executarHomologacaoCadastralBaseAtual(
 
     // -------------------------------------------------------------------------
     // 8. RECONCILIAÇÃO 6: PRODUTOS (Contextualizado por Indústria)
+    // Preserva separadamente: codigoProduto, nomeProduto, nomeProdutoNormalizado.
+    // Resolução: Indústria+Código -> Indústria+nome real normalizado -> aliases/Catálogo -> Pendência.
+    // NUNCA usar código numérico como nome do produto!
     // -------------------------------------------------------------------------
     for (const [keyProd, info] of descobertasProd.entries()) {
       resultado.produtos.descobertos++
@@ -1005,21 +1177,35 @@ export async function executarHomologacaoCadastralBaseAtual(
       }
 
       let match: CadastroProduto | undefined
+      // Resolução Passo 1: Indústria + Código externo
       if (indIdResolved && info.codProduto) {
         match = prodByIndCode.get(`${indIdResolved}_${info.codProduto}`)
       }
 
+      // Resolução Passo 2: Indústria + Nome real normalizado
       if (!match && indIdResolved) {
-        const prodNameFromKey = keyProd.split('__')[1]
-        match = prodByIndName.get(`${indIdResolved}_${prodNameFromKey}`)
+        match = prodByIndName.get(`${indIdResolved}_${info.nomeProdutoNormalizado}`)
       }
+
+      // Resolução Passo 3: Fallback em aliases cadastrados na indústria
+      if (!match && indIdResolved) {
+        match = produtosAtuais.find(
+          (p) =>
+            p.industry_id === indIdResolved &&
+            Array.isArray(p.aliases) &&
+            p.aliases.some((al) => normalizarNomeProduto(al) === info.nomeProdutoNormalizado),
+        )
+      }
+
+      const nomeExibicao =
+        info.nomeProduto || info.nomeProdutoNormalizado || 'Produto sem identificação'
 
       if (match) {
         resultado.produtos.resolvidos++
         resultado.produtos.detalhes.push({
           id: match.id,
-          codigo: match.codigo_produto,
-          nome: match.nome_produto,
+          codigo: match.codigo_produto || info.codProduto,
+          nome: match.nome_produto, // Mantém nome mestre de verdade
           industria: match.industry_name,
           status: 'resolvido_contextualizado',
         })
@@ -1027,7 +1213,7 @@ export async function executarHomologacaoCadastralBaseAtual(
         resultado.produtos.ambiguos++
         resultado.produtos.detalhes.push({
           codigo: info.codProduto,
-          nome: keyProd.split('__')[1] || 'Produto sem identificação',
+          nome: nomeExibicao,
           status: 'ambiguo_sem_industria',
         })
 
@@ -1035,11 +1221,13 @@ export async function executarHomologacaoCadastralBaseAtual(
           'produto',
           keyProd,
           info.codProduto,
-          keyProd.split('__')[1],
+          nomeExibicao,
           'tradepro_sync',
           {
             info,
             origemSemCodigo: info.origemSemCodigo,
+            nomeProdutoReal: info.nomeProduto,
+            nomeNormalizado: info.nomeProdutoNormalizado,
             motivo: 'Produto recebido sem contexto de Indústria resolvida.',
           },
           info.count,
@@ -1048,7 +1236,7 @@ export async function executarHomologacaoCadastralBaseAtual(
         resultado.produtos.pendentes++
         resultado.produtos.detalhes.push({
           codigo: info.codProduto,
-          nome: keyProd.split('__')[1] || 'Produto sem identificação',
+          nome: nomeExibicao,
           industria: info.clienteNome,
           status: 'pendente_cadastro_mix',
         })
@@ -1057,12 +1245,14 @@ export async function executarHomologacaoCadastralBaseAtual(
           'produto',
           keyProd,
           info.codProduto,
-          keyProd.split('__')[1],
+          nomeExibicao,
           'tradepro_sync',
           {
             info,
             origemSemCodigo: info.origemSemCodigo,
             industryId: indIdResolved,
+            nomeProdutoReal: info.nomeProduto,
+            nomeNormalizado: info.nomeProdutoNormalizado,
           },
           info.count,
         )
@@ -1071,14 +1261,22 @@ export async function executarHomologacaoCadastralBaseAtual(
 
     // -------------------------------------------------------------------------
     // 9. PERSISTÊNCIA IDEMPOTENTE DE VÍNCULOS OBSERVADOS
-    // Persiste vínculos em store_promoter_assignments com tipo_vinculo: 'observado_visita'.
-    // NUNCA transforma observado em confirmado.
-    // Segunda execução não duplica vínculo: reutiliza ou atualiza vigência.
+    // Regras obrigatórias do Bloco A.2:
+    // - Vínculo Promotor <-> Loja: tipo_vinculo 'observado_visita' + origem_vinculo 'tradepro_visitas'
+    //   SOMENTE quando a evidência vem de operacional_visitas.
+    // - Evidência de validades/rupturas usa 'observado_operacao' com origem 'tradepro_validades'/'tradepro_rupturas'.
+    // - Vigência: data_inicio = início real conhecido; data_fim = SÓ quando houver evidência de encerramento
+    //   (DEVE FICAR VAZIO EM VÍNCULO ATIVO — NUNCA gravar a última observação em data_fim!).
+    // - ultima_observacao_fonte = última aparição na fonte gravada no registro ou na observação.
+    // - Relação nova -> "persistida"; já existente -> "já existente"; não contar detectada em memória como persistida.
+    // - Promotor <-> Indústria e Supervisor <-> Promotor: persistir se houver estrutura adequada; se não houver segura,
+    //   NÃO informar como persistida no relatório (apenas como detectadas nas contagens de vínculos observados).
     // -------------------------------------------------------------------------
     resultado.vinculosObservados.promotorLoja = relPromLojaMap.size
     resultado.vinculosObservados.promotorIndustria = relPromIndMap.size
     resultado.vinculosObservados.supervisorPromotor = relSupPromMap.size
 
+    // Relações detectadas no universo total de relações TradePro
     resultado.relacoes.detectadas = relPromLojaMap.size + relPromIndMap.size + relSupPromMap.size
 
     for (const [, rel] of relPromLojaMap.entries()) {
@@ -1101,13 +1299,18 @@ export async function executarHomologacaoCadastralBaseAtual(
       const ultimaData = rel.datas.sort().reverse()[0] || dataHoje
 
       if (existingAssignment) {
+        // Já existe o vínculo cadastrado previamente
         resultado.relacoes.jaExistentes++
-        // Atualiza a última observação no vínculo observado sem alterar vínculos confirmados
-        if (existingAssignment.tipo_vinculo === 'observado_visita') {
+
+        // Se estiver ativo e for observado, atualiza apenas última observação sem encerrar
+        // e preservando data_fim VAZIO (ou existente se já tinha encerramento prévio)
+        if (
+          existingAssignment.tipo_vinculo === 'observado_visita' ||
+          existingAssignment.tipo_vinculo === 'observado_operacao'
+        ) {
           try {
             await pb.collection('store_promoter_assignments').update(existingAssignment.id, {
-              data_fim: ultimaData,
-              observacao: `Vínculo observado mantido. Última observação: ${ultimaData} (origem: ${rel.origem}).`,
+              observacao: `Vínculo observado ativo mantido. Última observação: ${ultimaData} (origem: ${rel.origemVinculo}).`,
             })
           } catch {
             /* non-fatal */
@@ -1115,6 +1318,7 @@ export async function executarHomologacaoCadastralBaseAtual(
         }
       } else {
         // Novo vínculo observado persistido
+        // Vigência: data_inicio = primeira data observada; data_fim = VAZIO (vínculo ativo!)
         try {
           const novo = await pb.collection('store_promoter_assignments').create({
             promoter_id: promRecord.id,
@@ -1124,11 +1328,11 @@ export async function executarHomologacaoCadastralBaseAtual(
             store_name: lojaRecord.razao_social || lojaRecord.nome || rel.storeName,
             industry_name: rel.industryName || '',
             status: 'ativo',
-            tipo_vinculo: 'observado_visita',
-            origem_vinculo: `Observado via ${rel.origem}`,
+            tipo_vinculo: rel.tipoVinculo,
+            origem_vinculo: rel.origemVinculo,
             data_inicio: primeiraData,
-            data_fim: ultimaData,
-            observacao: `Vínculo observado pela primeira vez em ${primeiraData}. Requer confirmação administrativa.`,
+            data_fim: '', // VAZIO em vínculo ativo — nunca gravar última data como término!
+            observacao: `Vínculo observado ativo iniciado em ${primeiraData}. Última observação: ${ultimaData}. Origem: ${rel.origemVinculo}.`,
           })
           assignmentsMap.set(assignmentKey, novo as any)
           resultado.relacoes.novasPersistidas++

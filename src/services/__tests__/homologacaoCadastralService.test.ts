@@ -45,7 +45,15 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
           getList: vi.fn().mockImplementation((page: number) => {
             validadesCalls++
             return Promise.resolve({
-              items: [{ cod_cliente: '7', cliente: 'FRUTAP', realizado: '2025-05-10' }],
+              items: [
+                {
+                  cod_cliente: '7',
+                  cliente: 'FRUTAP',
+                  realizado: '2025-05-10',
+                  is_base_atual: true,
+                  data_importacao: 'tradepro_job_20250510',
+                },
+              ],
               totalPages: 12, // 12 páginas (> 10)
             })
           }),
@@ -97,7 +105,15 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
           getList: vi.fn().mockImplementation((page: number) => {
             rupturasCalls++
             return Promise.resolve({
-              items: [{ codigo_cliente: '7', cliente: 'FRUTAP', data_visita: '2025-05-10' }],
+              items: [
+                {
+                  codigo_cliente: '7',
+                  cliente: 'FRUTAP',
+                  data_visita: '2025-05-10',
+                  is_base_atual: true,
+                  tenant_id: 'tradepro_job_sync',
+                },
+              ],
               totalPages: 15, // 15 páginas (> 10)
             })
           }),
@@ -148,6 +164,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         promoter_nome: 'João Visita',
         store_code: '165',
         store_name: '165 - Fort Joinville',
+        origem_fonte: 'tradepro_api',
         // Supervisor NÃO fornecido no evento de visita
       },
     ]
@@ -215,6 +232,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         promoter_nome: 'João Visita',
         store_code: '165',
         store_name: '165 - Fort Joinville',
+        origem_fonte: 'tradepro_api',
       },
     ]
 
@@ -285,6 +303,7 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         promoter_nome: 'João Visita',
         store_code: '165',
         store_name: '165 - Fort Joinville',
+        origem_fonte: 'tradepro_api',
       },
     ]
 
@@ -399,6 +418,8 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         razao_social: '085 - NOME DA API',
         fantasia: 'REDE NOVA DA FONTE',
         realizado: '2025-05-18',
+        is_base_atual: true,
+        data_importacao: 'tradepro_job',
       },
     ]
 
@@ -473,6 +494,8 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         cod_supervisor: '99',
         supervisor: 'Supervisor API',
         realizado: '2025-05-18',
+        is_base_atual: true,
+        data_importacao: 'tradepro_job',
       },
     ]
 
@@ -541,6 +564,8 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         cod_supervisor: '3',
         supervisor: 'Supervisor Manual',
         realizado: '2025-05-19',
+        is_base_atual: true,
+        data_importacao: 'tradepro_job',
       },
     ]
 
@@ -603,6 +628,8 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
       {
         cod_cliente: '7',
         cliente: 'Frutap',
+        is_base_atual: true,
+        data_importacao: 'tradepro_job',
       },
     ]
 
@@ -660,5 +687,384 @@ describe('Homologação Cadastral TradePro (Bloco A.1) - Testes Obrigatórios (I
         }),
       }),
     )
+  })
+
+  // ---------------------------------------------------------------------------
+  // Bloco A.2: Testes Obrigatórios de Origem TradePro e Vigência
+  // ---------------------------------------------------------------------------
+
+  it('11. Registro TradePro participa da homologação cadastral', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                cod_cliente: '7',
+                cliente: 'FRUTAP',
+                is_base_atual: true,
+                data_importacao: 'tradepro_job_20250520',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+        getFullList: vi.fn().mockResolvedValue([]),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(resultado.fonteHomologada).toBe('TradePro API')
+    expect(resultado.metricasOrigem.registrosTradeProConsiderados).toBe(1)
+    expect(resultado.metricasOrigem.registrosExcelExcluidos).toBe(0)
+    expect(resultado.universoProcessado.validadesLidas).toBe(1)
+    expect(resultado.industrias.descobertas).toBe(1)
+  })
+
+  it('12. Registro de Excel manual NÃO participa da homologação (mesmo com is_base_atual=true)', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              // Registro com import_id (planilha Excel manual) mesmo com is_base_atual = true
+              {
+                cod_cliente: '999',
+                cliente: 'EXCEL_CLIENTE',
+                is_base_atual: true,
+                import_id: 'excel_history_123',
+                data_importacao: 'manual_excel',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              // Ruptura com source_import_id apontando para importação Excel
+              {
+                codigo_cliente: '888',
+                cliente: 'EXCEL_RUPTURA',
+                is_base_atual: true,
+                source_import_id: 'rupturas_import_456',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                promoter_cod: '111',
+                promoter_nome: 'Promotor Manual',
+                origem_fonte: 'importacao_manual_excel',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+        getFullList: vi.fn().mockResolvedValue([]),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(resultado.metricasOrigem.registrosExcelExcluidos).toBe(3)
+    expect(resultado.metricasOrigem.registrosTradeProConsiderados).toBe(0)
+    expect(resultado.universoProcessado.validadesLidas).toBe(0)
+    expect(resultado.universoProcessado.rupturasLidas).toBe(0)
+    expect(resultado.universoProcessado.visitasLidas).toBe(0)
+    expect(resultado.industrias.descobertas).toBe(0)
+  })
+
+  it('13. Registro legado NÃO participa da homologação TradePro', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                cod_cliente: '7',
+                cliente: 'FRUTAP',
+                is_base_atual: false, // Inativo / lote antigo não vigente
+                origem_fonte: 'legado',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+        getFullList: vi.fn().mockResolvedValue([]),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(resultado.metricasOrigem.registrosLegadosExcluidos).toBe(1)
+    expect(resultado.metricasOrigem.registrosTradeProConsiderados).toBe(0)
+    expect(resultado.universoProcessado.validadesLidas).toBe(0)
+  })
+
+  it('14. Relação por Visita gera tipo_vinculo = observado_visita e por Validade/Ruptura gera observado_operacao', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([
+      { id: 'loja_10', codigo_externo: '10', razao_social: 'Loja 10', ativo: true } as any,
+      { id: 'loja_20', codigo_externo: '20', razao_social: 'Loja 20', ativo: true } as any,
+    ])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([
+      { id: 'prom_1', codigo_externo: '1', nome: 'Promotor 1', status: 'ativo' } as any,
+      { id: 'prom_2', codigo_externo: '2', nome: 'Promotor 2', status: 'ativo' } as any,
+    ])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_novo' })
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                cod_colaborador: '1',
+                colaborador: 'Promotor 1',
+                codigo_loja: '10',
+                is_base_atual: true,
+                tenant_id: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      if (name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                promoter_cod: '2',
+                promoter_nome: 'Promotor 2',
+                store_code: '20',
+                origem_fonte: 'tradepro_api',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'store_promoter_assignments') {
+        return {
+          getFullList: vi.fn().mockResolvedValue([]),
+          create: assignmentCreateSpy,
+          update: vi.fn().mockResolvedValue({}),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(resultado.relacoes.novasPersistidas).toBe(2)
+
+    // Vínculo por Validade/Ruptura DEVE ser observado_operacao
+    expect(assignmentCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promoter_id: 'prom_1',
+        store_code: '10',
+        tipo_vinculo: 'observado_operacao',
+        origem_vinculo: 'tradepro_validades',
+      }),
+    )
+
+    // Vínculo por Operacional Visitas DEVE ser observado_visita
+    expect(assignmentCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promoter_id: 'prom_2',
+        store_code: '20',
+        tipo_vinculo: 'observado_visita',
+        origem_vinculo: 'tradepro_visitas',
+      }),
+    )
+  })
+
+  it('15. Vigência: data_fim fica VAZIO em vínculo ativo novo (nunca grava última data em data_fim)', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([
+      { id: 'loja_10', codigo_externo: '10', razao_social: 'Loja 10', ativo: true } as any,
+    ])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([
+      { id: 'prom_1', codigo_externo: '1', nome: 'Promotor 1', status: 'ativo' } as any,
+    ])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([])
+
+    const assignmentCreateSpy = vi.fn().mockResolvedValue({ id: 'ass_novo' })
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base' || name === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      if (name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                data: '2025-05-20',
+                promoter_cod: '1',
+                promoter_nome: 'Promotor 1',
+                store_code: '10',
+                origem_fonte: 'tradepro_api',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'store_promoter_assignments') {
+        return {
+          getFullList: vi.fn().mockResolvedValue([]),
+          create: assignmentCreateSpy,
+          update: vi.fn().mockResolvedValue({}),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      } as any
+    })
+
+    await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(assignmentCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data_inicio: '2025-05-20',
+        data_fim: '', // Deve ficar VAZIO!
+        status: 'ativo',
+      }),
+    )
+  })
+
+  it('16. Produto: preserva codigoProduto e nome real normalizado, resolvendo sem usar código como nome', async () => {
+    vi.mocked(getCadastrosIndustrias).mockResolvedValue([
+      { id: 'ind_7', nome: 'FRUTAP', tradepro_client_id: '7', status: 'ativa' } as any,
+    ])
+    vi.mocked(getCadastrosRedes).mockResolvedValue([])
+    vi.mocked(getCadastrosLojas).mockResolvedValue([])
+    vi.mocked(getCadastrosSupervisores).mockResolvedValue([])
+    vi.mocked(getCadastrosPromotores).mockResolvedValue([])
+    vi.mocked(getCadastrosProdutos).mockResolvedValue([
+      {
+        id: 'prod_100',
+        industry_id: 'ind_7',
+        codigo_produto: 'SKU999',
+        nome_produto: 'Iogurte Grego 100g',
+        tipo_mix: 'oficial_industria',
+        status: 'ativo',
+      } as any,
+    ])
+
+    vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+      if (name === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: [
+              {
+                cod_cliente: '7',
+                cliente: 'FRUTAP',
+                cod_produto: 'SKU999',
+                produto: 'Iogurte Grego 100g',
+                is_base_atual: true,
+                data_importacao: 'tradepro_job',
+              },
+            ],
+            totalPages: 1,
+          }),
+        } as any
+      }
+      if (name === 'rupturas_base' || name === 'operacional_visitas') {
+        return {
+          getList: vi.fn().mockResolvedValue({ items: [], totalPages: 1 }),
+        } as any
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({ items: [] }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+        getFullList: vi.fn().mockResolvedValue([]),
+      } as any
+    })
+
+    const resultado = await executarHomologacaoCadastralBaseAtual('Tester')
+
+    expect(resultado.produtos.descobertos).toBe(1)
+    expect(resultado.produtos.resolvidos).toBe(1)
+    expect(resultado.produtos.detalhes[0].nome).toBe('Iogurte Grego 100g')
+    expect(resultado.produtos.detalhes[0].codigo).toBe('SKU999')
   })
 })

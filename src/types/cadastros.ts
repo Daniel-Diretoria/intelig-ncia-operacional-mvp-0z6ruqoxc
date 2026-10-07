@@ -151,7 +151,7 @@ export interface CadastroPromotorAssignment {
   industry_id?: string
   industry_name?: string
   status: 'ativo' | 'encerrado'
-  tipo_vinculo?: 'confirmado' | 'observado_visita'
+  tipo_vinculo?: 'confirmado' | 'observado_visita' | 'observado_operacao'
   origem_vinculo?: string
   data_inicio?: string
   data_fim?: string
@@ -196,6 +196,37 @@ export interface CadastroConflito {
   data_deteccao: string
 }
 
+// Métricas de Origem da Homologação Cadastral (Bloco A.2 - Fonte Oficial TradePro)
+export interface HomologacaoMetricasOrigem {
+  registrosTradeProConsiderados: number
+  registrosExcelExcluidos: number
+  registrosLegadosExcluidos: number
+  registrosSemOrigemConfiavelExcluidos: number
+  detalhesPorFonte: {
+    validades: {
+      consideradosTradePro: number
+      excluidosExcel: number
+      excluidosLegados: number
+      excluidosSemOrigem: number
+      paginasProcessadas: number
+    }
+    rupturas: {
+      consideradosTradePro: number
+      excluidosExcel: number
+      excluidosLegados: number
+      excluidosSemOrigem: number
+      paginasProcessadas: number
+    }
+    visitas: {
+      consideradosTradePro: number
+      excluidosExcel: number
+      excluidosLegados: number
+      excluidosSemOrigem: number
+      paginasProcessadas: number
+    }
+  }
+}
+
 // Fila de Resolução Estrutural de Pendências de Cadastro
 export type CadastroPendenciaTipo =
   | 'industria'
@@ -227,9 +258,11 @@ export interface CadastroPendencia {
 }
 
 // Inteligência Básica Explicável de Mix (Oportunidades Operacionais de Presença)
-// 7. Resultado Completo da Homologação Cadastral (Bloco A)
+// 7. Resultado Completo da Homologação Cadastral (Bloco A / A.2)
 export interface HomologacaoCadastralResultado {
+  fonteHomologada: string // "TradePro API"
   dataExecucao: string
+  metricasOrigem: HomologacaoMetricasOrigem
   universoProcessado: {
     validadesLidas: number
     rupturasLidas: number
