@@ -597,6 +597,41 @@ export function buildCityUfCanonicalizer(
   }
 }
 
+/**
+ * Helper canônico para navegar para a ficha da loja (/lojas/:storeId)
+ * Garante identificador canônico composto gerado via buildStoreCompositeKey e codificado com encodeURIComponent.
+ * Suporta caracteres especiais em nomes como "/", "—", "&", acentos.
+ */
+export function navigateToStore(
+  store: {
+    storeId?: string | null
+    codigoLoja?: string | number | null
+    codigo_loja?: string | number | null
+    storeCode?: string | number | null
+    nomeLoja?: string | null
+    nome_loja?: string | null
+    storeName?: string | null
+    loja?: string | null
+    razaoSocial?: string | null
+    razao_social?: string | null
+    rede?: string | null
+    networkName?: string | null
+    cidade?: string | null
+    city?: string | null
+    uf?: string | null
+    estado?: string | null
+    state?: string | null
+  },
+  navigate: (path: string) => void,
+): void {
+  const compositeKey =
+    store.storeId && store.storeId.includes('|')
+      ? store.storeId
+      : buildStoreCompositeKey(store)
+
+  navigate(`/lojas/${encodeURIComponent(compositeKey)}`)
+}
+
 export function formatProductSku(
   sku: unknown,
   productDescription?: unknown,

@@ -1997,14 +1997,23 @@ export const LojasPage: React.FC = () => {
                                   </Badge>
                                 </td>
 
-                                {/* 8. Criticidade */}
+                                {/* 8. Criticidade / Saúde Dimensional */}
                                 <td className="py-3 px-4 text-center whitespace-nowrap">
-                                  {store.situacao === 'Crítica' ? (
+                                  {store.validadesCriticasCount > 0 ? (
                                     <Badge
                                       variant="outline"
                                       className="bg-red-50 text-red-700 border-red-200 font-semibold"
+                                      title={`${store.validadesCriticasCount} validade(s) crítica(s)`}
                                     >
                                       Crítica
+                                    </Badge>
+                                  ) : store.rupturasAtivasCount > 0 ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-amber-50 text-amber-800 border-amber-200 font-semibold"
+                                      title={`${store.rupturasAtivasCount} ruptura(s) ativa(s)`}
+                                    >
+                                      Atenção ({store.rupturasAtivasCount} rup)
                                     </Badge>
                                   ) : (
                                     <Badge
@@ -2232,14 +2241,23 @@ export const LojasPage: React.FC = () => {
                                 </Badge>
                               </td>
 
-                              {/* 7. Situação */}
+                              {/* 7. Situação / Saúde Dimensional */}
                               <td className="py-3 px-4 text-center whitespace-nowrap">
-                                {store.situacao === 'Crítica' ? (
+                                {store.validadesCriticasCount > 0 ? (
                                   <Badge
                                     variant="outline"
                                     className="bg-red-50 text-red-700 border-red-200 font-semibold"
+                                    title={`${store.validadesCriticasCount} validade(s) crítica(s)`}
                                   >
                                     Crítica
+                                  </Badge>
+                                ) : store.rupturasAtivasCount > 0 ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-amber-50 text-amber-800 border-amber-200 font-semibold"
+                                    title={`${store.rupturasAtivasCount} ruptura(s) ativa(s)`}
+                                  >
+                                    Atenção ({store.rupturasAtivasCount} rup)
                                   </Badge>
                                 ) : (
                                   <Badge

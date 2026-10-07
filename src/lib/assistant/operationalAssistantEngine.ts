@@ -806,7 +806,14 @@ export function executeIntent(
             },
             { label: 'Pontos brutos', value: s.rawPoints },
           ],
-          navigationPath: `/lojas/${s.storeCode}`,
+          navigationPath: `/lojas/${encodeURIComponent(
+            buildStoreCompositeKey({
+              codigoLoja: s.storeCode,
+              nomeLoja: s.storeName,
+              cidade: s.city,
+              uf: s.state,
+            }),
+          )}`,
           navigationLabel: 'Ver Loja',
         }
       })
@@ -1207,6 +1214,12 @@ export function executeIntent(
           { label: 'Vencimento', value: formatDisplayDate(v.validade) },
         ]
 
+        const storeKey = buildStoreCompositeKey({
+          codigoLoja: v.codigoLoja,
+          nomeLoja: v.loja,
+          cidade: v.cidade,
+          uf: v.uf,
+        })
         return {
           iconType: 'calendar' as const,
           title: v.product,
@@ -1214,13 +1227,19 @@ export function executeIntent(
           badge: `${pluralize(v.diasRestantes, 'dia', 'dias')} (${v.status})`,
           badgeVariant: (v.status === 'Crítico' ? 'critical' : 'warning') as 'critical' | 'warning',
           details,
-          navigationPath: `/lojas/${effectiveCode}`,
+          navigationPath: `/lojas/${encodeURIComponent(storeKey)}`,
           navigationLabel: 'Abrir Ficha da Loja',
         }
       })
 
       const topRup = matchedRupturas.slice(0, 3).map((r) => {
         const dias = r.dias_em_ruptura ?? 0
+        const storeKey = buildStoreCompositeKey({
+          codigoLoja: r.codigo_loja,
+          nomeLoja: r.nome_loja,
+          cidade: r.cidade,
+          uf: r.estado,
+        })
         return {
           iconType: 'alert' as const,
           title: r.produto,
@@ -1231,7 +1250,7 @@ export function executeIntent(
             { label: 'Situação', value: r.situacao_atual },
             { label: 'Data visita', value: formatDisplayDate(r.data_visita) },
           ],
-          navigationPath: `/lojas/${effectiveCode}`,
+          navigationPath: `/lojas/${encodeURIComponent(storeKey)}`,
           navigationLabel: 'Abrir Ficha da Loja',
         }
       })

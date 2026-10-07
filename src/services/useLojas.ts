@@ -10,6 +10,26 @@ import { useValidades } from '@/services/useValidades'
 import { useRupturas } from '@/services/useRupturas'
 import type { ValidadeItem, Ruptura } from '@/types'
 
+export interface StoreDimensoes {
+  validades: {
+    criticasCount: number
+    atencaoCount: number
+    totalAtivas: number
+  }
+  rupturas: {
+    ativasCount: number
+  }
+  acompanhamento: {
+    produtosCriticosCount: number
+  }
+  devolucoes: {
+    emAndamentoCount: number
+  }
+  ocorrencias: {
+    abertasCount: number
+  }
+}
+
 export interface StoreSummary {
   storeId: string // chave composta segura (NUNCA só código)
   storeCode: string // "085", "007", "" se não houver
@@ -22,7 +42,10 @@ export interface StoreSummary {
   validadesCriticasCount: number // 0-15 dias
   validadesAtencaoCount: number // 16-30 dias (para KPI "Casos complexos" = críticas + atenção ou contagem)
   rupturasAtivasCount: number
-  situacao: 'Crítica' | 'Normal' // Crítica = validades 0-15 OU ruptura ativa
+  situacao: 'Crítica' | 'Normal' // Mantido para compatibilidade: Crítica APENAS quando validades 0-15d > 0. Ruptura isolada NÃO gera situação Crítica.
+  requerAtencao: boolean
+  motivosAtencao: string[]
+  dimensoes: StoreDimensoes
   // Campos complementares para o detalhe da loja
   itemsAtivos: ValidadeItem[]
   itemsAuditoria: ValidadeItem[]
@@ -238,8 +261,45 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
 
       if (!seenStoreIds.has(storeId)) {
         seenStoreIds.add(storeId)
+
+        // Item 2: Desacoplamento dimensional — Loja só com ruptura NÃO recebe "Crítica"
+        // Criticidade severa é restrita a validades críticas (0-15 dias).
+        // Rupturas e outras dimensões são medidas independentemente.
         const situacao: 'Crítica' | 'Normal' =
-          entry.validadesCriticasCount > 0 || entry.rupturasAtivasCount > 0 ? 'Crítica' : 'Normal'
+          entry.validadesCriticasCount > 0 ? 'Crítica' : 'Normal'
+
+        const motivosAtencao: string[] = []
+        if (entry.validadesCriticasCount > 0) {
+          motivosAtencao.push(`${entry.validadesCriticasCount} validade(s) crítica(s)`)
+        }
+        if (entry.validadesAtencaoCount > 0) {
+          motivosAtencao.push(`${entry.validadesAtencaoCount} lote(s) em atenção`)
+        }
+        if (entry.rupturasAtivasCount > 0) {
+          motivosAtencao.push(`${entry.rupturasAtivasCount} ruptura(s) ativa(s)`)
+        }
+
+        const requerAtencao = motivosAtencao.length > 0
+
+        const dimensoes: StoreDimensoes = {
+          validades: {
+            criticasCount: entry.validadesCriticasCount,
+            atencaoCount: entry.validadesAtencaoCount,
+            totalAtivas: entry.itemsAtivos.length,
+          },
+          rupturas: {
+            ativasCount: entry.rupturasAtivasCount,
+          },
+          acompanhamento: {
+            produtosCriticosCount: 0,
+          },
+          devolucoes: {
+            emAndamentoCount: 0,
+          },
+          ocorrencias: {
+            abertasCount: 0,
+          },
+        }
 
         const supResolution = resolveStoreSupervisors(
           entry.itemsAtivos,
@@ -260,6 +320,9 @@ export function useLojas(filters?: LojasFilter): UseLojasResult {
           validadesAtencaoCount: entry.validadesAtencaoCount,
           rupturasAtivasCount: entry.rupturasAtivasCount,
           situacao,
+          requerAtencao,
+          motivosAtencao,
+          dimensoes,
           itemsAtivos: entry.itemsAtivos,
           itemsAuditoria: entry.itemsAuditoria,
           rupturasList: entry.rupturasList,

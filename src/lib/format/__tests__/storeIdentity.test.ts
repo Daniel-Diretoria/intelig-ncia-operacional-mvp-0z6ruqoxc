@@ -5,6 +5,7 @@ import {
   buildCityUfCanonicalizer,
   formatStoreIdentity,
   formatStoreIdentityTable,
+  navigateToStore,
 } from '../storeIdentity'
 
 describe('storeIdentity.test.ts — Normalização e Identidade de Lojas', () => {
@@ -177,6 +178,34 @@ describe('storeIdentity.test.ts — Normalização e Identidade de Lojas', () =>
       ]
       const canonicalize = buildCityUfCanonicalizer(stores)
       expect(canonicalize('Blumenau', '')).toEqual({ city: 'Blumenau', uf: 'SC' })
+    })
+  })
+
+  describe('navigateToStore — helper canônico de navegação', () => {
+    it('gera rota /lojas/:storeId codificada com chave composta canônica', () => {
+      let navigatedUrl = ''
+      const navigateMock = (url: string) => {
+        navigatedUrl = url
+      }
+
+      navigateToStore(
+        {
+          codigoLoja: '165',
+          nomeLoja: 'FORT ATACADISTA — JOINVILLE / NORTE',
+          cidade: 'Joinville',
+          uf: 'SC',
+        },
+        navigateMock,
+      )
+
+      expect(navigatedUrl).toContain('/lojas/')
+      const param = navigatedUrl.replace('/lojas/', '')
+      const decoded = decodeURIComponent(param)
+      expect(decoded).toContain('165|')
+      expect(decoded).toContain('FORT ATACADISTA')
+      expect(decoded).toContain('JOINVILLE')
+      // Caracteres especiais "/" e "—" estão codificados na URL
+      expect(param).not.toContain('/')
     })
   })
 })

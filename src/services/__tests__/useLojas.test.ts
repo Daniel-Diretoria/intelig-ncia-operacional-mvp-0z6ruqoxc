@@ -385,7 +385,7 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
     expect(result.current.rupturasAtivas[0].produto).toBe('PROD 2')
   })
 
-  it('filteredStores com filtro Situação="Críticas": só lojas com validades 0-15 OU ruptura', async () => {
+  it('filteredStores com filtro Situação="Críticas": loja só com ruptura NÃO recebe "Crítica" (dimensões separadas)', async () => {
     setupMocks()
 
     const { result } = renderHook(() => useLojas({ situacao: 'Críticas' }))
@@ -394,12 +394,21 @@ describe('useLojas.test.ts — Serviço useLojas Refatorado', () => {
       expect(result.current.isLoading).toBe(false)
     })
 
-    // 2 lojas críticas: FORT (validade 10d) e COMPER (ruptura 1)
-    expect(result.current.filteredStores.length).toBe(2)
+    // Item 2: Desacoplamento dimensional — Loja só com ruptura NÃO recebe "Crítica".
+    // FORT ATACADISTA KOBRASOL tem validade 10d (crítica).
+    // COMPER CENTRO tem apenas ruptura ativa (não tem validade crítica) -> não recebe "Crítica".
+    expect(result.current.filteredStores.length).toBe(1)
     const storeNames = result.current.filteredStores.map((s) => s.storeName)
     expect(storeNames).toContain('FORT ATACADISTA KOBRASOL')
-    expect(storeNames).toContain('COMPER CENTRO')
+    expect(storeNames).not.toContain('COMPER CENTRO')
     expect(storeNames).not.toContain('ASSAI NORTE')
+
+    // COMPER CENTRO possui dimensoes.rupturas.ativasCount > 0 e requerAtencao = true
+    const comper = result.current.stores.find((s) => s.storeName === 'COMPER CENTRO')
+    expect(comper?.situacao).toBe('Normal')
+    expect(comper?.dimensoes.rupturas.ativasCount).toBe(1)
+    expect(comper?.requerAtencao).toBe(true)
+    expect(comper?.motivosAtencao).toContain('1 ruptura(s) ativa(s)')
   })
 
   it('getStoreById com storeId composto retorna loja exata; código parcial NÃO retorna loja errada', async () => {
