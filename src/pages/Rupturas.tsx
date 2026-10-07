@@ -284,7 +284,7 @@ export function RupturasPage() {
     if (filterState.cliente !== 'Todos') {
       chips.push({
         id: 'cliente',
-        label: `Marca: ${filterState.cliente}`,
+        label: `Indústria / Marca: ${filterState.cliente}`,
         onRemove: () => setFilterState((s) => ({ ...s, cliente: 'Todos' })),
       })
     }
@@ -506,13 +506,13 @@ export function RupturasPage() {
             </div>
           </div>
 
-          {/* Marca (cliente) */}
-          <div className="flex flex-col gap-1 min-w-[130px] flex-1">
+          {/* Indústria / Marca (cliente) */}
+          <div className="flex flex-col gap-1 min-w-[140px] flex-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              Marca
+              Indústria / Marca
             </label>
             <select
-              aria-label="Marca"
+              aria-label="Indústria / Marca"
               value={filterState.cliente}
               onChange={(e) => {
                 setFilterState((s) => ({ ...s, cliente: e.target.value }))
@@ -520,7 +520,7 @@ export function RupturasPage() {
               }}
               className="w-full h-9 px-2.5 py-1 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer truncate"
             >
-              <option value="Todos">Todas as marcas</option>
+              <option value="Todos">Todas as indústrias</option>
               {filterOptions.clientes.map((m) => (
                 <option key={m} value={m}>
                   {m}

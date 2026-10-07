@@ -1094,6 +1094,36 @@ onRecordAfterUpdateSuccess((e) => {
       return
     }
 
+    // Carrega indústrias cadastradas para mapear tradepro_client_id -> industry_id e nome canônico
+    const industryMapByClientId = {}
+    try {
+      const allIndustries = $app.findRecordsByFilter(
+        'industry_registry',
+        'id != ""',
+        'nome',
+        1000,
+        0,
+      )
+      if (allIndustries && allIndustries.length > 0) {
+        for (let indIdx = 0; indIdx < allIndustries.length; indIdx++) {
+          const indRec = allIndustries[indIdx]
+          const tId = (indRec.getString('tradepro_client_id') || '').trim()
+          if (tId) {
+            industryMapByClientId[tId] = {
+              id: indRec.id,
+              nome: indRec.getString('nome'),
+              tradepro_client_id: tId,
+              tradepro_client_name: indRec.getString('tradepro_client_name'),
+            }
+          }
+        }
+      }
+    } catch (indErr) {
+      console.log(
+        '[tradepro_sync] Aviso: falha ao carregar industry_registry em rupturas: ' + indErr,
+      )
+    }
+
     // Helpers de pipeline de Rupturas inline
     const normalizeRupturaMotivo = (motivo) => {
       const m = (motivo || '')
@@ -1182,7 +1212,7 @@ onRecordAfterUpdateSuccess((e) => {
     // Se paginaInicial > paginasTotal, significa que todas as páginas já foram baixadas para staging.
     // Pula o loop e vai direto para a validação e promoção.
     if (paginaInicial <= paginasTotal) {
-      // Loop paginado sequencial — UMA tentativa por página (sem $os.sleep, sem retry automático em loop)
+      // Loop paginado sequencial com retry autônomo (5s, 15s, 30s, 30s, 30s)
       for (let pagina = paginaInicial; pagina <= paginasTotal; pagina++) {
         // Verifica se o job foi cancelado pelo frontend entre as páginas
         try {
@@ -1203,41 +1233,79 @@ onRecordAfterUpdateSuccess((e) => {
 
         let res = null
         let sendError = null
+        let statusCode = 0
+        let rawBodyText = ''
+        const maxAttempts = 5
+        const retryDelaysMs = [5000, 15000, 30000, 30000, 30000]
 
-        // Única tentativa por página
-        try {
-          res = $http.send({
-            url: pageUrl,
-            method: 'GET',
-            headers: {
-              Authorization: authHeader,
-              Accept: 'application/json',
-            },
-            timeout: 20,
-          })
-        } catch (err) {
-          sendError = err
+        // Per-page retry loop com backoff progressivo
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          sendError = null
+          res = null
+
+          try {
+            res = $http.send({
+              url: pageUrl,
+              method: 'GET',
+              headers: {
+                Authorization: authHeader,
+                Accept: 'application/json',
+              },
+              timeout: 20,
+            })
+          } catch (err) {
+            sendError = err
+          }
+
+          statusCode = res ? res.statusCode || 0 : 0
+          rawBodyText =
+            res && typeof res.raw === 'string'
+              ? res.raw
+              : res && typeof res.body === 'string'
+                ? res.body
+                : ''
+
+          const isTransient =
+            Boolean(sendError) || statusCode === 0 || statusCode === 429 || statusCode >= 500
+
+          if (!isTransient) {
+            // Sucesso (200, 204) ou erro fatal cliente (401, 403, 412, etc.)
+            break
+          }
+
+          // Se for transitório e ainda tiver tentativas restantes, faz sleep e atualiza status
+          if (attempt < maxAttempts) {
+            const waitTime = retryDelaysMs[attempt - 1] || 30000
+            const concluidas = Math.max(0, pagina - 1)
+            record.set(
+              'message',
+              'Aguardando liberação do TradePro. ' +
+                concluidas +
+                ' páginas concluídas. ' +
+                registrosValidos +
+                ' registros preservados. Tentativa automática ' +
+                (attempt + 1) +
+                ' de 5...',
+            )
+            $app.save(record)
+
+            try {
+              sleep(waitTime)
+            } catch (_) {}
+          }
         }
 
-        const statusCode = res ? res.statusCode || 0 : 0
-        const rawBodyText =
-          res && typeof res.raw === 'string'
-            ? res.raw
-            : res && typeof res.body === 'string'
-              ? res.body
-              : ''
-
-        // Timeout ou erro de conexão de rede — pausa para permitir retomada segura
+        // Se após até 5 tentativas ainda houver falha transitória
         if (sendError || statusCode === 0) {
           record.set('status', 'paused')
           record.set('error_code', 'timeout')
           record.set(
             'message',
-            'Tempo limite esgotado ou falha de conexão na página ' +
+            'Tempo limite esgotado após 5 tentativas na página ' +
               pagina +
               ' de ' +
               paginasTotal +
-              '. Job pausado. Clique em Retomar para continuar.',
+              '. Job pausado com staging preservado. Clique em Retomar para continuar.',
           )
           $app.save(record)
           return
@@ -1290,11 +1358,11 @@ onRecordAfterUpdateSuccess((e) => {
           record.set('error_code', 'rate_limited')
           record.set(
             'message',
-            'Limite de requisições atingido na página ' +
+            'Limite de requisições mantido após 5 tentativas na página ' +
               pagina +
               ' de ' +
               paginasTotal +
-              '. Job pausado. Clique em Retomar para continuar.',
+              '. Staging preservado. Clique em Retomar para continuar.',
           )
           $app.save(record)
           return
@@ -1305,13 +1373,13 @@ onRecordAfterUpdateSuccess((e) => {
           record.set('error_code', 'tradepro_unavailable')
           record.set(
             'message',
-            'Servidor TradePro indisponível na página ' +
+            'Servidor TradePro indisponível após 5 tentativas na página ' +
               pagina +
               ' de ' +
               paginasTotal +
               ' (HTTP ' +
               statusCode +
-              '). Job pausado. Clique em Retomar para continuar.',
+              '). Staging preservado. Clique em Retomar para continuar.',
           )
           $app.save(record)
           return
@@ -1365,7 +1433,23 @@ onRecordAfterUpdateSuccess((e) => {
           const codigoLoja = extractStoreCode(rawRazaoSocial)
           const motivoNormalizado = normalizeRupturaMotivo(rawMotivo)
           const clienteFantasia = item.fantasiaCliente || item.cliente || ''
-          const dedupKey = codigoLoja + '|' + rawProduto + '|' + clienteFantasia
+          const rawCodigoCliente = (item.codigoCliente || item.codigo_cliente || '')
+            .toString()
+            .trim()
+
+          // Resolução estrita da Indústria SKIP via tradepro_client_id
+          let resolvedIndustryName = ''
+          let resolvedIndustryId = ''
+          if (rawCodigoCliente && industryMapByClientId[rawCodigoCliente]) {
+            resolvedIndustryId = industryMapByClientId[rawCodigoCliente].id
+            resolvedIndustryName = industryMapByClientId[rawCodigoCliente].nome
+          }
+
+          // Se tiver indústria mapeada, o campo cliente (Indústria) recebe o nome canônico (ex: FRUTAP)
+          // Preserva clienteFantasia para Rede/Fantasia
+          const clienteNormalizado = resolvedIndustryName || clienteFantasia
+
+          const dedupKey = codigoLoja + '|' + rawProduto + '|' + clienteNormalizado
           const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
 
           const rupRecord = new Record(rupturasBaseCol)
@@ -1376,8 +1460,8 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('cnpj_loja', item.cpfCnpjCliente || item.cnpj_loja || '')
           rupRecord.set('cidade', item.cidadeCliente || item.cidade || '')
           rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')
-          rupRecord.set('codigo_cliente', item.codigoCliente || item.codigo_cliente || '')
-          rupRecord.set('cliente', clienteFantasia)
+          rupRecord.set('codigo_cliente', rawCodigoCliente)
+          rupRecord.set('cliente', clienteNormalizado)
           rupRecord.set('colaborador', item.nomePromotor || item.colaborador || '')
           rupRecord.set('categoria', item.descricaoCategoria || item.categoria || '')
           rupRecord.set('observacao', item.observacaoRuptura || item.observacao || '')
@@ -1679,39 +1763,80 @@ onRecordAfterUpdateSuccess((e) => {
 
       let pageRes = null
       let pageErr = null
+      let statusCode = 0
+      let rawBodyText = ''
+      const maxAttemptsValidades = 5
+      const retryDelaysValidades = [5000, 15000, 30000, 30000, 30000]
 
-      try {
-        pageRes = $http.send({
-          url: pageUrl,
-          method: 'GET',
-          headers: {
-            Authorization: authHeader,
-            Accept: 'application/json',
-          },
-          timeout: 20,
-        })
-      } catch (err) {
-        pageErr = err
+      // Per-page retry loop com backoff progressivo para Validades
+      for (let attempt = 1; attempt <= maxAttemptsValidades; attempt++) {
+        pageErr = null
+        pageRes = null
+
+        try {
+          pageRes = $http.send({
+            url: pageUrl,
+            method: 'GET',
+            headers: {
+              Authorization: authHeader,
+              Accept: 'application/json',
+            },
+            timeout: 20,
+          })
+        } catch (err) {
+          pageErr = err
+        }
+
+        statusCode = pageRes ? pageRes.statusCode || 0 : 0
+        rawBodyText =
+          pageRes && typeof pageRes.raw === 'string'
+            ? pageRes.raw
+            : pageRes && typeof pageRes.body === 'string'
+              ? pageRes.body
+              : JSON.stringify(pageRes ? pageRes.json || {} : {})
+
+        const isTransient =
+          Boolean(pageErr) || statusCode === 0 || statusCode === 429 || statusCode >= 500
+
+        if (!isTransient) {
+          // 200, 204 ou erro definitivo
+          break
+        }
+
+        if (attempt < maxAttemptsValidades) {
+          const waitTime = retryDelaysValidades[attempt - 1] || 30000
+          const concluidas = Math.max(0, pagina - 1)
+          record.set(
+            'message',
+            'Aguardando liberação do TradePro. ' +
+              concluidas +
+              ' páginas concluídas. ' +
+              totalValidos +
+              ' registros preservados. Tentativa automática ' +
+              (attempt + 1) +
+              ' de 5...',
+          )
+          $app.save(record)
+
+          try {
+            sleep(waitTime)
+          } catch (_) {}
+        }
       }
 
-      if (pageErr) {
+      if (pageErr || statusCode === 0) {
         const errStr = String(pageErr || '')
-        const isTimeout = /timeout|deadline|exceeded|timed out/i.test(errStr)
+        const isTimeout = /timeout|deadline|exceeded|timed out/i.test(errStr) || statusCode === 0
         isInterrupted = true
         pauseErrorCode = isTimeout ? 'timeout' : 'tradepro_unavailable'
-        pauseMessage = isTimeout
-          ? 'Tempo limite esgotado na página ' + pagina + '.'
-          : 'Erro de comunicação na página ' + pagina + '.'
+        pauseMessage =
+          'Tempo limite esgotado após 5 tentativas na página ' +
+          pagina +
+          ' de ' +
+          paginasTotal +
+          '. O staging foi preservado. Clique em Retomar para continuar.'
         break
       }
-
-      const statusCode = pageRes.statusCode || 0
-      const rawBodyText =
-        typeof pageRes.raw === 'string'
-          ? pageRes.raw
-          : typeof pageRes.body === 'string'
-            ? pageRes.body
-            : JSON.stringify(pageRes.json || {})
 
       // HTTP 204: sem mais dados
       if (statusCode === 204) {
@@ -1767,13 +1892,13 @@ onRecordAfterUpdateSuccess((e) => {
         } else if (statusCode === 429) {
           pauseErrorCode = 'rate_limited'
           pauseMessage =
-            'Limite de requisições atingido na página ' +
+            'Limite de requisições mantido após 5 tentativas na página ' +
             pagina +
             '. O job foi pausado com staging preservado. Clique em Retomar para continuar.'
         } else if (statusCode >= 500) {
           pauseErrorCode = 'tradepro_unavailable'
           pauseMessage =
-            'Servidor TradePro indisponível na página ' +
+            'Servidor TradePro indisponível após 5 tentativas na página ' +
             pagina +
             ' (HTTP ' +
             statusCode +
