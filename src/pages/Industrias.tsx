@@ -352,15 +352,15 @@ export const IndustriasPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                Gestão de Indústrias &amp; Fornecedores
+                Cockpit Operacional — Indústrias / Marcas
               </h1>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
                 {industrias.length} indústrias ativas
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Visão consolidada por marca/fornecedor a partir das ocorrências canônicas de validades
-              e rupturas.
+              Acompanhamento operacional por indústria/marca a partir das ocorrências canônicas de
+              validades e rupturas.
             </p>
           </div>
         </div>
@@ -601,7 +601,7 @@ export const IndustriasPage: React.FC = () => {
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-slate-900">
-              Fornecedores &amp; Marcas Consolidadas
+              Indústrias &amp; Marcas Monitoradas
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Clique em qualquer linha para abrir o painel lateral de contexto da indústria sem

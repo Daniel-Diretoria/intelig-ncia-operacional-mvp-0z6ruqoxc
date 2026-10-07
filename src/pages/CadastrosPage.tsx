@@ -8,16 +8,14 @@ import {
   Users,
   AlertCircle,
   Link2,
-  ExternalLink,
   Plus,
   Search,
-  Filter,
-  CheckCircle2,
-  Clock,
   Sparkles,
   ArrowRight,
-  ShieldCheck,
+  Edit2,
   TrendingUp,
+  History,
+  CheckCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -49,6 +47,7 @@ import type {
   CadastroLoja,
   CadastroSupervisor,
   CadastroPromotor,
+  CadastroPromotorAssignment,
   CadastroPendencia,
   MixOpportunityAnalysis,
 } from '@/types/cadastros'
@@ -69,6 +68,10 @@ import {
   resolveCadastroPendencia,
   reavaliarRupturasNaoIdentificadas,
   getMixOpportunityAnalyses,
+  getStoreFullMix,
+  getPromoterAssignments,
+  assignPromoterToStore,
+  confirmarVinculoObservado,
 } from '@/services/cadastrosService'
 
 export const CadastrosPage: React.FC = () => {
@@ -96,20 +99,37 @@ export const CadastrosPage: React.FC = () => {
   const [promotores, setPromotores] = React.useState<CadastroPromotor[]>([])
   const [pendencias, setPendencias] = React.useState<CadastroPendencia[]>([])
 
-  // Modal de Detalhe / Edição
+  // Modal de Detalhe / Edição / Criação Manual
   const [modalType, setModalType] = React.useState<string | null>(null)
   const [selectedItem, setSelectedItem] = React.useState<any>(null)
   const [isEditing, setIsEditing] = React.useState(false)
+  const [formData, setFormData] = React.useState<Record<string, any>>({})
 
   // Resolução de Pendência
   const [resolvingPendencia, setResolvingPendencia] = React.useState<CadastroPendencia | null>(null)
   const [targetEntityId, setTargetEntityId] = React.useState('')
   const [resolucaoObs, setResolucaoObs] = React.useState('')
 
-  // Oportunidades de Mix
+  // Oportunidades e Visão em 3 Níveis de Mix da Loja
   const [selectedStoreForMix, setSelectedStoreForMix] = React.useState<CadastroLoja | null>(null)
+  const [storeMixData, setStoreMixData] = React.useState<{
+    oficialIndustria: CadastroProduto[]
+    definidoLoja: any[]
+    observadoOperacional: any[]
+    foraDoMixDefinido: any[]
+  } | null>(null)
   const [mixOpportunities, setMixOpportunities] = React.useState<MixOpportunityAnalysis[]>([])
   const [loadingMixOpp, setLoadingMixOpp] = React.useState(false)
+
+  // Histórico Temporal e Vínculos de Promotores
+  const [selectedPromoterHistory, setSelectedPromoterHistory] =
+    React.useState<CadastroPromotor | null>(null)
+  const [promoterAssignments, setPromoterAssignments] = React.useState<
+    CadastroPromotorAssignment[]
+  >([])
+  const [loadingAssignments, setLoadingAssignments] = React.useState(false)
+  const [newAssignmentStoreCode, setNewAssignmentStoreCode] = React.useState('')
+  const [newAssignmentIndName, setNewAssignmentIndName] = React.useState('')
 
   // Reavaliação de rupturas
   const [reavaliandoRupturas, setReavaliandoRupturas] = React.useState(false)
@@ -156,6 +176,122 @@ export const CadastrosPage: React.FC = () => {
     setFilterStatus('todos')
   }, [activeTab])
 
+  // Abre modal de criação
+  const handleOpenCreate = (type: string) => {
+    setSelectedItem(null)
+    setIsEditing(true)
+    setFormData(
+      type === 'industrias'
+        ? {
+            nome: '',
+            razao_social: '',
+            cnpj: '',
+            segmento: 'Alimentos / Consumo',
+            status: 'ativa',
+            tradepro_client_id: '',
+            app_diretoria_industry_id: '',
+          }
+        : type === 'produtos'
+          ? {
+              nome_produto: '',
+              industry_id: industrias[0]?.id || '',
+              industry_name: industrias[0]?.nome || '',
+              tipo_mix: 'oficial_industria',
+              status: 'ativo',
+              codigo_produto: '',
+              cod_barras: '',
+              shelf_life_dias: 60,
+            }
+          : type === 'redes'
+            ? { nome: '', codigo_externo: '', cnpj: '', ativo: true }
+            : type === 'lojas'
+              ? {
+                  codigo_externo: '',
+                  razao_social: '',
+                  rede_nome: '',
+                  cidade: '',
+                  estado: 'SC',
+                  ativo: true,
+                }
+              : type === 'supervisores'
+                ? { nome: '', codigo_externo: '', telefone: '', email: '', status: 'ativo' }
+                : {
+                    nome: '',
+                    codigo_externo: '',
+                    supervisor_id: '',
+                    supervisor_nome: '',
+                    status: 'ativo',
+                  },
+    )
+    setModalType(type)
+  }
+
+  // Abre modal de edição
+  const handleOpenEdit = (type: string, item: any) => {
+    setSelectedItem(item)
+    setIsEditing(true)
+    setFormData({ ...item })
+    setModalType(type)
+  }
+
+  // Abre visualização detalhada
+  const handleOpenView = (type: string, item: any) => {
+    setSelectedItem(item)
+    setIsEditing(false)
+    setFormData({ ...item })
+    setModalType(type)
+  }
+
+  // Submissão do formulário CRUD
+  const handleSaveForm = async () => {
+    try {
+      if (modalType === 'industrias') {
+        if (!formData.nome?.trim()) throw new Error('Nome da Indústria é obrigatório.')
+        await saveCadastroIndustria({ ...selectedItem, ...formData })
+        toast({ title: 'Indústria salva com sucesso' })
+      } else if (modalType === 'produtos') {
+        if (!formData.nome_produto?.trim()) throw new Error('Nome do Produto é obrigatório.')
+        const ind = industrias.find((i) => i.id === formData.industry_id)
+        await saveCadastroProduto({
+          ...selectedItem,
+          ...formData,
+          industry_name: ind ? ind.nome : formData.industry_name,
+        })
+        toast({ title: 'Produto salvo com sucesso' })
+      } else if (modalType === 'redes') {
+        if (!formData.nome?.trim()) throw new Error('Nome da Rede é obrigatório.')
+        await saveCadastroRede({ ...selectedItem, ...formData })
+        toast({ title: 'Rede salva com sucesso' })
+      } else if (modalType === 'lojas') {
+        if (!formData.codigo_externo?.trim()) throw new Error('Código da Loja é obrigatório.')
+        await saveCadastroLoja({ ...selectedItem, ...formData })
+        toast({ title: 'Loja salva com sucesso' })
+      } else if (modalType === 'supervisores') {
+        if (!formData.nome?.trim()) throw new Error('Nome do Supervisor é obrigatório.')
+        await saveCadastroSupervisor({ ...selectedItem, ...formData })
+        toast({ title: 'Supervisor salvo com sucesso' })
+      } else if (modalType === 'promotores') {
+        if (!formData.nome?.trim()) throw new Error('Nome do Promotor é obrigatório.')
+        const sup = supervisores.find((s) => s.id === formData.supervisor_id)
+        await saveCadastroPromotor({
+          ...selectedItem,
+          ...formData,
+          supervisor_nome: sup ? sup.nome : formData.supervisor_nome,
+        })
+        toast({ title: 'Promotor salvo com sucesso' })
+      }
+
+      setModalType(null)
+      loadAll()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
   // Executa Reavaliação de Rupturas
   const handleReavaliarRupturas = async () => {
     setReavaliandoRupturas(true)
@@ -176,17 +312,82 @@ export const CadastrosPage: React.FC = () => {
     }
   }
 
-  // Abre análise de Mix da Loja
+  // Abre análise de Mix da Loja em 3 Níveis
   const handleOpenStoreMix = async (loja: CadastroLoja) => {
     setSelectedStoreForMix(loja)
     setLoadingMixOpp(true)
     try {
-      const opps = await getMixOpportunityAnalyses(loja.codigo_externo || loja.codigo_loja || '')
+      const [opps, fullMix] = await Promise.all([
+        getMixOpportunityAnalyses(loja.codigo_externo || loja.codigo_loja || ''),
+        getStoreFullMix(loja.codigo_externo || loja.codigo_loja || ''),
+      ])
       setMixOpportunities(opps)
-    } catch (err) {
+      setStoreMixData(fullMix)
+    } catch {
       setMixOpportunities([])
+      setStoreMixData(null)
     } finally {
       setLoadingMixOpp(false)
+    }
+  }
+
+  // Abre histórico temporal de Promotor
+  const handleOpenPromoterHistory = async (prom: CadastroPromotor) => {
+    setSelectedPromoterHistory(prom)
+    setLoadingAssignments(true)
+    try {
+      const list = await getPromoterAssignments(prom.id)
+      setPromoterAssignments(list)
+    } catch {
+      setPromoterAssignments([])
+    } finally {
+      setLoadingAssignments(false)
+    }
+  }
+
+  // Aloca Promotor a uma Loja
+  const handleAssignPromoter = async () => {
+    if (!selectedPromoterHistory || !newAssignmentStoreCode) return
+    const store = lojas.find((l) => l.codigo_externo === newAssignmentStoreCode)
+    try {
+      await assignPromoterToStore({
+        promoter_id: selectedPromoterHistory.id,
+        promoter_nome: selectedPromoterHistory.nome,
+        store_id: store?.id,
+        store_code: newAssignmentStoreCode,
+        store_name: store?.razao_social || store?.nome || `Loja ${newAssignmentStoreCode}`,
+        industry_name: newAssignmentIndName || 'Geral',
+        status: 'ativo',
+        tipo_vinculo: 'confirmado',
+        origem_vinculo: 'Atribuição Manual pelo Administrador',
+      })
+      toast({ title: 'Promotor alocado com sucesso!' })
+      const list = await getPromoterAssignments(selectedPromoterHistory.id)
+      setPromoterAssignments(list)
+      setNewAssignmentStoreCode('')
+      setNewAssignmentIndName('')
+      loadAll()
+    } catch (err: any) {
+      toast({ title: 'Erro ao alocar promotor', description: err.message, variant: 'destructive' })
+    }
+  }
+
+  // Confirma Vínculo Observado
+  const handleConfirmObserved = async (assignmentId: string) => {
+    try {
+      await confirmarVinculoObservado(assignmentId)
+      toast({ title: 'Relação confirmada como cobertura oficial!' })
+      if (selectedPromoterHistory) {
+        const list = await getPromoterAssignments(selectedPromoterHistory.id)
+        setPromoterAssignments(list)
+      }
+      loadAll()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao confirmar vínculo',
+        description: err.message,
+        variant: 'destructive',
+      })
     }
   }
 
@@ -198,7 +399,6 @@ export const CadastrosPage: React.FC = () => {
       if (resolvingPendencia.tipo_entidade === 'industria') {
         const ind = industrias.find((i) => i.id === targetEntityId)
         resolvedName = ind?.nome || targetEntityId
-        // Atualiza tradepro_client_id na indústria
         if (ind && resolvingPendencia.codigo_externo) {
           await saveCadastroIndustria({
             id: ind.id,
@@ -336,12 +536,12 @@ export const CadastrosPage: React.FC = () => {
               variant="secondary"
               className="font-semibold text-xs bg-indigo-50 text-indigo-700 border border-indigo-200"
             >
-              Fonte de Verdade Estrutural
+              Área Administrativa
             </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            "Cadastro responde: Quem existe e como essas entidades se relacionam? Sem inferências
-            silenciosas ou suposições."
+            "API alimenta e sugere. Cadastro Mestre organiza e confirma. O operador continua tendo
+            controle."
           </p>
         </div>
 
@@ -472,14 +672,17 @@ export const CadastrosPage: React.FC = () => {
               <Button
                 size="sm"
                 className="text-xs h-9 gap-1.5 shrink-0 bg-indigo-600 hover:bg-indigo-700"
-                onClick={() => {
-                  setSelectedItem(null)
-                  setIsEditing(true)
-                  setModalType(activeTab)
-                }}
+                onClick={() => handleOpenCreate(activeTab)}
               >
                 <Plus className="w-4 h-4" />
-                <span>Novo {activeTab.slice(0, -1)}</span>
+                <span>
+                  Novo{' '}
+                  {activeTab === 'industrias'
+                    ? 'Indústria'
+                    : activeTab === 'redes'
+                      ? 'Rede'
+                      : activeTab.slice(0, -1)}
+                </span>
               </Button>
             )}
           </div>
@@ -533,7 +736,7 @@ export const CadastrosPage: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-2 text-slate-600">
                       <div>
-                        <span className="block text-[11px] text-slate-400">Produtos no Mix:</span>
+                        <span className="block text-[11px] text-slate-400">Mix Oficial:</span>
                         <span className="font-semibold text-slate-800">{prodsCount} produtos</span>
                       </div>
                       <div>
@@ -547,18 +750,26 @@ export const CadastrosPage: React.FC = () => {
                     </div>
 
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs h-7 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                        onClick={() => {
-                          setSelectedItem(ind)
-                          setIsEditing(false)
-                          setModalType('industrias')
-                        }}
-                      >
-                        Ver Detalhes Estruturais
-                      </Button>
+                      <div className="space-x-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs h-7 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => handleOpenView('industrias', ind)}
+                        >
+                          Ficha
+                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7 px-2 text-slate-600 hover:text-indigo-600"
+                            onClick={() => handleOpenEdit('industrias', ind)}
+                          >
+                            <Edit2 className="w-3 h-3 mr-1" /> Editar
+                          </Button>
+                        )}
+                      </div>
 
                       <a
                         href={`/industrias/${ind.id}`}
@@ -588,7 +799,6 @@ export const CadastrosPage: React.FC = () => {
                     <th className="p-3">Indústria / Marca</th>
                     <th className="p-3">Categoria / Família</th>
                     <th className="p-3">Nível do Mix</th>
-                    <th className="p-3">Aliases Confirmados</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Ação</th>
                   </tr>
@@ -624,28 +834,6 @@ export const CadastrosPage: React.FC = () => {
                         </Badge>
                       </td>
                       <td className="p-3">
-                        {prod.aliases && prod.aliases.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {prod.aliases.slice(0, 2).map((a, idx) => (
-                              <Badge
-                                key={idx}
-                                variant="secondary"
-                                className="text-[10px] bg-slate-100"
-                              >
-                                {a}
-                              </Badge>
-                            ))}
-                            {prod.aliases.length > 2 && (
-                              <span className="text-[10px] text-slate-400">
-                                +{prod.aliases.length - 2}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">Nenhum alias</span>
-                        )}
-                      </td>
-                      <td className="p-3">
                         <Badge
                           variant={prod.status === 'ativo' ? 'default' : 'secondary'}
                           className="text-[10px] capitalize"
@@ -653,19 +841,25 @@ export const CadastrosPage: React.FC = () => {
                           {prod.status}
                         </Badge>
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-right space-x-1">
                         <Button
                           variant="ghost"
                           size="sm"
                           className="text-xs h-7 px-2"
-                          onClick={() => {
-                            setSelectedItem(prod)
-                            setIsEditing(false)
-                            setModalType('produtos')
-                          }}
+                          onClick={() => handleOpenView('produtos', prod)}
                         >
                           Ficha
                         </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7 px-2 text-indigo-600"
+                            onClick={() => handleOpenEdit('produtos', prod)}
+                          >
+                            Editar
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -689,7 +883,7 @@ export const CadastrosPage: React.FC = () => {
                         {rede.nome}
                       </CardTitle>
                       <CardDescription className="text-xs text-slate-500">
-                        Grupo Varejista (Fantasia TradePro)
+                        Grupo Varejista (Fantasia TradePro → Rede)
                       </CardDescription>
                     </div>
                     <Badge variant={rede.ativo ? 'default' : 'secondary'} className="text-[10px]">
@@ -710,14 +904,20 @@ export const CadastrosPage: React.FC = () => {
                       variant="ghost"
                       size="sm"
                       className="text-xs h-7 px-2 text-indigo-600"
-                      onClick={() => {
-                        setSelectedItem(rede)
-                        setIsEditing(false)
-                        setModalType('redes')
-                      }}
+                      onClick={() => handleOpenView('redes', rede)}
                     >
-                      Ver Lojas da Rede
+                      Ver Detalhes
                     </Button>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-slate-600 hover:text-indigo-600"
+                        onClick={() => handleOpenEdit('redes', rede)}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Editar
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -771,20 +971,26 @@ export const CadastrosPage: React.FC = () => {
                           onClick={() => handleOpenStoreMix(loja)}
                         >
                           <TrendingUp className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                          Mix &amp; Presença
+                          Mix em 3 Níveis
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           className="text-xs h-7 px-2"
-                          onClick={() => {
-                            setSelectedItem(loja)
-                            setIsEditing(false)
-                            setModalType('lojas')
-                          }}
+                          onClick={() => handleOpenView('lojas', loja)}
                         >
                           Ficha
                         </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7 px-2 text-indigo-600"
+                            onClick={() => handleOpenEdit('lojas', loja)}
+                          >
+                            Editar
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -822,7 +1028,7 @@ export const CadastrosPage: React.FC = () => {
                 <CardContent className="p-4 pt-2 space-y-3 text-xs">
                   <div className="p-2.5 rounded-lg bg-slate-50 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Supervisor Responsável:</span>
+                      <span className="text-slate-500">Supervisor:</span>
                       <span className="font-semibold text-slate-800">
                         {prom.supervisor_nome || 'Não vinculado'}
                       </span>
@@ -835,34 +1041,35 @@ export const CadastrosPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {prom.industrias_relacionadas && prom.industrias_relacionadas.length > 0 && (
-                    <div>
-                      <span className="text-[11px] text-slate-400 block mb-1">
-                        Indústrias com que trabalha:
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {prom.industrias_relacionadas.map((ind, i) => (
-                          <Badge key={i} variant="outline" className="text-[10px] bg-slate-50">
-                            {ind}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7 px-2 text-indigo-600"
-                      onClick={() => {
-                        setSelectedItem(prom)
-                        setIsEditing(false)
-                        setModalType('promotores')
-                      }}
-                    >
-                      Ficha do Promotor
-                    </Button>
+                    <div className="space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-indigo-600"
+                        onClick={() => handleOpenPromoterHistory(prom)}
+                      >
+                        <History className="w-3.5 h-3.5 mr-1" /> Histórico / Lojas
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-slate-600"
+                        onClick={() => handleOpenView('promotores', prom)}
+                      >
+                        Ficha
+                      </Button>
+                    </div>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-slate-600 hover:text-indigo-600"
+                        onClick={() => handleOpenEdit('promotores', prom)}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Editar
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -897,7 +1104,7 @@ export const CadastrosPage: React.FC = () => {
                 </CardHeader>
                 <CardContent className="p-4 pt-2 space-y-3 text-xs">
                   <div className="p-2.5 rounded-lg bg-slate-50 flex items-center justify-between">
-                    <span className="text-slate-600">Promotores na Equipe:</span>
+                    <span className="text-slate-600">Promotores Acompanhados:</span>
                     <span className="font-bold text-teal-600 text-sm">
                       {sup.total_promotores || 0} promotores
                     </span>
@@ -908,14 +1115,20 @@ export const CadastrosPage: React.FC = () => {
                       variant="ghost"
                       size="sm"
                       className="text-xs h-7 px-2 text-indigo-600"
-                      onClick={() => {
-                        setSelectedItem(sup)
-                        setIsEditing(false)
-                        setModalType('supervisores')
-                      }}
+                      onClick={() => handleOpenView('supervisores', sup)}
                     >
                       Ver Equipe
                     </Button>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7 px-2 text-slate-600 hover:text-indigo-600"
+                        onClick={() => handleOpenEdit('supervisores', sup)}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Editar
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -934,9 +1147,8 @@ export const CadastrosPage: React.FC = () => {
                 Fila de Entidades Não Reconhecidas ({filteredPendencias.length})
               </CardTitle>
               <CardDescription className="text-xs text-amber-800">
-                Entidades observadas nas sincronizações que não possuem cadastro seguro. A
-                sincronização não é interrompida, e a associação é feita com validação humana sem
-                adivinhações.
+                Entidades observadas nas fontes externas que não possuem correspondência segura. A
+                sincronização não é interrompida, e a associação é feita com validação humana.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-4 pt-2">
@@ -1003,6 +1215,522 @@ export const CadastrosPage: React.FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Modal CRUD: Criar / Editar / Visualizar */}
+      <Dialog open={Boolean(modalType)} onOpenChange={(open) => !open && setModalType(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">
+              {isEditing
+                ? selectedItem
+                  ? `Editar ${modalType?.slice(0, -1)}`
+                  : `Novo ${modalType?.slice(0, -1)}`
+                : `Ficha do ${modalType?.slice(0, -1)}`}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Configurações e dados cadastrais mestres mantidos diretamente no SKIP.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs max-h-[60vh] overflow-y-auto">
+            {modalType === 'industrias' && (
+              <>
+                <div>
+                  <Label className="text-xs">Nome Oficial *</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.nome || ''}
+                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cód. TradePro (Cliente)</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.tradepro_client_id || ''}
+                      onChange={(e) =>
+                        setFormData({ ...formData, tradepro_client_id: e.target.value })
+                      }
+                      className="text-xs h-9 mt-1"
+                      placeholder="ex: 7"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">ID App Diretoria (Futuro)</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.app_diretoria_industry_id || ''}
+                      onChange={(e) =>
+                        setFormData({ ...formData, app_diretoria_industry_id: e.target.value })
+                      }
+                      className="text-xs h-9 mt-1"
+                      placeholder="ex: DIR-IND-01"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">CNPJ</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.cnpj || ''}
+                      onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Status</Label>
+                    <Select
+                      disabled={!isEditing}
+                      value={formData.status || 'ativa'}
+                      onValueChange={(val) => setFormData({ ...formData, status: val })}
+                    >
+                      <SelectTrigger className="text-xs h-9 mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ativa">Ativa</SelectItem>
+                        <SelectItem value="inativa">Inativa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Observações</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.observacoes || ''}
+                    onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+              </>
+            )}
+
+            {modalType === 'produtos' && (
+              <>
+                <div>
+                  <Label className="text-xs">Nome Oficial do Produto *</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.nome_produto || ''}
+                    onChange={(e) => setFormData({ ...formData, nome_produto: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Indústria / Marca *</Label>
+                  <Select
+                    disabled={!isEditing}
+                    value={formData.industry_id || ''}
+                    onValueChange={(val) => {
+                      const ind = industrias.find((i) => i.id === val)
+                      setFormData({ ...formData, industry_id: val, industry_name: ind?.nome || '' })
+                    }}
+                  >
+                    <SelectTrigger className="text-xs h-9 mt-1">
+                      <SelectValue placeholder="Selecione a indústria..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {industrias.map((i) => (
+                        <SelectItem key={i.id} value={i.id}>
+                          {i.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cód. TradePro</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.codigo_produto || ''}
+                      onChange={(e) => setFormData({ ...formData, codigo_produto: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Cód. de Barras (EAN)</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.cod_barras || ''}
+                      onChange={(e) => setFormData({ ...formData, cod_barras: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Família / Categoria</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.familia || ''}
+                      onChange={(e) => setFormData({ ...formData, familia: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Gramatura / Volume</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.gramatura || ''}
+                      onChange={(e) => setFormData({ ...formData, gramatura: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {modalType === 'redes' && (
+              <>
+                <div>
+                  <Label className="text-xs">Nome da Rede *</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.nome || ''}
+                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cód. Externo</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.codigo_externo || ''}
+                      onChange={(e) => setFormData({ ...formData, codigo_externo: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">CNPJ</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.cnpj || ''}
+                      onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {modalType === 'lojas' && (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <Label className="text-xs">Código *</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.codigo_externo || ''}
+                      onChange={(e) => setFormData({ ...formData, codigo_externo: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                      placeholder="ex: 165"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Razão Social / Nome *</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.razao_social || formData.nome || ''}
+                      onChange={(e) => setFormData({ ...formData, razao_social: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Rede</Label>
+                  <Select
+                    disabled={!isEditing}
+                    value={formData.network_id || ''}
+                    onValueChange={(val) => {
+                      const net = redes.find((r) => r.id === val)
+                      setFormData({ ...formData, network_id: val, rede_nome: net?.nome || '' })
+                    }}
+                  >
+                    <SelectTrigger className="text-xs h-9 mt-1">
+                      <SelectValue placeholder="Selecione a rede..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {redes.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cidade</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.cidade || ''}
+                      onChange={(e) => setFormData({ ...formData, cidade: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Estado</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.estado || ''}
+                      onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {modalType === 'promotores' && (
+              <>
+                <div>
+                  <Label className="text-xs">Nome Completo *</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.nome || ''}
+                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cód. Colaborador TradePro</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.codigo_externo || ''}
+                      onChange={(e) => setFormData({ ...formData, codigo_externo: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Supervisor</Label>
+                    <Select
+                      disabled={!isEditing}
+                      value={formData.supervisor_id || ''}
+                      onValueChange={(val) => {
+                        const sup = supervisores.find((s) => s.id === val)
+                        setFormData({
+                          ...formData,
+                          supervisor_id: val,
+                          supervisor_nome: sup?.nome || '',
+                        })
+                      }}
+                    >
+                      <SelectTrigger className="text-xs h-9 mt-1">
+                        <SelectValue placeholder="Selecione o supervisor..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {supervisores.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {modalType === 'supervisores' && (
+              <>
+                <div>
+                  <Label className="text-xs">Nome do Supervisor *</Label>
+                  <Input
+                    disabled={!isEditing}
+                    value={formData.nome || ''}
+                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                    className="text-xs h-9 mt-1"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Cód. Supervisor TradePro</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.codigo_externo || ''}
+                      onChange={(e) => setFormData({ ...formData, codigo_externo: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Telefone</Label>
+                    <Input
+                      disabled={!isEditing}
+                      value={formData.telefone || ''}
+                      onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+                      className="text-xs h-9 mt-1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setModalType(null)}
+              className="text-xs"
+            >
+              Fechar
+            </Button>
+            {isEditing && (
+              <Button
+                size="sm"
+                onClick={handleSaveForm}
+                className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                Salvar Cadastro
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Histórico Temporal de Promotor & Alocações de Lojas */}
+      <Dialog
+        open={Boolean(selectedPromoterHistory)}
+        onOpenChange={(open) => !open && setSelectedPromoterHistory(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <History className="w-5 h-5 text-indigo-600" />
+              Histórico Temporal &amp; Lojas do Promotor
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {selectedPromoterHistory?.nome} — Cód. Colaborador TradePro:{' '}
+              {selectedPromoterHistory?.codigo_externo || '—'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2 space-y-4 text-xs">
+            {canEdit && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <span className="font-semibold text-slate-800 block text-xs">
+                  Alocar Promotor a uma Loja
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Select value={newAssignmentStoreCode} onValueChange={setNewAssignmentStoreCode}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Selecione a loja..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {lojas.map((l) => (
+                        <SelectItem key={l.id} value={l.codigo_externo}>
+                          {l.codigo_externo} - {l.razao_social}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Input
+                    placeholder="Indústria / Marca (opcional)"
+                    value={newAssignmentIndName}
+                    onChange={(e) => setNewAssignmentIndName(e.target.value)}
+                    className="text-xs h-8"
+                  />
+
+                  <Button
+                    size="sm"
+                    onClick={handleAssignPromoter}
+                    disabled={!newAssignmentStoreCode}
+                    className="text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                  >
+                    Confirmar Roteiro
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <span className="font-semibold text-slate-800 block mb-2">
+                Histórico de Alocações (Roteiro Confirmado vs Observado)
+              </span>
+              {loadingAssignments ? (
+                <div className="p-4 text-center text-slate-400">Carregando histórico...</div>
+              ) : promoterAssignments.length === 0 ? (
+                <div className="p-4 text-center text-slate-500 bg-slate-50 rounded">
+                  Nenhuma alocação registrada para este promotor.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {promoterAssignments.map((a) => (
+                    <div
+                      key={a.id}
+                      className="p-3 rounded-lg border border-slate-200 bg-white flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900">
+                            {a.store_code} - {a.store_name}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              a.tipo_vinculo === 'confirmado'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }
+                          >
+                            {a.tipo_vinculo === 'confirmado'
+                              ? 'Confirmado no Roteiro'
+                              : 'Observado em Visita'}
+                          </Badge>
+                          <Badge
+                            variant={a.status === 'ativo' ? 'default' : 'secondary'}
+                            className="text-[10px]"
+                          >
+                            {a.status}
+                          </Badge>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Vigência: {a.data_inicio || 'Início indeterminado'}{' '}
+                          {a.data_fim ? `até ${a.data_fim}` : '(atual)'}
+                          {a.industry_name ? ` • Indústria: ${a.industry_name}` : ''}
+                        </div>
+                        {a.observacao && (
+                          <p className="text-[10px] text-slate-400 mt-0.5">{a.observacao}</p>
+                        )}
+                      </div>
+
+                      {a.tipo_vinculo === 'observado_visita' && a.status === 'ativo' && canEdit && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleConfirmObserved(a.id)}
+                          className="text-xs h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <CheckCircle className="w-3 h-3 mr-1" /> Confirmar Roteiro
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedPromoterHistory(null)}
+              className="text-xs"
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Vincular Pendência Assistida */}
       <Dialog
@@ -1114,63 +1842,134 @@ export const CadastrosPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Modal: Oportunidades Operacionais de Mix da Loja */}
+      {/* Modal: Mix em 3 Níveis da Loja */}
       <Dialog
         open={Boolean(selectedStoreForMix)}
         onOpenChange={(open) => !open && setSelectedStoreForMix(null)}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-emerald-600" />
-              Leituras Operacionais de Mix — Loja {selectedStoreForMix?.codigo_externo}
+              Mix em 3 Níveis — Loja {selectedStoreForMix?.codigo_externo}
             </DialogTitle>
             <DialogDescription className="text-xs">
               {selectedStoreForMix?.razao_social} ({selectedStoreForMix?.rede_nome || 'Sem Rede'})
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-2 space-y-3 text-xs">
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[11px] leading-relaxed">
-              <span className="font-semibold text-slate-800 block mb-0.5">
-                Critério de Presença Operacional (Não de Vendas):
-              </span>
-              Compara produtos observados recentemente em lojas comparáveis da{' '}
-              <strong>mesma rede ({selectedStoreForMix?.rede_nome})</strong>. Nunca afirma
-              faturamento ou volume de venda sem dados comerciais.
+          <div className="py-2 space-y-4 text-xs">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                <span className="text-[11px] text-emerald-700 font-semibold block">
+                  1. Mix Oficial Indústria
+                </span>
+                <span className="text-lg font-bold text-emerald-900">
+                  {storeMixData?.oficialIndustria.length || 0} produtos
+                </span>
+                <p className="text-[10px] text-emerald-600 mt-1">Catálogo das marcas parceiras</p>
+              </div>
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <span className="text-[11px] text-blue-700 font-semibold block">
+                  2. Mix Definido da Loja
+                </span>
+                <span className="text-lg font-bold text-blue-900">
+                  {storeMixData?.definidoLoja.length || 0} produtos
+                </span>
+                <p className="text-[10px] text-blue-600 mt-1">Configurado para esta unidade</p>
+              </div>
+              <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                <span className="text-[11px] text-purple-700 font-semibold block">
+                  3. Mix Observado Real
+                </span>
+                <span className="text-lg font-bold text-purple-900">
+                  {storeMixData?.observadoOperacional.length || 0} produtos
+                </span>
+                <p className="text-[10px] text-purple-600 mt-1">Evidências reais na loja</p>
+              </div>
             </div>
 
-            {loadingMixOpp ? (
-              <div className="p-6 text-center text-slate-400">
-                Calculando leituras comparáveis...
-              </div>
-            ) : mixOpportunities.length === 0 ? (
-              <div className="p-6 text-center text-slate-500">
-                Nenhuma discrepância crítica de presença detectada entre esta unidade e suas lojas
-                irmãs da rede.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {mixOpportunities.map((opp, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-lg border border-emerald-100 bg-emerald-50/50 flex items-start justify-between gap-3"
+            {/* Aprendizado do Mix Observado fora do Definido */}
+            {storeMixData?.foraDoMixDefinido && storeMixData.foraDoMixDefinido.length > 0 && (
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    Produtos Observados Fora do Mix Definido (
+                    {storeMixData.foraDoMixDefinido.length})
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-white text-amber-800 border-amber-300"
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900">{opp.produtoNome}</span>
-                        <Badge variant="outline" className="text-[10px] bg-white text-indigo-700">
-                          {opp.industriaNome}
-                        </Badge>
+                    Decisão Humana Necessária
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-amber-800">
+                  Estes itens foram detectados por pesquisas/rupturas/validades nesta loja, mas NÃO
+                  pertencem ao Mix Definido. O SKIP nunca adiciona silenciosamente ao Mix Definido.
+                </p>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {storeMixData.foraDoMixDefinido.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2 bg-white rounded border border-amber-200 flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <span className="font-semibold text-slate-800">{item.produto}</span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Detectado via: {item.evidencia}
+                        </span>
                       </div>
-                      <p className="text-slate-600 mt-1 text-[11px]">{opp.motivo}</p>
+                      <div className="space-x-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-[10px] h-6 px-2 text-indigo-700"
+                        >
+                          Adicionar ao Mix da Loja
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-[10px] h-6 px-2 text-slate-500"
+                        >
+                          Manter Observado
+                        </Button>
+                      </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-                    <Badge className="bg-emerald-600 text-white text-[10px] shrink-0">
-                      Possível Oportunidade de Mix
-                    </Badge>
-                  </div>
-                ))}
+            {/* Oportunidades de Expansão de Mix Contextuais */}
+            {mixOpportunities.length > 0 && (
+              <div className="space-y-2">
+                <span className="font-semibold text-slate-800 block text-xs">
+                  Oportunidades de Presença em Lojas Comparáveis da Mesma Rede
+                </span>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {mixOpportunities.map((opp, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-slate-50 rounded border border-slate-200 flex items-start justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900">{opp.produtoNome}</span>
+                          <Badge variant="secondary" className="text-[9px]">
+                            {opp.industriaNome}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">{opp.motivo}</p>
+                      </div>
+                      <Badge className="bg-emerald-600 text-white text-[10px] shrink-0">
+                        Oportunidade de Mix
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

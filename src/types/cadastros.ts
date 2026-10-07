@@ -139,11 +139,49 @@ export interface CadastroPromotorAssignment {
   industry_id?: string
   industry_name?: string
   status: 'ativo' | 'encerrado'
+  tipo_vinculo?: 'confirmado' | 'observado_visita'
+  origem_vinculo?: string
   data_inicio?: string
   data_fim?: string
   observacao?: string
   created?: string
   updated?: string
+}
+
+// Evento Operacional de Visita Real
+export interface OperacionalVisita {
+  id: string
+  data: string // YYYY-MM-DD
+  promoter_id?: string
+  promoter_cod?: string
+  promoter_nome: string
+  store_id?: string
+  store_code: string
+  store_name?: string
+  industry_name?: string
+  hora_inicio?: string // Check-in ou início informado pela API
+  hora_fim?: string // Check-out ou término informado
+  duracao_minutos?: number
+  status_roteiro?: string
+  sequencia?: number
+  origem_fonte: string
+  observacao?: string
+  dados_brutos_json?: Record<string, unknown>
+  created?: string
+  updated?: string
+}
+
+// Conflito Detectado: API vs Configuração Manual
+export interface CadastroConflito {
+  id: string
+  tipo_entidade: 'industria' | 'produto' | 'rede' | 'loja' | 'promotor' | 'supervisor'
+  entidade_id: string
+  entidade_nome: string
+  campo: string
+  valor_atual: string
+  valor_recebido: string
+  fonte_origem: string
+  data_deteccao: string
 }
 
 // Fila de Resolução Estrutural de Pendências de Cadastro

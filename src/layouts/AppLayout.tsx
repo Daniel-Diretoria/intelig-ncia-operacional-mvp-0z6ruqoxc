@@ -24,6 +24,7 @@ import {
   Boxes,
   HelpCircle,
   Database,
+  Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/services/authContext'
@@ -75,17 +76,16 @@ const PRIMARY_AREAS: NavSection[] = [
         label: 'Devoluções / NF',
         icon: RotateCcw,
       },
+      {
+        to: '/visitas',
+        label: 'Visitas',
+        icon: Clock,
+      },
     ],
   },
   {
-    id: 'cadastros',
-    label: 'Cadastros',
-    to: '/cadastros',
-    icon: Database,
-  },
-  {
     id: 'industrias',
-    label: 'Indústrias',
+    label: 'Indústrias / Marcas',
     to: '/industrias',
     icon: Factory,
   },
@@ -130,12 +130,17 @@ const PRIMARY_AREAS: NavSection[] = [
   },
 ]
 
-// Área secundária / administrativa ao final (visualmente separada)
+// Área Administrativa ao final: Importação · Cadastros · Configurações (+ Assistente)
 const SECONDARY_AREAS: NavChildItem[] = [
   {
     to: '/importacao',
     label: 'Importação',
     icon: Upload,
+  },
+  {
+    to: '/cadastros',
+    label: 'Cadastros',
+    icon: Database,
   },
   {
     to: '/configuracoes',
@@ -222,10 +227,11 @@ export const AppLayout: React.FC = () => {
     if (location.pathname === '/') return 'Central de Trabalho'
     if (location.pathname === '/cadastros') return 'Cadastros Mestres'
     if (location.pathname === '/visao-geral') return 'Visão Estratégica'
-    if (location.pathname.startsWith('/industrias')) return 'Indústrias & Fornecedores'
+    if (location.pathname.startsWith('/industrias')) return 'Indústrias / Marcas'
     if (location.pathname === '/validades') return 'Validades'
     if (location.pathname === '/rupturas') return 'Rupturas'
     if (location.pathname === '/devolucoes') return 'Devoluções / NF'
+    if (location.pathname === '/visitas') return 'Operação — Visitas de Promotores'
     if (location.pathname.startsWith('/lojas')) return 'Gestão de Lojas'
     if (location.pathname === '/relatorios') return 'Relatórios Operacionais'
     if (location.pathname === '/auditoria') return 'Auditoria & Governança'
@@ -298,7 +304,6 @@ export const AppLayout: React.FC = () => {
               const hasChildren = section.children && section.children.length > 0
 
               // Filtrar itens por permissão
-              if (section.id === 'cadastros' && !can('cadastros:visualizar')) return null
               if (section.id === 'industrias' && !can('industrias:visualizar')) return null
               if (section.id === 'operacao' && !can('operacao:visualizar')) return null
               if (section.id === 'rede' && !can('rede:visualizar')) return null
@@ -405,6 +410,7 @@ export const AppLayout: React.FC = () => {
               const isActive = location.pathname.startsWith(item.to)
 
               if (item.to === '/importacao' && !can('integracoes:visualizar')) return null
+              if (item.to === '/cadastros' && !can('cadastros:visualizar')) return null
               if (item.to === '/assistente' && !can('inteligencia:visualizar')) return null
 
               return (
@@ -524,7 +530,6 @@ export const AppLayout: React.FC = () => {
               const hasChildren = section.children && section.children.length > 0
 
               // Filtrar por permissão
-              if (section.id === 'cadastros' && !can('cadastros:visualizar')) return null
               if (section.id === 'industrias' && !can('industrias:visualizar')) return null
               if (section.id === 'operacao' && !can('operacao:visualizar')) return null
               if (section.id === 'rede' && !can('rede:visualizar')) return null

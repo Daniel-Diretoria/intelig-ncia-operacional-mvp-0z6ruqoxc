@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T12:48:48.265Z",
+  "generatedAt": "2026-10-07T13:18:01.525Z",
   "collections": [
     {
       "name": "users",
@@ -3086,6 +3086,25 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tipo_presenca",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["definido_loja", "observado_operacional"]
+        },
+        {
+          "name": "ultima_observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "evidencia_origem",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -4982,6 +5001,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tipo_vinculo",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["confirmado", "observado_visita"]
+        },
+        {
+          "name": "origem_vinculo",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -5099,6 +5131,136 @@
       "indexes": [
         "CREATE INDEX idx_cad_pend_tipo ON cadastros_pendencias (tipo_entidade, status)",
         "CREATE INDEX idx_cad_pend_val ON cadastros_pendencias (valor_identificador)"
+      ]
+    },
+    {
+      "name": "operacional_visitas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "data",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "promoter_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "promoters"
+        },
+        {
+          "name": "promoter_cod",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "promoter_nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "stores"
+        },
+        {
+          "name": "store_code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "store_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industry_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "hora_inicio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "hora_fim",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duracao_minutos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_roteiro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sequencia",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem_fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dados_brutos_json",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_visitas_data ON operacional_visitas (data)",
+        "CREATE INDEX idx_visitas_promoter ON operacional_visitas (promoter_id, data)",
+        "CREATE INDEX idx_visitas_store ON operacional_visitas (store_code, data)"
       ]
     }
   ]

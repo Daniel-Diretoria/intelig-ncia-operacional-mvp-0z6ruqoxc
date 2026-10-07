@@ -23,6 +23,7 @@ import { ConfiguracoesPage } from '@/pages/Configuracoes'
 import { AssistantPage } from '@/pages/AssistantPage'
 import { ImportacaoPage } from '@/pages/Importacao'
 import { DevolucoesPage } from '@/pages/DevolucoesPage'
+import { VisitasPage } from '@/pages/VisitasPage'
 import { CadastrosPage } from '@/pages/CadastrosPage'
 import NotFound from '@/pages/NotFound'
 
@@ -93,6 +94,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route path="/visitas" element={<VisitasPage />} />
             <Route
               path="/lojas"
               element={

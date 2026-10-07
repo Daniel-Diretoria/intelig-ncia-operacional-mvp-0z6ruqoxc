@@ -25,6 +25,8 @@ import type {
   CadastroPromotor,
   CadastroPromotorAssignment,
   CadastroPendencia,
+  OperacionalVisita,
+  CadastroConflito,
   MixOpportunityAnalysis,
 } from '@/types/cadastros'
 import { IndustryStoreCoverage, IndustryStoreProductMix } from '@/types/industryOperational'
@@ -493,6 +495,43 @@ export async function assignPromoterToStore(
   data: Partial<CadastroPromotorAssignment>,
   options?: AuditLogOptions,
 ): Promise<CadastroPromotorAssignment> {
+  // Transição temporal: Se estiver alocando um novo promotor ativo para a mesma loja/indústria,
+  // encerra a alocação anterior e registra o histórico temporal completo
+  if (data.store_code && data.status !== 'encerrado') {
+    try {
+      const ativas = await pb
+        .collection('store_promoter_assignments')
+        .getFullList<CadastroPromotorAssignment>({
+          filter: `store_code = '${data.store_code.replace(/'/g, "\\'")}' && status = 'ativo'`,
+        })
+      const todayStr = new Date().toISOString().split('T')[0]
+      for (const a of ativas) {
+        if (a.promoter_id !== data.promoter_id) {
+          await pb.collection('store_promoter_assignments').update(a.id, {
+            status: 'encerrado',
+            data_fim: todayStr,
+            observacao:
+              `${a.observacao || ''} [Encerrado por substituição temporal em ${todayStr}]`.trim(),
+          })
+          await logCadastroAudit(
+            'promotor_desalocado_loja',
+            `${a.promoter_nome} -> ${a.store_name}`,
+            a.id,
+            {
+              detalhes: {
+                motivo: 'substituicao_temporal',
+                substituto_id: data.promoter_id,
+                substituto_nome: data.promoter_nome,
+              },
+            },
+          )
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   const payload = {
     promoter_id: data.promoter_id,
     promoter_nome: data.promoter_nome?.trim() || '',
@@ -502,6 +541,8 @@ export async function assignPromoterToStore(
     industry_id: data.industry_id || null,
     industry_name: data.industry_name?.trim() || '',
     status: data.status || 'ativo',
+    tipo_vinculo: data.tipo_vinculo || 'confirmado',
+    origem_vinculo: data.origem_vinculo || 'manual',
     data_inicio: data.data_inicio || new Date().toISOString().split('T')[0],
     data_fim: data.data_fim || '',
     observacao: data.observacao?.trim() || '',
@@ -522,8 +563,34 @@ export async function assignPromoterToStore(
         promoter_id: record.promoter_id,
         store_code: record.store_code,
         industry_name: record.industry_name,
+        tipo_vinculo: record.tipo_vinculo,
       },
     },
+  )
+
+  return record
+}
+
+/**
+ * Confirma relação observada como roteiro/cobertura permanente da loja
+ */
+export async function confirmarVinculoObservado(
+  assignmentId: string,
+  options?: AuditLogOptions,
+): Promise<CadastroPromotorAssignment> {
+  const record = await pb
+    .collection('store_promoter_assignments')
+    .update<CadastroPromotorAssignment>(assignmentId, {
+      tipo_vinculo: 'confirmado',
+      origem_vinculo: 'Confirmado manualmente pelo operador',
+      observacao: 'Roteiro confirmado como cobertura oficial.',
+    })
+
+  await logCadastroAudit(
+    'vinculo_observado_confirmado',
+    `${record.promoter_nome} -> ${record.store_name}`,
+    record.id,
+    options,
   )
 
   return record
@@ -716,6 +783,199 @@ export async function reavaliarRupturasNaoIdentificadas(
   }
 
   return { processadas, recuperadas }
+}
+
+// ---------------------------------------------------------------------------------
+// 10.1 VISITAS OPERACIONAIS (Fundação de Controle de Visitas)
+// ---------------------------------------------------------------------------------
+export async function getOperacionalVisitas(filters?: {
+  promoterId?: string
+  promoterCod?: string
+  storeCode?: string
+  data?: string
+}): Promise<OperacionalVisita[]> {
+  try {
+    const f: string[] = []
+    if (filters?.promoterId) f.push(`promoter_id = '${filters.promoterId.replace(/'/g, "\\'")}'`)
+    if (filters?.promoterCod) f.push(`promoter_cod = '${filters.promoterCod.replace(/'/g, "\\'")}'`)
+    if (filters?.storeCode) f.push(`store_code = '${filters.storeCode.replace(/'/g, "\\'")}'`)
+    if (filters?.data) f.push(`data = '${filters.data.replace(/'/g, "\\'")}'`)
+
+    return await pb.collection('operacional_visitas').getFullList<OperacionalVisita>({
+      filter: f.length ? f.join(' && ') : undefined,
+      sort: '-data,-hora_inicio',
+    })
+  } catch (err) {
+    console.warn('[cadastrosService] Erro ao carregar visitas operacionais:', err)
+    return []
+  }
+}
+
+export async function recordOperacionalVisita(
+  data: Partial<OperacionalVisita>,
+  options?: AuditLogOptions,
+): Promise<OperacionalVisita> {
+  const payload = {
+    data: data.data || new Date().toISOString().split('T')[0],
+    promoter_id: data.promoter_id || null,
+    promoter_cod: data.promoter_cod?.trim() || '',
+    promoter_nome: data.promoter_nome?.trim() || '',
+    store_id: data.store_id || null,
+    store_code: data.store_code?.trim() || '',
+    store_name: data.store_name?.trim() || '',
+    industry_name: data.industry_name?.trim() || '',
+    hora_inicio: data.hora_inicio?.trim() || '',
+    hora_fim: data.hora_fim?.trim() || '',
+    duracao_minutos: data.duracao_minutos || 0,
+    status_roteiro: data.status_roteiro?.trim() || 'concluida',
+    sequencia: data.sequencia || 1,
+    origem_fonte: data.origem_fonte || 'manual',
+    observacao: data.observacao?.trim() || '',
+    dados_brutos_json: data.dados_brutos_json || {},
+  }
+
+  const record = await pb.collection('operacional_visitas').create<OperacionalVisita>(payload)
+
+  // Registra relação Promotor × Loja como 'observado_visita' se ainda não existir vínculo ativo
+  if (record.promoter_id && record.store_code) {
+    try {
+      const existing = await pb.collection('store_promoter_assignments').getList(1, 1, {
+        filter: `promoter_id = '${record.promoter_id}' && store_code = '${record.store_code}' && status = 'ativo'`,
+      })
+      if (existing.items.length === 0) {
+        await pb.collection('store_promoter_assignments').create({
+          promoter_id: record.promoter_id,
+          promoter_nome: record.promoter_nome,
+          store_id: record.store_id,
+          store_code: record.store_code,
+          store_name: record.store_name,
+          industry_name: record.industry_name,
+          status: 'ativo',
+          tipo_vinculo: 'observado_visita',
+          origem_vinculo: `Visita registrada em ${record.data}`,
+          data_inicio: record.data,
+          observacao:
+            'Relação observada através da API de Visitas. Requer confirmação de roteiro pelo administrador.',
+        })
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  return record
+}
+
+// ---------------------------------------------------------------------------------
+// 10.2 GESTÃO DOS 3 NÍVEIS DE MIX (Oficial da Indústria, Definido da Loja, Observado Operacional)
+// ---------------------------------------------------------------------------------
+export async function getStoreFullMix(
+  storeCode: string,
+  industryId?: string,
+): Promise<{
+  oficialIndustria: CadastroProduto[]
+  definidoLoja: IndustryStoreProductMix[]
+  observadoOperacional: Array<
+    IndustryStoreProductMix & { ultima_observacao?: string; evidencia_origem?: string }
+  >
+  foraDoMixDefinido: Array<{
+    produto: string
+    codProduto?: string
+    evidencia: string
+    ultimaData: string
+  }>
+}> {
+  try {
+    // 1. Mix Oficial da Indústria
+    const oficial = await getCadastrosProdutos(industryId)
+    const oficialAtivos = oficial.filter(
+      (p) => p.tipo_mix === 'oficial_industria' && p.status === 'ativo',
+    )
+
+    // 2. Mix Definido desta Loja
+    const fStore = `store_code = '${storeCode.replace(/'/g, "\\'")}'`
+    const allStoreMix = await pb
+      .collection('industry_store_product_mix')
+      .getFullList<IndustryStoreProductMix>({
+        filter: industryId
+          ? `${fStore} && industry_id = '${industryId.replace(/'/g, "\\'")}'`
+          : fStore,
+      })
+
+    const definidoLoja = allStoreMix.filter(
+      (m: any) => m.tipo_presenca !== 'observado_operacional' && m.status === 'ativo',
+    )
+    const observadoOperacional = allStoreMix.filter(
+      (m: any) => m.tipo_presenca === 'observado_operacional',
+    )
+
+    // 3. Identifica produtos observados que estão fora do mix definido
+    const definidosSet = new Set(definidoLoja.map((d) => d.nome_produto.trim().toUpperCase()))
+    const foraDoMixDefinido: Array<{
+      produto: string
+      codProduto?: string
+      evidencia: string
+      ultimaData: string
+    }> = []
+
+    for (const obs of observadoOperacional) {
+      if (!definidosSet.has(obs.nome_produto.trim().toUpperCase())) {
+        foraDoMixDefinido.push({
+          produto: obs.nome_produto,
+          codProduto: obs.codigo_produto,
+          evidencia: (obs as any).evidencia_origem || 'Evidência operacional',
+          ultimaData: (obs as any).ultima_observacao || obs.created || '',
+        })
+      }
+    }
+
+    return {
+      oficialIndustria: oficialAtivos,
+      definidoLoja,
+      observadoOperacional,
+      foraDoMixDefinido,
+    }
+  } catch (err) {
+    console.warn('[cadastrosService] Erro ao carregar mix em 3 níveis:', err)
+    return {
+      oficialIndustria: [],
+      definidoLoja: [],
+      observadoOperacional: [],
+      foraDoMixDefinido: [],
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------------
+// 10.3 DETECÇÃO E RESOLUÇÃO DE CONFLITOS (API vs Cadastro Manual)
+// ---------------------------------------------------------------------------------
+/**
+ * Detecta conflito entre o valor já cadastrado e o que veio da fonte externa.
+ * O ajuste manual NUNCA é sobrescrito silenciosamente.
+ */
+export function detectarConflitoCadastro(
+  tipo: CadastroConflito['tipo_entidade'],
+  entidadeId: string,
+  entidadeNome: string,
+  campo: string,
+  valorAtual: string,
+  valorRecebido: string,
+  fonte = 'TradePro API',
+): CadastroConflito | null {
+  if (!valorAtual || !valorRecebido) return null
+  if (valorAtual.trim().toLowerCase() === valorRecebido.trim().toLowerCase()) return null
+
+  return {
+    id: `${tipo}_${entidadeId}_${campo}_${Date.now()}`,
+    tipo_entidade: tipo,
+    entidade_id: entidadeId,
+    entidade_nome: entidadeNome,
+    campo,
+    valor_atual: valorAtual,
+    valor_recebido: valorRecebido,
+    fonte_origem: fonte,
+    data_deteccao: new Date().toISOString(),
+  }
 }
 
 // ---------------------------------------------------------------------------------
