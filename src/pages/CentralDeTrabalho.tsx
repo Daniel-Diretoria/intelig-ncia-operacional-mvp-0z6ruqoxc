@@ -20,6 +20,7 @@ import {
 import { useValidades } from '@/services/useValidades'
 import { useRupturas } from '@/services/useRupturas'
 import { useOperationalTracking } from '@/services/useOperationalTracking'
+import { useOperacionalVisitas } from '@/hooks/useOperacionalVisitas'
 import { TrackingTratativaModal } from '@/components/tracking/TrackingTratativaModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +52,12 @@ export const CentralDeTrabalhoPage: React.FC = () => {
     setSelectedIndustry,
     refetch: refetchTracking,
   } = useOperationalTracking()
+  const {
+    totalVisitas,
+    promotoresComRegistroCount,
+    lojasAtendidasCount,
+    isFonteSincronizada: isVisitasSincronizadas,
+  } = useOperacionalVisitas()
 
   const isLoading = isLoadingValidades || isLoadingRupturas
 
@@ -538,54 +545,70 @@ export const CentralDeTrabalhoPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 4: Processos em Preparação (Ocorrências e NF/Devoluções) */}
-          <div className="bg-white p-5 rounded-2xl border border-dashed border-slate-300 shadow-2xs flex flex-col justify-between opacity-80">
+          {/* Card 4: Processos Operacionais & Visitas Registradas */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between hover:border-indigo-300 transition-all">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                   <Layers className="w-4 h-4" />
                   Processos Operacionais
                 </span>
                 <Badge
                   variant="outline"
-                  className="text-[10px] text-slate-500 border-slate-300 font-medium"
+                  className={
+                    totalVisitas > 0
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold'
+                      : 'bg-slate-50 text-slate-500 border-slate-200'
+                  }
                 >
-                  Em preparação
+                  {isVisitasSincronizadas && totalVisitas > 0
+                    ? `${totalVisitas} visitas reg.`
+                    : 'Visitas em monitoramento'}
                 </Badge>
               </div>
 
-              <div className="mt-3 space-y-2.5">
-                <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
+              <div className="mt-3 space-y-2">
+                {/* Indicador simples e factual de Visitas de Campo */}
+                <div className="p-2.5 rounded-lg bg-indigo-50/60 border border-indigo-100">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-700">
-                      Ocorrências Abertas
+                    <span className="text-xs font-bold text-indigo-950 flex items-center gap-1">
+                      <CalendarCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      Visitas Registradas
                     </span>
-                    <Badge variant="outline" className="text-[9px] text-slate-400">
-                      Em breve
-                    </Badge>
+                    <span className="text-[11px] font-semibold text-indigo-700">
+                      {totalVisitas} eventos
+                    </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Registro de divergências de campo sem dados inventados.
+                  <p className="text-[11px] text-indigo-900/80 mt-1">
+                    {isVisitasSincronizadas && totalVisitas > 0
+                      ? `${promotoresComRegistroCount} promotores com registro em ${lojasAtendidasCount} lojas.`
+                      : 'Fonte de Visitas ainda não sincronizada. Não indica falta de promotor.'}
                   </p>
                 </div>
 
-                <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-700">NF / Devoluções</span>
-                    <Badge variant="outline" className="text-[9px] text-slate-400">
-                      Em breve
-                    </Badge>
+                {/* Processos futuros sem invenção de dados */}
+                <div className="grid grid-cols-2 gap-1.5 text-[10px] text-slate-500">
+                  <div className="p-1.5 rounded bg-slate-50 border border-slate-100">
+                    <span className="font-semibold text-slate-700 block">Ocorrências Abertas</span>
+                    <span className="text-slate-400">Em breve</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Solicitações pendentes e rastreio de logística reversa.
-                  </p>
+                  <div className="p-1.5 rounded bg-slate-50 border border-slate-100">
+                    <span className="font-semibold text-slate-700 block">NF / Devoluções</span>
+                    <span className="text-slate-400">Em breve</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <p className="text-[10px] text-slate-400 mt-3 italic">
-              Espaços reservados para governança sem mock ou dados fictícios.
-            </p>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <Link
+                to="/visitas"
+                className="text-indigo-700 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 hover:underline"
+              >
+                <span>Acompanhar visitas de campo</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
