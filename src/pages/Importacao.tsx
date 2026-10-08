@@ -267,6 +267,24 @@ export const ImportacaoPage: React.FC = () => {
   const [valSyncConfirmModalOpen, setValSyncConfirmModalOpen] = useState<boolean>(false)
   const [valAmostraModalOpen, setValAmostraModalOpen] = useState<boolean>(false)
 
+  // Estado da Sincronização Unificada ("Sincronizar Tudo")
+  const [isSyncingAll, setIsSyncingAll] = useState<boolean>(false)
+  const [syncAllStatus, setSyncAllStatus] = useState<{
+    rupturas: {
+      status: 'idle' | 'pending' | 'syncing' | 'success' | 'error'
+      message?: string
+      registros?: number
+    }
+    validades: {
+      status: 'idle' | 'pending' | 'syncing' | 'success' | 'error'
+      message?: string
+      registros?: number
+    }
+  }>({
+    rupturas: { status: 'idle' },
+    validades: { status: 'idle' },
+  })
+
   // Sub-aba ativa na visualização
   const [activeTab, setActiveTab] = useState<'api' | 'file'>('file')
 
@@ -829,6 +847,139 @@ export const ImportacaoPage: React.FC = () => {
         description: err instanceof Error ? err.message : 'Falha ao cancelar.',
         variant: 'destructive',
       })
+    }
+  }
+
+  // Sincronizar Tudo (Rupturas & Validades via TradePro)
+  const handleSyncAll = async () => {
+    if (isSyncingAll) return
+
+    setIsSyncingAll(true)
+    setSyncAllStatus({
+      rupturas: { status: 'pending' },
+      validades: { status: 'pending' },
+    })
+
+    const today = new Date()
+    const d30 = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const defaultDataFinal = today.toISOString().slice(0, 10)
+    const defaultDataInicial = d30.toISOString().slice(0, 10)
+
+    const rupDataInicial = syncDataInicial || defaultDataInicial
+    const rupDataFinal = syncDataFinal || defaultDataFinal
+
+    const valDataInicial = valSyncDataInicial || defaultDataInicial
+    const valDataFinal = valSyncDataFinal || defaultDataFinal
+
+    // Execução sequencial/paralela segura: cada fonte tem seu próprio try/catch isolado
+    // 1. Sincronização de Rupturas
+    const syncRupturasPromise = (async () => {
+      setSyncAllStatus((prev) => ({
+        ...prev,
+        rupturas: { status: 'syncing' },
+      }))
+      try {
+        const preview = await requestRupturasPreview(rupDataInicial, rupDataFinal)
+        if (preview.status === 'error') {
+          const errMsg = preview.message || 'Erro ao consultar prévia de Rupturas'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            rupturas: { status: 'error', message: errMsg },
+          }))
+          return
+        }
+
+        if (preview.total_informado === 0) {
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            rupturas: { status: 'success', registros: 0, message: '0 registros' },
+          }))
+          return
+        }
+
+        const job = await startRupturasSync(preview.id)
+        if (job.status === 'error') {
+          const errMsg = job.message || 'Erro durante a sincronização de Rupturas'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            rupturas: { status: 'error', message: errMsg },
+          }))
+          return
+        }
+
+        const count = job.registros_consolidados ?? job.total_informado ?? 0
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          rupturas: { status: 'success', registros: count },
+        }))
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Rupturas'
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          rupturas: { status: 'error', message: errMsg },
+        }))
+      }
+    })()
+
+    // 2. Sincronização de Validades
+    const syncValidadesPromise = (async () => {
+      setSyncAllStatus((prev) => ({
+        ...prev,
+        validades: { status: 'syncing' },
+      }))
+      try {
+        const preview = await requestValidadesPreview(valDataInicial, valDataFinal)
+        if (preview.status === 'error') {
+          const errMsg = preview.message || 'Erro ao consultar prévia de Validades'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            validades: { status: 'error', message: errMsg },
+          }))
+          return
+        }
+
+        if (preview.total_informado === 0) {
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            validades: { status: 'success', registros: 0, message: '0 registros' },
+          }))
+          return
+        }
+
+        const job = await startValidadesSync(preview.id)
+        if (job.status === 'error') {
+          const errMsg = job.message || 'Erro durante a sincronização de Validades'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            validades: { status: 'error', message: errMsg },
+          }))
+          return
+        }
+
+        const count = job.registros_consolidados ?? job.total_informado ?? 0
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          validades: { status: 'success', registros: count },
+        }))
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Validades'
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          validades: { status: 'error', message: errMsg },
+        }))
+      }
+    })()
+
+    try {
+      await Promise.all([syncRupturasPromise, syncValidadesPromise])
+      toast({
+        title: 'Sincronização concluída',
+        description: 'Ciclo de sincronização de Rupturas e Validades finalizado.',
+      })
+    } catch {
+      // Isolado, tratado individualmente em cada branch
+    } finally {
+      setIsSyncingAll(false)
     }
   }
 
