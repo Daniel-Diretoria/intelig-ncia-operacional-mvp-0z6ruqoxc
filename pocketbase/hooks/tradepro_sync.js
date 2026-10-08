@@ -1485,6 +1485,42 @@ onRecordAfterUpdateSuccess((e) => {
       )
     }
 
+    // Sanitizador recursivo de payloads de itens da API TradePro
+    // Remove apenas chaves sensíveis (case-insensitive: token, authorization, password, senha, secret, cookie, header)
+    const isSensitivePayloadKey = (k) => {
+      if (!k || typeof k !== 'string') return false
+      const lower = k.toLowerCase()
+      return (
+        lower.indexOf('token') !== -1 ||
+        lower.indexOf('authorization') !== -1 ||
+        lower.indexOf('password') !== -1 ||
+        lower.indexOf('senha') !== -1 ||
+        lower.indexOf('secret') !== -1 ||
+        lower.indexOf('cookie') !== -1 ||
+        lower.indexOf('header') !== -1
+      )
+    }
+
+    const sanitizePayloadRecursive = (val) => {
+      if (val === null || val === undefined) return val
+      if (Array.isArray(val)) {
+        return val.map((elem) => sanitizePayloadRecursive(elem))
+      }
+      if (typeof val === 'object') {
+        const out = {}
+        const keys = Object.keys(val)
+        for (let kIdx = 0; kIdx < keys.length; kIdx++) {
+          const k = keys[kIdx]
+          if (isSensitivePayloadKey(k)) {
+            continue
+          }
+          out[k] = sanitizePayloadRecursive(val[k])
+        }
+        return out
+      }
+      return val
+    }
+
     // Helpers de pipeline de Rupturas inline
     const normalizeRupturaMotivo = (motivo) => {
       const m = (motivo || '')
@@ -1827,20 +1863,12 @@ onRecordAfterUpdateSuccess((e) => {
           ).trim()
           const rawDescricaoFamilia = (item.descricaoFamilia || '').toString().trim()
 
-          // Resolução estrita da Indústria SKIP via tradepro_client_id (Cadastro Operacional)
-          // Regra Semântica Crucial:
-          // Se não houver indústria homologada para o Cód. Cliente, a Indústria fica "Não identificada".
-          // NUNCA fazer fallback para Fantasia/Rede nem para Razão Social/Loja!
+          // SEMÂNTICA COMPROVADA E FIXADA DE RUPTURAS:
+          // Em Rupturas TradePro, codigoCliente é o código da LOJA (ex: "165").
+          // codigoCliente NUNCA resolve Indústria, NUNCA busca industryMapByClientId, NUNCA gera pendência de indústria!
+          // Indústria em Rupturas só é resolvida via Produto Mestre (industry_product_mix).
           let resolvedIndustryName = ''
           let resolvedIndustryId = ''
-          if (rawCodigoCliente && industryMapByClientId[rawCodigoCliente]) {
-            resolvedIndustryId = industryMapByClientId[rawCodigoCliente].id
-            resolvedIndustryName = industryMapByClientId[rawCodigoCliente].nome
-          }
-
-          const industriaNormalizada = resolvedIndustryName || 'Não identificada'
-          // Rede real vem de fantasiaCliente (ou item.redeCliente se fornecido)
-          const redeReal = rawFantasia || (item.redeCliente || '').toString().trim()
 
           // Resolução de Loja no cadastro mestre
           let storeDbId = ''
@@ -1880,38 +1908,61 @@ onRecordAfterUpdateSuccess((e) => {
             } catch (_) {}
           }
 
-          // Resolução de Produto no cadastro mestre (Indústria conhecida + Nome da atividade/produto)
+          // Resolução de Supervisor no cadastro mestre
+          let supervisorDbId = ''
+          if (rawIdSupervisor) {
+            try {
+              const sList = $app.findRecordsByFilter(
+                'supervisors',
+                'codigo_externo = "' + rawIdSupervisor.replace(/"/g, '\\"') + '"',
+                '-created',
+                1,
+                0,
+              )
+              if (sList && sList.length > 0) {
+                supervisorDbId = sList[0].id
+              }
+            } catch (_) {}
+          }
+
+          // Resolução de Produto no cadastro mestre
           let productDbId = ''
-          if (resolvedIndustryId && rawProduto) {
+          if (rawProduto) {
             try {
               const prList = $app.findRecordsByFilter(
                 'industry_product_mix',
-                'industry_id = "' +
-                  resolvedIndustryId +
-                  '" && nome_produto = "' +
-                  rawProduto.replace(/"/g, '\\"') +
-                  '"',
+                'nome_produto = "' + rawProduto.replace(/"/g, '\\"') + '"',
                 '-created',
                 1,
                 0,
               )
               if (prList && prList.length > 0) {
-                productDbId = prList[0].id
+                const matchedPr = prList[0]
+                productDbId = matchedPr.id
+                // Indústria em Rupturas obtida via Produto Mestre único
+                const prodIndId = (matchedPr.getString('industry_id') || '').trim()
+                if (prodIndId) {
+                  resolvedIndustryId = prodIndId
+                  resolvedIndustryName = (matchedPr.getString('industry_name') || '').trim()
+                }
               }
             } catch (_) {}
           }
 
-          // Status factual de normalização: completo | parcial | pendente
+          const industriaNormalizada = resolvedIndustryName || 'Não identificada'
+          // Rede real vem de fantasiaCliente (ou item.redeCliente se fornecido)
+          const redeReal = rawFantasia || (item.redeCliente || '').toString().trim()
+
+          // Status factual de normalização: completo só quando as relações obrigatórias estão realmente resolvidas
+          // para serem persistidas no registro: productDbId, storeDbId (e promotor/supervisor se fornecidos)
           const isComplete = Boolean(
-            resolvedIndustryId && storeDbId && (rawIdPromotor ? promoterDbId : true) && productDbId,
+            storeDbId &&
+            productDbId &&
+            resolvedIndustryId &&
+            (rawIdPromotor ? promoterDbId : true) &&
+            (rawIdSupervisor ? supervisorDbId : true),
           )
-          const hasAnyPending =
-            !resolvedIndustryId || !storeDbId || !productDbId || (rawIdPromotor && !promoterDbId)
-          const statusNormalizacao = isComplete
-            ? 'completo'
-            : hasAnyPending
-              ? 'parcial'
-              : 'pendente'
+          const statusNormalizacao = isComplete ? 'completo' : 'parcial'
 
           // Deduplicação determinística refinada:
           // Se houver idAtividadeRuptura ou idAtividade, usa identificador externo exclusivo
@@ -1929,39 +1980,8 @@ onRecordAfterUpdateSuccess((e) => {
               ].join('|')
           const operationalKey = codigoLoja + '|' + rawProduto + '|' + rawDataVisita
 
-          // Payload bruto sanitizado (sem tokens nem segredos) para auditoria e reprocessamento local
-          const sanitizedRawPayload = {
-            idSupervisor: rawIdSupervisor,
-            nomeSupervisor: rawNomeSupervisor,
-            idPromotor: rawIdPromotor,
-            nomePromotor: rawNomePromotor,
-            idCliente: rawIdCliente,
-            cpfCnpjCliente: item.cpfCnpjCliente || '',
-            codigoCliente: rawCodigoCliente,
-            razaoSocialCliente: rawRazaoSocial,
-            fantasiaCliente: rawFantasia,
-            redeCliente: item.redeCliente || '',
-            cidadeCliente: item.cidadeCliente || '',
-            siglaEstadoCliente: item.siglaEstadoCliente || '',
-            idAtividade: rawIdAtividade,
-            descricaoAtividade: rawProduto,
-            descricaoCategoria: item.descricaoCategoria || '',
-            descricaoMotivo: rawMotivo,
-            statusRoteiro: rawStatusRoteiro,
-            idRoteiroPadrao: rawIdRoteiroPadrao,
-            descricaoRoteiroPadrao: rawDescricaoRoteiroPadrao,
-            dataVisita: rawDataVisita,
-            horaInicioExecucaoRoteiro: rawHoraInicioRoteiro,
-            horaFinalExecucaoRoteiro: rawHoraFinalRoteiro,
-            observacaoRuptura: item.observacaoRuptura || '',
-            cnpjFornecedor: rawCnpjFornecedor,
-            descricaoFornecedor: rawDescricaoFornecedor,
-            idAtividadeRuptura: rawIdAtividadeRuptura,
-            codigoFamilia: rawCodigoFamilia,
-            descricaoFamilia: rawDescricaoFamilia,
-            dataHoraExecucaoAtividade: rawDataHoraExecucao,
-            sincronizadoEm: new Date().toISOString(),
-          }
+          // Item 1: dados_brutos_json como item original completo com sanitização recursiva de chaves sensíveis
+          const sanitizedRawPayload = sanitizePayloadRecursive(item)
 
           const rupRecord = new Record(rupturasBaseCol)
           rupRecord.set('produto', rawProduto)
@@ -2001,6 +2021,8 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('source_synced_at', new Date().toISOString())
           rupRecord.set('dados_brutos_json', sanitizedRawPayload)
           rupRecord.set('status_normalizacao', statusNormalizacao)
+
+          // IDs externos da fonte preservados
           rupRecord.set('id_promotor', rawIdPromotor)
           rupRecord.set('id_supervisor', rawIdSupervisor)
           rupRecord.set('nome_supervisor', rawNomeSupervisor)
@@ -2017,8 +2039,13 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('descricao_fornecedor', rawDescricaoFornecedor)
           rupRecord.set('codigo_familia', rawCodigoFamilia)
           rupRecord.set('descricao_familia', rawDescricaoFamilia)
+
+          // Item 2: Persistir relações mestres no evento (migração 0048)
           if (resolvedIndustryId) rupRecord.set('industry_id', resolvedIndustryId)
           if (storeDbId) rupRecord.set('store_id', storeDbId)
+          if (productDbId) rupRecord.set('product_id', productDbId)
+          if (promoterDbId) rupRecord.set('promoter_id', promoterDbId)
+          if (supervisorDbId) rupRecord.set('supervisor_id', supervisorDbId)
 
           try {
             $app.save(rupRecord)
@@ -2075,45 +2102,9 @@ onRecordAfterUpdateSuccess((e) => {
               } catch (_) {}
             }
 
-            // Geração de Pendências consolidadas e idempotentes para entidades não resolvidas
-            if (rawCodigoCliente && !resolvedIndustryId) {
-              try {
-                const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
-                if (pendCol) {
-                  const pendFilter =
-                    'tipo_entidade = "industria" && valor_identificador = "' +
-                    rawCodigoCliente.replace(/"/g, '\\"') +
-                    '" && status = "pendente"'
-                  const existingPend = $app.findRecordsByFilter(
-                    'cadastros_pendencias',
-                    pendFilter,
-                    '-created',
-                    1,
-                    0,
-                  )
-                  if (existingPend && existingPend.length > 0) {
-                    const pRec = existingPend[0]
-                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
-                    $app.save(pRec)
-                  } else {
-                    const pRec = new Record(pendCol)
-                    pRec.set('tipo_entidade', 'industria')
-                    pRec.set('valor_identificador', rawCodigoCliente)
-                    pRec.set('codigo_externo', rawCodigoCliente)
-                    pRec.set('nome_identificado', rawClienteNome || 'Cliente #' + rawCodigoCliente)
-                    pRec.set('origem_fonte', 'tradepro_api_rupturas')
-                    pRec.set('status', 'pendente')
-                    pRec.set('volume_ocorrencias', 1)
-                    pRec.set('contexto_adicional', {
-                      job_id: jobId,
-                      endpoint: 'relatorio-rupturas',
-                    })
-                    $app.save(pRec)
-                  }
-                }
-              } catch (_) {}
-            }
-
+            // Item 3: Pendências idempotentes
+            // codigoCliente em Rupturas é Loja (NUNCA gera pendência de indústria).
+            // Apenas Loja, Promotor e Supervisor não resolvidos geram pendência se ausentes.
             if (codigoLoja && !storeDbId) {
               try {
                 const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
@@ -2129,11 +2120,7 @@ onRecordAfterUpdateSuccess((e) => {
                     1,
                     0,
                   )
-                  if (existingPend && existingPend.length > 0) {
-                    const pRec = existingPend[0]
-                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
-                    $app.save(pRec)
-                  } else {
+                  if (!existingPend || existingPend.length === 0) {
                     const pRec = new Record(pendCol)
                     pRec.set('tipo_entidade', 'loja')
                     pRec.set('valor_identificador', codigoLoja)
@@ -2167,16 +2154,42 @@ onRecordAfterUpdateSuccess((e) => {
                     1,
                     0,
                   )
-                  if (existingPend && existingPend.length > 0) {
-                    const pRec = existingPend[0]
-                    pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
-                    $app.save(pRec)
-                  } else {
+                  if (!existingPend || existingPend.length === 0) {
                     const pRec = new Record(pendCol)
                     pRec.set('tipo_entidade', 'promotor')
                     pRec.set('valor_identificador', rawIdPromotor)
                     pRec.set('codigo_externo', rawIdPromotor)
                     pRec.set('nome_identificado', rawNomePromotor)
+                    pRec.set('origem_fonte', 'tradepro_api_rupturas')
+                    pRec.set('status', 'pendente')
+                    pRec.set('volume_ocorrencias', 1)
+                    $app.save(pRec)
+                  }
+                }
+              } catch (_) {}
+            }
+
+            if (rawIdSupervisor && !supervisorDbId) {
+              try {
+                const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+                if (pendCol) {
+                  const pendFilter =
+                    'tipo_entidade = "supervisor" && valor_identificador = "' +
+                    rawIdSupervisor.replace(/"/g, '\\"') +
+                    '" && status = "pendente"'
+                  const existingPend = $app.findRecordsByFilter(
+                    'cadastros_pendencias',
+                    pendFilter,
+                    '-created',
+                    1,
+                    0,
+                  )
+                  if (!existingPend || existingPend.length === 0) {
+                    const pRec = new Record(pendCol)
+                    pRec.set('tipo_entidade', 'supervisor')
+                    pRec.set('valor_identificador', rawIdSupervisor)
+                    pRec.set('codigo_externo', rawIdSupervisor)
+                    pRec.set('nome_identificado', rawNomeSupervisor)
                     pRec.set('origem_fonte', 'tradepro_api_rupturas')
                     pRec.set('status', 'pendente')
                     pRec.set('volume_ocorrencias', 1)
@@ -2843,6 +2856,21 @@ onRecordAfterUpdateSuccess((e) => {
           } catch (_) {}
         }
 
+        // Resolução de Supervisor mestre por cod_supervisor / idSupervisor
+        let supervisorDbId = ''
+        if (rawSupervisorId) {
+          try {
+            const sList = $app.findRecordsByFilter(
+              'supervisors',
+              'codigo_externo = "' + rawSupervisorId.replace(/"/g, '\\"') + '"',
+              '-created',
+              1,
+              0,
+            )
+            if (sList && sList.length > 0) supervisorDbId = sList[0].id
+          } catch (_) {}
+        }
+
         // Resolução de Produto mestre: Indústria conhecida + Cód. Produto prioritariamente, ou Nome
         let productDbId = ''
         if (resolvedIndustryId) {
@@ -2878,13 +2906,15 @@ onRecordAfterUpdateSuccess((e) => {
           } catch (_) {}
         }
 
-        // Status factual de normalização
+        // Status factual de normalização: completo só quando relações obrigatórias estão gravadas no registro
         const isComplete = Boolean(
-          resolvedIndustryId && storeDbId && (rawPromotorId ? promoterDbId : true) && productDbId,
+          resolvedIndustryId &&
+          storeDbId &&
+          productDbId &&
+          (rawPromotorId ? promoterDbId : true) &&
+          (rawSupervisorId ? supervisorDbId : true),
         )
-        const hasAnyPending =
-          !resolvedIndustryId || !storeDbId || !productDbId || (rawPromotorId && !promoterDbId)
-        const statusNormalizacao = isComplete ? 'completo' : hasAnyPending ? 'parcial' : 'pendente'
+        const statusNormalizacao = isComplete ? 'completo' : 'parcial'
 
         // Deduplicação não colapsa ocorrências legítimas distintas
         const chaveOperacional = [
@@ -2898,26 +2928,40 @@ onRecordAfterUpdateSuccess((e) => {
           chaveOperacional + '|' + rawRealizado + '|' + rawPromotorId + '|' + String(rawQuantidade)
         const statusOp = computeStatusOperacional(rawDiasParaVencimento)
 
-        // Payload bruto sanitizado para auditoria e reprocessamento
-        const sanitizedRawValidadePayload = {
-          promotor: promotor,
-          cliente: cliente,
-          produto: produtoObj,
-          validade: rawValidade,
-          realizado: rawRealizado,
-          quantidade: rawQuantidade,
-          diasParaVencimento: rawDiasParaVencimento,
-          fabricacao: rawDataFabricacao,
-          lote: rawNumeroLote,
-          representante: rawRepresentante,
-          codigoBarras: rawCodigoBarras,
-          fornecedor: fornecedor,
-          idSupervisor: rawSupervisorId,
-          nomeSupervisor: rawSupervisorNome,
-          codCliente: rawCodCliente,
-          clienteNome: rawClienteNome,
-          sincronizadoEm: new Date().toISOString(),
+        // Item 1: dados_brutos_json como item original completo com sanitização recursiva de chaves sensíveis
+        // (remove token, authorization, password, senha, secret, cookie, header)
+        const isSensitiveKeyVal = (k) => {
+          if (!k || typeof k !== 'string') return false
+          const lower = k.toLowerCase()
+          return (
+            lower.indexOf('token') !== -1 ||
+            lower.indexOf('authorization') !== -1 ||
+            lower.indexOf('password') !== -1 ||
+            lower.indexOf('senha') !== -1 ||
+            lower.indexOf('secret') !== -1 ||
+            lower.indexOf('cookie') !== -1 ||
+            lower.indexOf('header') !== -1
+          )
         }
+        const sanitizePayloadRecursiveVal = (val) => {
+          if (val === null || val === undefined) return val
+          if (Array.isArray(val)) {
+            return val.map((elem) => sanitizePayloadRecursiveVal(elem))
+          }
+          if (typeof val === 'object') {
+            const out = {}
+            const keys = Object.keys(val)
+            for (let kIdx = 0; kIdx < keys.length; kIdx++) {
+              const k = keys[kIdx]
+              if (isSensitiveKeyVal(k)) continue
+              out[k] = sanitizePayloadRecursiveVal(val[k])
+            }
+            return out
+          }
+          return val
+        }
+
+        const sanitizedRawValidadePayload = sanitizePayloadRecursiveVal(item)
 
         try {
           const industriaValidade = resolvedIndustryName || 'Não identificada'
@@ -2938,6 +2982,17 @@ onRecordAfterUpdateSuccess((e) => {
           if (storeDbId) {
             valRecord.set('store_id', storeDbId)
           }
+          // Item 2: Persistir relações mestres no evento em Validades (migração 0048)
+          if (productDbId) {
+            valRecord.set('product_id', productDbId)
+          }
+          if (promoterDbId) {
+            valRecord.set('promoter_id', promoterDbId)
+          }
+          if (supervisorDbId) {
+            valRecord.set('supervisor_id', supervisorDbId)
+          }
+
           valRecord.set('fantasia', rawFantasia)
           valRecord.set('codigo_loja', codigoLoja)
           valRecord.set('nome_loja', rawRazaoSocial)
@@ -3036,7 +3091,8 @@ onRecordAfterUpdateSuccess((e) => {
             } catch (_) {}
           }
 
-          // Geração de Pendências consolidadas para entidades não resolvidas em Validades
+          // Item 3: Pendências idempotentes em Validades
+          // Sem soma cega de volume_ocorrencias + 1; cria apenas se não existir como pendente
           if (rawCodCliente && !resolvedIndustryId) {
             try {
               const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
@@ -3052,11 +3108,7 @@ onRecordAfterUpdateSuccess((e) => {
                   1,
                   0,
                 )
-                if (existingPend && existingPend.length > 0) {
-                  const pRec = existingPend[0]
-                  pRec.set('volume_ocorrencias', (pRec.getInt('volume_ocorrencias') || 1) + 1)
-                  $app.save(pRec)
-                } else {
+                if (!existingPend || existingPend.length === 0) {
                   const pRec = new Record(pendCol)
                   pRec.set('tipo_entidade', 'industria')
                   pRec.set('valor_identificador', rawCodCliente)
@@ -3066,6 +3118,100 @@ onRecordAfterUpdateSuccess((e) => {
                   pRec.set('status', 'pendente')
                   pRec.set('volume_ocorrencias', 1)
                   pRec.set('contexto_adicional', { job_id: jobId, endpoint: 'relatorio-validade' })
+                  $app.save(pRec)
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (codigoLoja && !storeDbId) {
+            try {
+              const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+              if (pendCol) {
+                const pendFilter =
+                  'tipo_entidade = "loja" && valor_identificador = "' +
+                  codigoLoja.replace(/"/g, '\\"') +
+                  '" && status = "pendente"'
+                const existingPend = $app.findRecordsByFilter(
+                  'cadastros_pendencias',
+                  pendFilter,
+                  '-created',
+                  1,
+                  0,
+                )
+                if (!existingPend || existingPend.length === 0) {
+                  const pRec = new Record(pendCol)
+                  pRec.set('tipo_entidade', 'loja')
+                  pRec.set('valor_identificador', codigoLoja)
+                  pRec.set('codigo_externo', codigoLoja)
+                  pRec.set('nome_identificado', rawRazaoSocial)
+                  pRec.set('origem_fonte', 'tradepro_api_validades')
+                  pRec.set('status', 'pendente')
+                  pRec.set('volume_ocorrencias', 1)
+                  pRec.set('contexto_adicional', {
+                    razaoSocial: rawRazaoSocial,
+                    fantasia: rawFantasia,
+                  })
+                  $app.save(pRec)
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (rawPromotorId && !promoterDbId) {
+            try {
+              const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+              if (pendCol) {
+                const pendFilter =
+                  'tipo_entidade = "promotor" && valor_identificador = "' +
+                  rawPromotorId.replace(/"/g, '\\"') +
+                  '" && status = "pendente"'
+                const existingPend = $app.findRecordsByFilter(
+                  'cadastros_pendencias',
+                  pendFilter,
+                  '-created',
+                  1,
+                  0,
+                )
+                if (!existingPend || existingPend.length === 0) {
+                  const pRec = new Record(pendCol)
+                  pRec.set('tipo_entidade', 'promotor')
+                  pRec.set('valor_identificador', rawPromotorId)
+                  pRec.set('codigo_externo', rawPromotorId)
+                  pRec.set('nome_identificado', rawPromotorNome)
+                  pRec.set('origem_fonte', 'tradepro_api_validades')
+                  pRec.set('status', 'pendente')
+                  pRec.set('volume_ocorrencias', 1)
+                  $app.save(pRec)
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (rawSupervisorId && !supervisorDbId) {
+            try {
+              const pendCol = $app.findCollectionByNameOrId('cadastros_pendencias')
+              if (pendCol) {
+                const pendFilter =
+                  'tipo_entidade = "supervisor" && valor_identificador = "' +
+                  rawSupervisorId.replace(/"/g, '\\"') +
+                  '" && status = "pendente"'
+                const existingPend = $app.findRecordsByFilter(
+                  'cadastros_pendencias',
+                  pendFilter,
+                  '-created',
+                  1,
+                  0,
+                )
+                if (!existingPend || existingPend.length === 0) {
+                  const pRec = new Record(pendCol)
+                  pRec.set('tipo_entidade', 'supervisor')
+                  pRec.set('valor_identificador', rawSupervisorId)
+                  pRec.set('codigo_externo', rawSupervisorId)
+                  pRec.set('nome_identificado', rawSupervisorNome)
+                  pRec.set('origem_fonte', 'tradepro_api_validades')
+                  pRec.set('status', 'pendente')
+                  pRec.set('volume_ocorrencias', 1)
                   $app.save(pRec)
                 }
               }

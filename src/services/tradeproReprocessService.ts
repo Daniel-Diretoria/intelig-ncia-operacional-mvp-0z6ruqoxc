@@ -15,7 +15,14 @@ export interface ReprocessResult {
 /**
  * Reprocessa localmente registros de Rupturas a partir de seus payloads brutos (dados_brutos_json),
  * sem fazer nenhuma nova chamada à API TradePro.
- * Permite que cadastros recentemente homologados resolvam eventos que antes estavam parciais ou pendentes.
+ *
+ * REGRAS MANDATÓRIAS:
+ * - TradePro-only: processa SOMENTE registros com source_type = 'tradepro_api' (NUNCA Excel).
+ * - Semântica de Rupturas: codigoCliente de Ruptura é Loja, NUNCA Indústria!
+ *   codigoCliente de Ruptura NUNCA resolve Indústria nem busca industry_registry.
+ *   Indústria em Rupturas só é resolvida via Produto Mestre (industry_product_mix).
+ * - Persistência das relações mestres: grava product_id, promoter_id, supervisor_id no registro.
+ * - status_normalizacao = 'completo' SOMENTE quando relações obrigatórias estão gravadas no registro.
  */
 export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessResult> {
   const result: ReprocessResult = {
@@ -32,16 +39,9 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
 
   try {
     // 1. Carrega cadastros mestres
-    const industries = await pb.collection('industry_registry').getFullList({ sort: 'nome' })
     const stores = await pb.collection('stores').getFullList({ sort: 'nome' })
     const promoters = await pb.collection('promoters').getFullList({ sort: 'nome' })
-
-    const indMapByClient = new Map<string, { id: string; nome: string }>()
-    industries.forEach((ind) => {
-      const tId = String((ind as Record<string, unknown>).tradepro_client_id || '').trim()
-      if (tId)
-        indMapByClient.set(tId, { id: ind.id, nome: String((ind as Record<string, unknown>).nome) })
-    })
+    const supervisors = await pb.collection('supervisors').getFullList({ sort: 'nome' })
 
     const storeMapByCode = new Map<string, string>()
     stores.forEach((st) => {
@@ -59,9 +59,16 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
       if (cod) promoterMapByCod.set(cod, p.id)
     })
 
-    // 2. Busca rupturas que possuam dados_brutos_json ou tenant_id de job
+    const supervisorMapByCod = new Map<string, string>()
+    supervisors.forEach((s) => {
+      const rec = s as Record<string, unknown>
+      const cod = String(rec.codigo_externo || '').trim()
+      if (cod) supervisorMapByCod.set(cod, s.id)
+    })
+
+    // 2. Busca rupturas estritamente com source_type='tradepro_api' (NUNCA Excel)
     const records = await pb.collection('rupturas_base').getList(1, limit, {
-      filter: 'is_base_atual = true',
+      filter: 'is_base_atual = true && source_type = "tradepro_api"',
       sort: '-created',
     })
 
@@ -73,12 +80,30 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
           string,
           unknown
         > | null
-        const codCliente = String(
-          (rawJson && rawJson.codigoCliente) ||
-            (item as Record<string, unknown>).codigo_cliente ||
+
+        // Semântica confirmada:
+        // Em Rupturas TradePro, codigoCliente é o código da LOJA (ex: "165").
+        // NUNCA usar codigoCliente para resolver Indústria!
+        const rawRazaoSocial = String(
+          (rawJson && (rawJson.razaoSocialCliente || rawJson.nome_loja)) ||
+            (item as Record<string, unknown>).razao_social ||
+            (item as Record<string, unknown>).nome_loja ||
             '',
         ).trim()
-        const codLoja = String((item as Record<string, unknown>).codigo_loja || '').trim()
+
+        const rawCodigoLoja = String(
+          (rawJson && (rawJson.codigoCliente || rawJson.codigo_cliente)) ||
+            (item as Record<string, unknown>).codigo_loja ||
+            '',
+        ).trim()
+
+        // Helper para extrair código numérico ou de prefixo da Razão Social se necessário
+        let codLoja = rawCodigoLoja
+        if (!codLoja && rawRazaoSocial) {
+          const m = rawRazaoSocial.match(/^(\d+)/)
+          if (m) codLoja = m[1]
+        }
+
         const idPromotor = String(
           (rawJson && rawJson.idPromotor) || (item as Record<string, unknown>).id_promotor || '',
         ).trim()
@@ -87,71 +112,115 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
             (item as Record<string, unknown>).id_supervisor ||
             '',
         ).trim()
-        const produtoNome = String((item as Record<string, unknown>).produto || '').trim()
+        const produtoNome = String(
+          (rawJson && (rawJson.descricaoAtividade || rawJson.produto)) ||
+            (item as Record<string, unknown>).produto ||
+            '',
+        ).trim()
 
-        let resolvedIndId = ''
-        let resolvedIndNome = ''
-        if (codCliente && indMapByClient.has(codCliente)) {
-          const found = indMapByClient.get(codCliente)!
-          resolvedIndId = found.id
-          resolvedIndNome = found.nome
-          result.industriasResolvidas++
-        }
-
+        // Resolução de Loja mestre
         let storeId = ''
         if (codLoja && storeMapByCode.has(codLoja)) {
           storeId = storeMapByCode.get(codLoja)!
           result.lojasResolvidas++
         }
 
+        // Resolução de Promotor mestre
         let promoterId = ''
         if (idPromotor && promoterMapByCod.has(idPromotor)) {
           promoterId = promoterMapByCod.get(idPromotor)!
           result.promotoresResolvidos++
         }
 
-        if (idSupervisor) {
+        // Resolução de Supervisor mestre
+        let supervisorId = ''
+        if (idSupervisor && supervisorMapByCod.has(idSupervisor)) {
+          supervisorId = supervisorMapByCod.get(idSupervisor)!
           result.supervisoresResolvidos++
         }
 
-        let productResolved = false
-        if (resolvedIndId && produtoNome) {
+        // Resolução de Produto mestre:
+        // Em Rupturas, a Indústria só é conhecida via Produto Mestre (ou se já havia industry_id prévia)
+        let productId = ''
+        let resolvedIndId = String((item as Record<string, unknown>).industry_id || '').trim()
+        let resolvedIndNome = String((item as Record<string, unknown>).cliente || '').trim()
+
+        if (produtoNome) {
           try {
-            const mixItems = await pb.collection('industry_product_mix').getList(1, 1, {
-              filter: `industry_id = "${resolvedIndId}" && nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`,
+            // Busca produto mestre pelo nome em industry_product_mix
+            const filterMix = resolvedIndId
+              ? `industry_id = "${resolvedIndId}" && nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`
+              : `nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`
+
+            const mixItems = await pb.collection('industry_product_mix').getList(1, 10, {
+              filter: filterMix,
             })
+
             if (mixItems.items.length > 0) {
-              productResolved = true
+              const matchedProd = mixItems.items[0]
+              productId = matchedProd.id
               result.produtosResolvidos++
+
+              // Se a indústria ainda não estava resolvida, resolve unicamente através do produto mestre
+              const prodIndId = String(
+                (matchedProd as Record<string, unknown>).industry_id || '',
+              ).trim()
+              if (!resolvedIndId && prodIndId) {
+                resolvedIndId = prodIndId
+                resolvedIndNome = String(
+                  (matchedProd as Record<string, unknown>).industry_name || '',
+                ).trim()
+                result.industriasResolvidas++
+              }
             }
           } catch {
             /* intentionally ignored */
           }
         }
 
+        // status_normalizacao='completo' SOMENTE quando as relações obrigatórias estão realmente resolvidas
+        // para persistência: product_id E store_id (e se houver promotor/supervisor externo, estes também resolvidos)
+        const hasPromoterRequirement = Boolean(idPromotor)
+        const hasSupervisorRequirement = Boolean(idSupervisor)
+
         const isComplete = Boolean(
-          resolvedIndId && storeId && (idPromotor ? promoterId : true) && productResolved,
+          storeId &&
+          productId &&
+          resolvedIndId &&
+          (!hasPromoterRequirement || promoterId) &&
+          (!hasSupervisorRequirement || supervisorId),
         )
+
         const statusNorm = isComplete ? 'completo' : 'parcial'
 
         const patch: Record<string, unknown> = {
           status_normalizacao: statusNorm,
         }
-        if (resolvedIndId) {
-          patch.industry_id = resolvedIndId
-          patch.cliente = resolvedIndNome
-        }
+
         if (storeId) {
           patch.store_id = storeId
+        }
+        if (productId) {
+          patch.product_id = productId
+        }
+        if (promoterId) {
+          patch.promoter_id = promoterId
+        }
+        if (supervisorId) {
+          patch.supervisor_id = supervisorId
+        }
+        if (resolvedIndId) {
+          patch.industry_id = resolvedIndId
+          if (resolvedIndNome) patch.cliente = resolvedIndNome
         }
 
         await pb.collection('rupturas_base').update(item.id, patch)
         result.reprocessadosComSucesso++
-      } catch (err) {
+      } catch {
         result.erros++
       }
     }
-  } catch (err) {
+  } catch {
     result.erros++
   }
 
@@ -161,6 +230,13 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
 /**
  * Reprocessa localmente registros de Validades a partir de seus payloads brutos (dados_brutos_json),
  * sem fazer nenhuma nova chamada à API TradePro.
+ *
+ * REGRAS MANDATÓRIAS:
+ * - TradePro-only: processa SOMENTE registros com source_type = 'tradepro_api' (NUNCA Excel).
+ * - Semântica de Validades: codCliente no payload/registro representa a Indústria (tradepro_client_id);
+ *   cliente.codigo ou codigo_loja representa a LOJA.
+ * - Persistência das relações mestres: grava product_id, promoter_id, supervisor_id no registro.
+ * - status_normalizacao = 'completo' SOMENTE quando relações obrigatórias estão gravadas no registro.
  */
 export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessResult> {
   const result: ReprocessResult = {
@@ -179,6 +255,7 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
     const industries = await pb.collection('industry_registry').getFullList({ sort: 'nome' })
     const stores = await pb.collection('stores').getFullList({ sort: 'nome' })
     const promoters = await pb.collection('promoters').getFullList({ sort: 'nome' })
+    const supervisors = await pb.collection('supervisors').getFullList({ sort: 'nome' })
 
     const indMapByClient = new Map<string, { id: string; nome: string }>()
     industries.forEach((ind) => {
@@ -203,8 +280,16 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
       if (cod) promoterMapByCod.set(cod, p.id)
     })
 
+    const supervisorMapByCod = new Map<string, string>()
+    supervisors.forEach((s) => {
+      const rec = s as Record<string, unknown>
+      const cod = String(rec.codigo_externo || '').trim()
+      if (cod) supervisorMapByCod.set(cod, s.id)
+    })
+
+    // Busca validades estritamente com source_type='tradepro_api' (NUNCA Excel)
     const records = await pb.collection('validades_base').getList(1, limit, {
-      filter: 'is_base_atual = true',
+      filter: 'is_base_atual = true && source_type = "tradepro_api"',
       sort: '-created',
     })
 
@@ -216,21 +301,55 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
           string,
           unknown
         > | null
+
+        // Em Validades, codCliente raiz do item representa a Indústria (se presente)
         const codCliente = String(
-          (rawJson && rawJson.codCliente) || (item as Record<string, unknown>).cod_cliente || '',
-        ).trim()
-        const codLoja = String((item as Record<string, unknown>).codigo_loja || '').trim()
-        const codColab = String((item as Record<string, unknown>).cod_colaborador || '').trim()
-        const codProd = String((item as Record<string, unknown>).cod_produto || '').trim()
-        const produtoNome = String((item as Record<string, unknown>).produto || '').trim()
-        const idSupervisor = String(
-          (rawJson && rawJson.idSupervisor) ||
-            (item as Record<string, unknown>).id_supervisor ||
+          (rawJson && (rawJson.codCliente || rawJson.cod_cliente || rawJson.codigoCliente)) ||
+            (item as Record<string, unknown>).cod_cliente ||
             '',
         ).trim()
 
-        let resolvedIndId = ''
-        let resolvedIndNome = ''
+        // Código da Loja vem de cliente.codigo ou de codigo_loja
+        const rawClienteObj = (rawJson && (rawJson.cliente as Record<string, unknown>)) || null
+        const codLojaUnidade = String(
+          (rawClienteObj && (rawClienteObj.codigo || rawClienteObj.codigoCliente)) ||
+            (item as Record<string, unknown>).codigo_loja ||
+            '',
+        ).trim()
+
+        const rawPromotorObj = (rawJson && (rawJson.promotor as Record<string, unknown>)) || null
+        const codColab = String(
+          (rawPromotorObj && rawPromotorObj.id) ||
+            (rawJson && (rawJson.idPromotor || rawJson.cod_colaborador)) ||
+            (item as Record<string, unknown>).cod_colaborador ||
+            '',
+        ).trim()
+
+        const rawProdutoObj = (rawJson && (rawJson.produto as Record<string, unknown>)) || null
+        const codProd = String(
+          (rawProdutoObj && rawProdutoObj.codigo) ||
+            (rawJson && rawJson.codigoProduto) ||
+            (item as Record<string, unknown>).cod_produto ||
+            '',
+        ).trim()
+        const produtoNome = String(
+          (rawProdutoObj && rawProdutoObj.descricao) ||
+            (rawJson && (rawJson.descricao || rawJson.produto)) ||
+            (item as Record<string, unknown>).produto ||
+            '',
+        ).trim()
+
+        const idSupervisor = String(
+          (rawJson && (rawJson.idSupervisor || rawJson.cod_supervisor)) ||
+            (rawPromotorObj && rawPromotorObj.idSupervisor) ||
+            (item as Record<string, unknown>).id_supervisor ||
+            (item as Record<string, unknown>).cod_supervisor ||
+            '',
+        ).trim()
+
+        let resolvedIndId = String((item as Record<string, unknown>).industry_id || '').trim()
+        let resolvedIndNome = String((item as Record<string, unknown>).cliente || '').trim()
+
         if (codCliente && indMapByClient.has(codCliente)) {
           const found = indMapByClient.get(codCliente)!
           resolvedIndId = found.id
@@ -239,8 +358,8 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
         }
 
         let storeId = ''
-        if (codLoja && storeMapByCode.has(codLoja)) {
-          storeId = storeMapByCode.get(codLoja)!
+        if (codLojaUnidade && storeMapByCode.has(codLojaUnidade)) {
+          storeId = storeMapByCode.get(codLojaUnidade)!
           result.lojasResolvidas++
         }
 
@@ -250,54 +369,79 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
           result.promotoresResolvidos++
         }
 
-        if (idSupervisor) {
+        let supervisorId = ''
+        if (idSupervisor && supervisorMapByCod.has(idSupervisor)) {
+          supervisorId = supervisorMapByCod.get(idSupervisor)!
           result.supervisoresResolvidos++
         }
 
-        let productResolved = false
+        let productId = ''
         if (resolvedIndId) {
           try {
             if (codProd) {
               const pByCode = await pb.collection('industry_product_mix').getList(1, 1, {
                 filter: `industry_id = "${resolvedIndId}" && codigo_produto = "${codProd.replace(/"/g, '\\"')}"`,
               })
-              if (pByCode.items.length > 0) productResolved = true
+              if (pByCode.items.length > 0) {
+                productId = pByCode.items[0].id
+                result.produtosResolvidos++
+              }
             }
-            if (!productResolved && produtoNome) {
+            if (!productId && produtoNome) {
               const pByName = await pb.collection('industry_product_mix').getList(1, 1, {
                 filter: `industry_id = "${resolvedIndId}" && nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`,
               })
-              if (pByName.items.length > 0) productResolved = true
+              if (pByName.items.length > 0) {
+                productId = pByName.items[0].id
+                result.produtosResolvidos++
+              }
             }
-            if (productResolved) result.produtosResolvidos++
           } catch {
             /* intentionally ignored */
           }
         }
 
+        const hasPromoterRequirement = Boolean(codColab)
+        const hasSupervisorRequirement = Boolean(idSupervisor)
+
         const isComplete = Boolean(
-          resolvedIndId && storeId && (codColab ? promoterId : true) && productResolved,
+          storeId &&
+          productId &&
+          resolvedIndId &&
+          (!hasPromoterRequirement || promoterId) &&
+          (!hasSupervisorRequirement || supervisorId),
         )
+
         const statusNorm = isComplete ? 'completo' : 'parcial'
 
         const patch: Record<string, unknown> = {
           status_normalizacao: statusNorm,
         }
-        if (resolvedIndId) {
-          patch.industry_id = resolvedIndId
-          patch.cliente = resolvedIndNome
-        }
+
         if (storeId) {
           patch.store_id = storeId
+        }
+        if (productId) {
+          patch.product_id = productId
+        }
+        if (promoterId) {
+          patch.promoter_id = promoterId
+        }
+        if (supervisorId) {
+          patch.supervisor_id = supervisorId
+        }
+        if (resolvedIndId) {
+          patch.industry_id = resolvedIndId
+          if (resolvedIndNome) patch.cliente = resolvedIndNome
         }
 
         await pb.collection('validades_base').update(item.id, patch)
         result.reprocessadosComSucesso++
-      } catch (err) {
+      } catch {
         result.erros++
       }
     }
-  } catch (err) {
+  } catch {
     result.erros++
   }
 
