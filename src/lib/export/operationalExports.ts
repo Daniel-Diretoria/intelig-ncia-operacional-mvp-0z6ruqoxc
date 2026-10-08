@@ -942,7 +942,7 @@ export function buildCentralEstrategica(
   const storeCodesMap = new Map<string, string>()
   for (const v of validades) {
     const sCode = (v.codigoLoja || (v as any).codigo_loja || v.loja || '').trim()
-    if (sCode) storeCodesMap.set(sCode, v.loja || v.cliente || `Loja ${sCode}`)
+    if (sCode) storeCodesMap.set(sCode, v.loja || `Loja ${sCode}`)
   }
   for (const r of rupturas) {
     const sCode = (r.codigo_loja || r.nome_loja || '').trim()

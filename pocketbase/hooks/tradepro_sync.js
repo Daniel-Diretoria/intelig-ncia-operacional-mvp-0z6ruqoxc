@@ -1925,7 +1925,10 @@ onRecordAfterUpdateSuccess((e) => {
             } catch (_) {}
           }
 
-          // Resolução de Produto no cadastro mestre
+          // Resolução de Produto e Indústria no cadastro mestre:
+          // Em Rupturas da API TradePro, a Indústria só pode ser identificada se o Produto pertencer
+          // EXCLUSIVAMENTE a uma única Indústria no mix mestre. Se pertencer a mais de uma (ou nenhuma),
+          // NÃO escolher automaticamente: deixar Indústria não identificada.
           let productDbId = ''
           if (rawProduto) {
             try {
@@ -1933,17 +1936,32 @@ onRecordAfterUpdateSuccess((e) => {
                 'industry_product_mix',
                 'nome_produto = "' + rawProduto.replace(/"/g, '\\"') + '"',
                 '-created',
-                1,
+                50,
                 0,
               )
               if (prList && prList.length > 0) {
-                const matchedPr = prList[0]
-                productDbId = matchedPr.id
-                // Indústria em Rupturas obtida via Produto Mestre único
-                const prodIndId = (matchedPr.getString('industry_id') || '').trim()
-                if (prodIndId) {
-                  resolvedIndustryId = prodIndId
-                  resolvedIndustryName = (matchedPr.getString('industry_name') || '').trim()
+                // Seleciona o primeiro como referência de produto
+                productDbId = prList[0].id
+
+                // Agrupa as indústrias distintas associadas a este produto no mix
+                const distinctIndustries = {}
+                for (let pi = 0; pi < prList.length; pi++) {
+                  const pIndId = (prList[pi].getString('industry_id') || '').trim()
+                  const pIndNome = (prList[pi].getString('industry_name') || '').trim()
+                  if (pIndId) {
+                    distinctIndustries[pIndId] = pIndNome
+                  }
+                }
+
+                const indKeys = Object.keys(distinctIndustries)
+                if (indKeys.length === 1) {
+                  // Produto pertence EXCLUSIVAMENTE a uma única Indústria
+                  resolvedIndustryId = indKeys[0]
+                  resolvedIndustryName = distinctIndustries[indKeys[0]]
+                } else {
+                  // Se houver mais de uma indústria ou nenhuma, NÃO assume automaticamente
+                  resolvedIndustryId = ''
+                  resolvedIndustryName = ''
                 }
               }
             } catch (_) {}

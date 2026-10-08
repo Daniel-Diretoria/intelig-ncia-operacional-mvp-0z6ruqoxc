@@ -681,17 +681,27 @@ export async function executarHomologacaoCadastralBaseAtual(
 
     // -------------------------------------------------------------------------
     // 2.2 Processar Rupturas
+    // Semântica comprovada por payload real TradePro:
+    // - codigoCliente em Rupturas é o código da LOJA (ex: "165"), NUNCA Indústria!
+    // - Fantasia = Rede (ex: "GRUPO PEREIRA")
+    // - Razão Social = Loja (ex: "165 - FORT ATACADISTA - AVENTUREIRO")
+    // - Fornecedor = Fornecedor operacional (ex: "DIRETORIA"), NUNCA Indústria!
+    // - Portanto, r.codigo_cliente em Rupturas TradePro NUNCA gera descoberta de Indústria!
+    //   A Indústria só entra em descobertas se industry_id estiver resolvido no registro,
+    //   ou r.cliente não for nulo nem "Não identificada".
     // -------------------------------------------------------------------------
     for (const r of rupturasAmostra) {
-      const codCli = (r.codigo_cliente || '').trim()
       const nomeCli = (r.cliente || '').trim()
       const dataObs = (r.data_visita || dataHoje).split('T')[0]
 
-      if (codCli) {
-        if (!descobertasInd.has(codCli)) {
-          descobertasInd.set(codCli, { nome: nomeCli, count: 0, datas: [] })
+      // Apenas considera Indústria em Rupturas se já houver industry_id resolvido
+      // ou se o nome foi derivado com segurança e não é 'Não identificada'
+      if (r.industry_id && nomeCli && nomeCli !== 'Não identificada') {
+        const indKey = r.industry_id
+        if (!descobertasInd.has(indKey)) {
+          descobertasInd.set(indKey, { nome: nomeCli, count: 0, datas: [] })
         }
-        const indItem = descobertasInd.get(codCli)!
+        const indItem = descobertasInd.get(indKey)!
         indItem.count++
         if (dataObs && !indItem.datas.includes(dataObs)) indItem.datas.push(dataObs)
       }
@@ -763,17 +773,18 @@ export async function executarHomologacaoCadastralBaseAtual(
 
       // Na exportação de rupturas NÃO há Cód. Produto obrigatoriamente.
       // Preservar nome e nome normalizado. NUNCA usar código numérico como nome.
+      // Em Rupturas TradePro, codCliente NUNCA é Indústria.
       const prodNome = (r.produto || '').trim()
       if (prodNome) {
         const normNome = normalizarNomeProduto(prodNome)
-        const keyProd = `${codCli || 'SEM_IND'}__${normNome}`
+        const keyProd = `${r.industry_id || 'SEM_IND'}__${normNome}`
         if (!descobertasProd.has(keyProd)) {
           descobertasProd.set(keyProd, {
             codProduto: undefined,
             nomeProduto: prodNome,
             nomeProdutoNormalizado: normNome,
-            codCliente: codCli,
-            clienteNome: nomeCli,
+            codCliente: r.industry_id || undefined,
+            clienteNome: nomeCli !== 'Não identificada' ? nomeCli : undefined,
             origemSemCodigo: true,
             count: 0,
           })

@@ -328,7 +328,12 @@ async function buildSnapshotFromBackend(): Promise<{
     const rawUf = (rec.estado || rec.uf || '') as string
     const { city: cidade, uf } = parseCityUf(rawCidade, rawUf)
 
-    const cliente = (rec.cliente || rec.razao_social || cleanStoreName) as string
+    // Semântica comprovada:
+    // Em Validades:
+    // - rec.cliente = Indústria/Marca real ou 'Não identificada' (NUNCA usar razão social ou fornecedor como cliente/indústria)
+    // - rec.fornecedor = Operação Logística ('Diretoria'), NUNCA indústria!
+    const rawClienteRec = ((rec.cliente as string) || '').trim()
+    const cliente = rawClienteRec || 'Não identificada'
     const fornecedor = (rec.fornecedor || rec.representante || 'Diretoria') as string
     const lote = (rec.numero_lote || '') as string
     const promotor = (rec.colaborador || '') as string
@@ -345,7 +350,7 @@ async function buildSnapshotFromBackend(): Promise<{
     const item: ValidadeItem = {
       id,
       cliente,
-      industria: fornecedor,
+      industria: cliente !== 'Não identificada' ? cliente : fornecedor,
       rede: redeCanonica,
       loja: cleanStoreName,
       codigoLoja: storeRealCode || undefined,
@@ -405,6 +410,9 @@ async function buildSnapshotFromBackend(): Promise<{
     const diasEmRuptura = entradaParsed ? calcOperationalDays(entradaParsed) : null
     const diasPositivos = diasEmRuptura !== null ? Math.abs(diasEmRuptura) : 0
 
+    const rawRupCliente = ((rec.cliente as string) || '').trim()
+    const rupClienteFinal = rawRupCliente || 'Não identificada'
+
     rupturasAtivas.push({
       id: String(rec.id || ''),
       operational_key: String(rec.chave_operacional || rec.id || ''),
@@ -419,7 +427,7 @@ async function buildSnapshotFromBackend(): Promise<{
       data_visita: rec.data_visita ? String(rec.data_visita) : '',
       situacao_atual: (rec.situacao_atual as Ruptura['situacao_atual']) || 'Ativo',
       dias_em_ruptura: diasPositivos,
-      cliente: (rec.cliente as string) || cleanStoreName,
+      cliente: rupClienteFinal,
       colaborador: (rec.colaborador as string) || (rec.promotor as string) || '',
       data_entrada: entradaParsed ? entradaParsed.toISOString().slice(0, 10) : '',
       ultima_aparicao: rec.ultima_aparicao
@@ -592,7 +600,7 @@ async function buildSnapshotFromBackend(): Promise<{
     const clientesSet = new Set<string>()
     const produtosSet = new Set<string>()
     loja.itemsAtivos.forEach((it) => {
-      if (it.cliente) clientesSet.add(it.cliente)
+      if (it.cliente && it.cliente !== 'Não identificada') clientesSet.add(it.cliente)
       if (it.product) produtosSet.add(it.product)
     })
     loja.totalClientes = clientesSet.size || 1
@@ -648,7 +656,7 @@ async function buildSnapshotFromBackend(): Promise<{
       const clientesSet = new Set<string>()
       const produtosSet = new Set<string>()
       existing.itemsAtivos.forEach((it) => {
-        if (it.cliente) clientesSet.add(it.cliente)
+        if (it.cliente && it.cliente !== 'Não identificada') clientesSet.add(it.cliente)
         if (it.product) produtosSet.add(it.product)
       })
       existing.totalClientes = clientesSet.size || 1
@@ -761,7 +769,11 @@ async function buildSnapshotFromBackend(): Promise<{
   }
 
   // Clientes distintos
-  const clientesDistintosSet = new Set(validadesAtivas.map((i) => i.cliente.trim()).filter(Boolean))
+  const clientesDistintosSet = new Set(
+    validadesAtivas
+      .map((i) => i.cliente.trim())
+      .filter((c) => Boolean(c) && c !== 'Não identificada'),
+  )
 
   // KPIs Reconciliados
   const validadesCriticas = validadesAtivas.filter((i) => i.status === 'Crítico').length

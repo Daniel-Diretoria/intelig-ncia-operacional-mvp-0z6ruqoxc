@@ -139,38 +139,49 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
           result.supervisoresResolvidos++
         }
 
-        // Resolução de Produto mestre:
-        // Em Rupturas, a Indústria só é conhecida via Produto Mestre (ou se já havia industry_id prévia)
+        // Resolução de Produto mestre e Indústria:
+        // Em Rupturas da API TradePro:
+        // 1. Loja é SEMPRE Loja (codigoCliente = Loja, Razao Social = Loja).
+        // 2. Indústria NUNCA vem de Fornecedor, Razão Social ou Fantasia.
+        // 3. Indústria SÓ pode ser resolvida pelo Produto Mestre (industry_product_mix)
+        //    se o Produto pertencer EXCLUSIVAMENTE a uma única Indústria.
+        //    Se houver mais de uma indústria no mix com este produto, NÃO escolher automaticamente.
         let productId = ''
-        let resolvedIndId = String((item as Record<string, unknown>).industry_id || '').trim()
-        let resolvedIndNome = String((item as Record<string, unknown>).cliente || '').trim()
+        let resolvedIndId = ''
+        let resolvedIndNome = ''
 
         if (produtoNome) {
           try {
-            // Busca produto mestre pelo nome em industry_product_mix
-            const filterMix = resolvedIndId
-              ? `industry_id = "${resolvedIndId}" && nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`
-              : `nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`
-
-            const mixItems = await pb.collection('industry_product_mix').getList(1, 10, {
+            const filterMix = `nome_produto = "${produtoNome.replace(/"/g, '\\"')}"`
+            const mixItems = await pb.collection('industry_product_mix').getList(1, 50, {
               filter: filterMix,
             })
 
             if (mixItems.items.length > 0) {
-              const matchedProd = mixItems.items[0]
-              productId = matchedProd.id
+              productId = mixItems.items[0].id
               result.produtosResolvidos++
 
-              // Se a indústria ainda não estava resolvida, resolve unicamente através do produto mestre
-              const prodIndId = String(
-                (matchedProd as Record<string, unknown>).industry_id || '',
-              ).trim()
-              if (!resolvedIndId && prodIndId) {
-                resolvedIndId = prodIndId
-                resolvedIndNome = String(
-                  (matchedProd as Record<string, unknown>).industry_name || '',
+              // Agrupa indústrias únicas associadas ao produto
+              const distinctIndMap = new Map<string, string>()
+              for (const mixItem of mixItems.items) {
+                const pIndId = String((mixItem as Record<string, unknown>).industry_id || '').trim()
+                const pIndName = String(
+                  (mixItem as Record<string, unknown>).industry_name || '',
                 ).trim()
+                if (pIndId) {
+                  distinctIndMap.set(pIndId, pIndName)
+                }
+              }
+
+              if (distinctIndMap.size === 1) {
+                const [onlyIndId, onlyIndName] = Array.from(distinctIndMap.entries())[0]
+                resolvedIndId = onlyIndId
+                resolvedIndNome = onlyIndName
                 result.industriasResolvidas++
+              } else {
+                // Mais de uma indústria ou nenhuma: NÃO escolher automaticamente
+                resolvedIndId = ''
+                resolvedIndNome = ''
               }
             }
           } catch {
@@ -211,7 +222,12 @@ export async function reprocessarRupturasLocal(limit = 100): Promise<ReprocessRe
         }
         if (resolvedIndId) {
           patch.industry_id = resolvedIndId
-          if (resolvedIndNome) patch.cliente = resolvedIndNome
+          patch.cliente = resolvedIndNome
+        } else {
+          // Se não há vínculo estrutural seguro e exclusivo de indústria, não adivinhar:
+          // Indústria fica como "Não identificada"
+          patch.industry_id = ''
+          patch.cliente = 'Não identificada'
         }
 
         await pb.collection('rupturas_base').update(item.id, patch)
@@ -432,7 +448,10 @@ export async function reprocessarValidadesLocal(limit = 100): Promise<ReprocessR
         }
         if (resolvedIndId) {
           patch.industry_id = resolvedIndId
-          if (resolvedIndNome) patch.cliente = resolvedIndNome
+          patch.cliente = resolvedIndNome
+        } else {
+          patch.industry_id = ''
+          patch.cliente = 'Não identificada'
         }
 
         await pb.collection('validades_base').update(item.id, patch)
