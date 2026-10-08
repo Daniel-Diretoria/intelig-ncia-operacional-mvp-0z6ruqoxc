@@ -329,4 +329,60 @@ describe('BLOCO B.1 — TradePro Rupturas e Validades Normalização & Preserva�
     expect(rupturaMock.horaFinalExecucaoRoteiro).toBe('08:50')
     expect(rupturaMock.dataHoraExecucaoAtividade).toBe('2025-04-10 08:15:22')
   })
+
+  // 9. Payload REAL da API TradePro de Rupturas: Loja=165, Rede=Grupo Pereira, Fornecedor=Diretoria, Indústria="Não identificada"
+  it('Payload REAL TradePro Rupturas: codigoCliente="165", razaoSocial="165 - FORT ATACADISTA - AVENTUREIRO", fantasia="GRUPO PEREIRA", fornecedor="DIRETORIA" prova Loja=165, Rede=Grupo Pereira, Fornecedor=Diretoria, Indústria="Não identificada" sem evidência segura', () => {
+    const rawRupturaItem: TradeProRupturaItem = {
+      idSupervisor: '201',
+      nomeSupervisor: 'SUPERVISOR',
+      idPromotor: '101',
+      nomePromotor: 'PROMOTOR',
+      imeiPromotor: '',
+      idCliente: '99',
+      cpfCnpjCliente: '12.345.678/0001-99',
+      codigoCliente: '165',
+      razaoSocialCliente: '165 - FORT ATACADISTA - AVENTUREIRO',
+      fantasiaCliente: 'GRUPO PEREIRA',
+      redeCliente: '',
+      enderecoCliente: 'Rua Aventureiro',
+      bairroCliente: 'Aventureiro',
+      ramoAtividadeCliente: 'Varejo',
+      telefoneCliente: '',
+      cidadeCliente: 'Joinville',
+      siglaEstadoCliente: 'SC',
+      descricaoRotina: 'Ruptura',
+      idAtividade: '1001',
+      descricaoAtividade: 'BEBIDA LACTEA 850G',
+      descricaoCategoria: 'Laticínios',
+      descricaoMotivo: 'RUPTURA TOTAL',
+      statusRoteiro: 'REALIZADO',
+      idRoteiroPadrao: '1',
+      descricaoRoteiroPadrao: 'ROTEIRO 1',
+      dataVisita: '2026-09-15',
+      horaInicioExecucaoRoteiro: '08:00',
+      horaFinalExecucaoRoteiro: '09:00',
+      observacaoRuptura: '',
+      cnpjFornecedor: '00.111.222/0001-33',
+      descricaoFornecedor: 'DIRETORIA',
+      idAtividadeRuptura: '5001',
+      idCategoria: '10',
+      codigoFamilia: '5',
+      descricaoFamilia: 'Bebidas',
+      ruptura: 1,
+      dataHoraExecucaoAtividade: '2026-09-15 08:30:00',
+    }
+
+    // Sem context.industryClient (sem indústria previamente resolvida de forma segura)
+    const adapted = adaptRupturaItem(rawRupturaItem)
+    expect(adapted.status).toBe('valid')
+    expect(adapted.candidato.codigo_loja).toBe('165')
+    expect(adapted.candidato.nome_loja).toBe('165 - FORT ATACADISTA - AVENTUREIRO')
+    expect(adapted.candidato.razao_social).toBe('165 - FORT ATACADISTA - AVENTUREIRO')
+    expect(adapted.candidato.rede).toBe('GRUPO PEREIRA')
+    expect(adapted.candidato.fantasia).toBe('GRUPO PEREIRA')
+    // Indústria sem evidência segura não assume fornecedor nem razão social nem fantasia!
+    expect(adapted.candidato.cliente).toBe('')
+    // descricaoFornecedor da TradePro é a operação DIRETORIA
+    expect(rawRupturaItem.descricaoFornecedor).toBe('DIRETORIA')
+  })
 })

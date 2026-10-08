@@ -2009,7 +2009,7 @@ onRecordAfterUpdateSuccess((e) => {
           rupRecord.set('razao_social', rawRazaoSocial)
           rupRecord.set('rede', redeReal)
           rupRecord.set('fantasia', rawFantasia)
-          rupRecord.set('tradepro_cliente_nome', rawClienteNome || rawFantasia)
+          rupRecord.set('tradepro_cliente_nome', rawClienteNome)
           rupRecord.set('cnpj_loja', item.cpfCnpjCliente || item.cnpj_loja || '')
           rupRecord.set('cidade', item.cidadeCliente || item.cidade || '')
           rupRecord.set('estado', item.siglaEstadoCliente || item.estado || '')

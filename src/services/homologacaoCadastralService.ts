@@ -402,6 +402,11 @@ export async function executarHomologacaoCadastralBaseAtual(
       produto?: string
       data_visita?: string
       dados_brutos_json?: any
+      industry_id?: string
+      store_id?: string
+      product_id?: string
+      promoter_id?: string
+      supervisor_id?: string
       // Campos de auditoria/origem
       is_base_atual?: boolean
       tenant_id?: string

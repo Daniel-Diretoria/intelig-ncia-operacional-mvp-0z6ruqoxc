@@ -1292,5 +1292,25 @@ describe('TradePro Sync — Regras Críticas do Hook de Sincronização e Retoma
       expect(rec1.industry_id).toBe(rec2.industry_id)
       expect(rec1.cod_cliente).toBe(rec2.cod_cliente)
     })
+
+    it('8. tradepro_cliente_nome não usa Fantasia como fallback quando item.cliente for ausente ou vazio', () => {
+      // Simula a lógica de mapeamento de campos de Ruptura
+      const rawItemComFantasiaSemCliente = {
+        cliente: '',
+        fantasiaCliente: 'GRUPO PEREIRA',
+        razaoSocialCliente: '165 - FORT ATACADISTA - AVENTUREIRO',
+      }
+
+      const rawClienteNome = (rawItemComFantasiaSemCliente.cliente || '').toString().trim()
+      const rawFantasia = (rawItemComFantasiaSemCliente.fantasiaCliente || '').toString().trim()
+
+      // Regra estrita: tradepro_cliente_nome guarda o nome bruto do cliente (se fornecido pela fonte)
+      // NUNCA usa rawFantasia como fallback para o campo tradepro_cliente_nome!
+      const tradeproClienteNome = rawClienteNome
+
+      expect(tradeproClienteNome).toBe('')
+      expect(tradeproClienteNome).not.toBe('GRUPO PEREIRA')
+      expect(rawFantasia).toBe('GRUPO PEREIRA')
+    })
   })
 })

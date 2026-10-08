@@ -562,4 +562,45 @@ describe('CAMADA 7B — operationalExports Builders and Rules', () => {
       )
     })
   })
+
+  // 9. SEMÂNTICA DE NOMES E LOJAS NA EXPORTAÇÃO
+  describe('9. Semântica de Loja e Cliente na exportação', () => {
+    it('exportação não usa v.cliente como nome de loja: Nome Loja vem da loja e Marca vem do cliente', () => {
+      const snapshot = {
+        validades: [
+          {
+            id: 'v_165',
+            codigoLoja: '165',
+            loja: '165 - FORT ATACADISTA - AVENTUREIRO',
+            cliente: 'FRUTAP',
+            industria: 'DIRETORIA',
+            product: 'IOGURTE 170G',
+            sku: 'SKU123',
+            estoque: 12,
+            validade: '2025-05-10',
+            diasRestantes: 20,
+            status: 'Crítico',
+            dataEntrada: '2025-04-01',
+            promotor: 'Carlos Promotor',
+          },
+        ],
+        rupturas: [],
+        timestamp: '2025-04-01T10:00:00Z',
+      }
+
+      const { data } = buildBaseTratadaValidades(snapshot as any)
+      expect(data.length).toBe(1)
+      const row = data[0]
+
+      // Nome Loja deve ser a loja limpa, NUNCA o cliente (FRUTAP)
+      expect(row['Nome Loja']).toContain('FORT ATACADISTA')
+      expect(row['Nome Loja']).not.toBe('FRUTAP')
+
+      // Cliente/Marca deve ser o cliente/indústria (FRUTAP)
+      expect(row['Cliente/Marca']).toBe('FRUTAP')
+
+      // Loja formatada deve conter o código e nome da loja
+      expect(row['Código Loja']).toBe('165')
+    })
+  })
 })

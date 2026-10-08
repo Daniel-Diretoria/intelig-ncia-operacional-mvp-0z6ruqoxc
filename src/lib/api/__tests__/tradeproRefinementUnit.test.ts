@@ -210,12 +210,12 @@ describe('TradePro Refinement — Proteção Anti-Paralelismo', () => {
 })
 
 describe('TradePro Refinement — Mapeamento Semântico Canônico', () => {
-  it('Rupturas: mapeia corretamente Indústria=Cód. Cliente, Rede=Fantasia, Loja=Razão Social, Produto=Atividade, Motivo', () => {
+  it('Rupturas: codigoCliente="165" é LOJA (Loja 165), Rede=Fantasia, Fornecedor=DIRETORIA, Indústria="Não identificada" sem outra evidência', () => {
     const rawRupturaItem = {
-      codigoCliente: '7',
-      cliente: 'FRUTAP',
+      codigoCliente: '165',
+      razaoSocialCliente: '165 - FORT ATACADISTA - AVENTUREIRO',
       fantasiaCliente: 'GRUPO PEREIRA',
-      razaoSocialCliente: '165 - FORT ATACADISTA AVENTUREIRO',
+      descricaoFornecedor: 'DIRETORIA',
       descricaoAtividade: 'IOGURTE X',
       descricaoMotivo: 'RUPTURA TOTAL',
       dataVisita: '2026-09-15 10:30:00',
@@ -226,18 +226,24 @@ describe('TradePro Refinement — Mapeamento Semântico Canônico', () => {
       observacaoRuptura: 'Gôndola vazia',
     }
 
-    const industryMap = {
-      '7': { id: 'ind_7', nome: 'FRUTAP' },
-    }
-
-    // Normalização semântica
-    const codCliente = (rawRupturaItem.codigoCliente || '').trim()
-    const mappedIndustry = industryMap[codCliente as keyof typeof industryMap]
+    // Regra canônica comprovada:
+    // - codigoCliente em Rupturas é Loja (165), NUNCA Indústria
+    // - Loja = 165 + Razão Social
+    // - Rede = FantasiaCliente (GRUPO PEREIRA)
+    // - Fornecedor = descricaoFornecedor (DIRETORIA), NUNCA vira Indústria
+    // - Sem evidência estrutural exclusiva no mix, Indústria = "Não identificada"
+    const codigoLoja = (rawRupturaItem.codigoCliente || '').trim()
+    const razaoSocial = rawRupturaItem.razaoSocialCliente
+    const rede = rawRupturaItem.fantasiaCliente
+    const fornecedor = rawRupturaItem.descricaoFornecedor
+    const industria = 'Não identificada'
 
     const normalizedRuptura = {
-      industria: mappedIndustry ? mappedIndustry.nome : rawRupturaItem.cliente,
-      rede: rawRupturaItem.fantasiaCliente,
-      loja: rawRupturaItem.razaoSocialCliente,
+      codigoLoja,
+      loja: razaoSocial,
+      rede,
+      fornecedor,
+      industria,
       produto: rawRupturaItem.descricaoAtividade,
       motivo: rawRupturaItem.descricaoMotivo === 'RUPTURA TOTAL' ? 'Ruptura Total' : 'Outro',
       dataOperacional: rawRupturaItem.dataVisita.split(' ')[0],
@@ -246,9 +252,11 @@ describe('TradePro Refinement — Mapeamento Semântico Canônico', () => {
       observacao: rawRupturaItem.observacaoRuptura,
     }
 
-    expect(normalizedRuptura.industria).toBe('FRUTAP')
+    expect(normalizedRuptura.codigoLoja).toBe('165')
+    expect(normalizedRuptura.loja).toBe('165 - FORT ATACADISTA - AVENTUREIRO')
     expect(normalizedRuptura.rede).toBe('GRUPO PEREIRA')
-    expect(normalizedRuptura.loja).toBe('165 - FORT ATACADISTA AVENTUREIRO')
+    expect(normalizedRuptura.fornecedor).toBe('DIRETORIA')
+    expect(normalizedRuptura.industria).toBe('Não identificada')
     expect(normalizedRuptura.produto).toBe('IOGURTE X')
     expect(normalizedRuptura.motivo).toBe('Ruptura Total')
     expect(normalizedRuptura.dataOperacional).toBe('2026-09-15')

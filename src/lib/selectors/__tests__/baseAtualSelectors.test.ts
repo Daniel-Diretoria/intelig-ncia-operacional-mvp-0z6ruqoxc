@@ -425,4 +425,87 @@ describe('baseAtualSelectors.test.ts — Carregamento Paginado, Concorrência, C
     expect(snapshot.rupturasAtivas.map((r) => r.id)).toEqual(['r1', 'r3'])
     expect(snapshot.kpisReconciliados.rupturasAtivasTotal).toBe(2)
   })
+
+  it('não conta "Não identificada" como cliente/indústria nas agregações da Base Atual', async () => {
+    const mockValidades = [
+      {
+        id: 'val_1',
+        is_base_atual: true,
+        codigo_loja: '165',
+        nome_loja: '165 - FORT ATACADISTA - AVENTUREIRO',
+        produto: 'IOGURTE MORANGO',
+        cliente: 'Não identificada',
+        fornecedor: 'DIRETORIA',
+        validade: '2026-10-15',
+        quantidade: 10,
+      },
+      {
+        id: 'val_2',
+        is_base_atual: true,
+        codigo_loja: '165',
+        nome_loja: '165 - FORT ATACADISTA - AVENTUREIRO',
+        produto: 'IOGURTE COCO',
+        cliente: 'FRUTAP',
+        fornecedor: 'DIRETORIA',
+        validade: '2026-10-20',
+        quantidade: 5,
+      },
+    ]
+
+    const mockRupturas = [
+      {
+        id: 'rup_1',
+        is_base_atual: true,
+        codigo_loja: '165',
+        nome_loja: '165 - FORT ATACADISTA - AVENTUREIRO',
+        produto: 'LEITE INTEGRAL',
+        cliente: 'Não identificada',
+        situacao_atual: 'Ativo',
+      },
+    ]
+
+    vi.spyOn(pb, 'collection').mockImplementation(((col: string) => {
+      if (col === 'validades_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: mockValidades,
+            page: 1,
+            perPage: 500,
+            totalPages: 1,
+            totalItems: 2,
+          }),
+        }
+      }
+      if (col === 'rupturas_base') {
+        return {
+          getList: vi.fn().mockResolvedValue({
+            items: mockRupturas,
+            page: 1,
+            perPage: 500,
+            totalPages: 1,
+            totalItems: 1,
+          }),
+        }
+      }
+      return {
+        getList: vi.fn().mockResolvedValue({
+          items: [],
+          page: 1,
+          perPage: 500,
+          totalPages: 1,
+          totalItems: 0,
+        }),
+      }
+    }) as any)
+
+    const snapshot = await getBaseAtualSnapshot(true)
+
+    // KPIs Reconciliados: clientesAfetados conta apenas clientes válidos (ex: FRUTAP), excluindo "Não identificada"
+    expect(snapshot.kpisReconciliados.clientesAfetados).toBe(1)
+
+    // Na loja agregada 165, totalClientes conta apenas clientes reais (FRUTAP), sem inflar por "Não identificada"
+    const loja165 = snapshot.lojasAgregadas.find((l) => l.codigoLoja === '165')
+    expect(loja165).toBeDefined()
+    expect(loja165?.totalClientes).toBe(1)
+  })
 })

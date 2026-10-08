@@ -330,8 +330,8 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
       )
     })
 
-    it('em Rupturas TradePro, codigoCliente "165" resolve a LOJA e NUNCA a Indústria', async () => {
-      // Mock da coleção rupturas com dados reais onde codigoCliente="165" e razaoSocial="165 - FORT ATACADISTA"
+    it('em Rupturas TradePro: payload real codigoCliente="165" resolve Loja 165 e produto exclusivo Frutap resolve Indústria=Frutap', async () => {
+      // Caso (a): Produto pertence exclusivamente à Frutap no industry_product_mix → Indústria = Frutap, resolvida via Produto Mestre
       const updateSpy = vi.fn().mockResolvedValue({})
       vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
         if (name === 'rupturas_base') {
@@ -345,6 +345,8 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
                   dados_brutos_json: {
                     codigoCliente: '165',
                     razaoSocialCliente: '165 - FORT ATACADISTA - AVENTUREIRO',
+                    fantasiaCliente: 'GRUPO PEREIRA',
+                    descricaoFornecedor: 'DIRETORIA',
                     descricaoAtividade: 'BEBIDA LACTEA 850G',
                   },
                 },
@@ -358,7 +360,11 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
             getFullList: vi
               .fn()
               .mockResolvedValue([
-                { id: 'store_fort_165', codigo_loja: '165', nome: 'FORT ATACADISTA' },
+                {
+                  id: 'store_fort_165',
+                  codigo_loja: '165',
+                  nome: '165 - FORT ATACADISTA - AVENTUREIRO',
+                },
               ]),
           } as unknown as ReturnType<typeof pb.collection>
         }
@@ -390,7 +396,7 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
 
       const res = await reprocessarRupturasLocal(10)
       expect(res.lojasResolvidas).toBe(1)
-      expect(res.industriasResolvidas).toBe(1) // Resolvida através do produto mestre!
+      expect(res.industriasResolvidas).toBe(1) // Resolvida através do produto mestre exclusivo!
 
       // Confirmar que loja foi gravada como store_fort_165 e indústria como ind_frutap_real
       expect(updateSpy).toHaveBeenCalledWith(
@@ -401,6 +407,94 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
           industry_id: 'ind_frutap_real',
           cliente: 'FRUTAP',
           status_normalizacao: 'completo',
+        }),
+      )
+    })
+
+    it('em Rupturas TradePro: produto pertencente a mais de uma Indústria no mix NÃO identifica automaticamente (fica "Não identificada")', async () => {
+      // Caso (b): Produto pertence a mais de uma Indústria → NÃO identificar automaticamente, fica "Não identificada"
+      const updateSpy = vi.fn().mockResolvedValue({})
+      vi.spyOn(pb, 'collection').mockImplementation((name: string) => {
+        if (name === 'rupturas_base') {
+          return {
+            getList: vi.fn().mockResolvedValue({
+              items: [
+                {
+                  id: 'rup_ambigua',
+                  source_type: 'tradepro_api',
+                  is_base_atual: true,
+                  dados_brutos_json: {
+                    codigoCliente: '165',
+                    razaoSocialCliente: '165 - FORT ATACADISTA - AVENTUREIRO',
+                    fantasiaCliente: 'GRUPO PEREIRA',
+                    descricaoFornecedor: 'DIRETORIA',
+                    descricaoAtividade: 'PRODUTO COMPARTILHADO 500G',
+                  },
+                },
+              ],
+            }),
+            update: updateSpy,
+          } as unknown as ReturnType<typeof pb.collection>
+        }
+        if (name === 'stores') {
+          return {
+            getFullList: vi
+              .fn()
+              .mockResolvedValue([
+                {
+                  id: 'store_fort_165',
+                  codigo_loja: '165',
+                  nome: '165 - FORT ATACADISTA - AVENTUREIRO',
+                },
+              ]),
+          } as unknown as ReturnType<typeof pb.collection>
+        }
+        if (name === 'supervisors' || name === 'promoters') {
+          return {
+            getFullList: vi.fn().mockResolvedValue([]),
+          } as unknown as ReturnType<typeof pb.collection>
+        }
+        if (name === 'industry_product_mix') {
+          // Retorna o mesmo produto associado a DUAS indústrias diferentes (ex: FRUTAP e OUTRA)
+          return {
+            getList: vi.fn().mockResolvedValue({
+              items: [
+                {
+                  id: 'prod_mix_1',
+                  industry_id: 'ind_frutap_real',
+                  industry_name: 'FRUTAP',
+                  nome_produto: 'PRODUTO COMPARTILHADO 500G',
+                },
+                {
+                  id: 'prod_mix_2',
+                  industry_id: 'ind_outra_marca',
+                  industry_name: 'OUTRA MARCA',
+                  nome_produto: 'PRODUTO COMPARTILHADO 500G',
+                },
+              ],
+            }),
+          } as unknown as ReturnType<typeof pb.collection>
+        }
+        return {
+          getFullList: vi.fn().mockResolvedValue([]),
+          getList: vi.fn().mockResolvedValue({ items: [] }),
+          update: vi.fn().mockResolvedValue({}),
+        } as unknown as ReturnType<typeof pb.collection>
+      })
+
+      const res = await reprocessarRupturasLocal(10)
+      expect(res.lojasResolvidas).toBe(1)
+      expect(res.industriasResolvidas).toBe(0) // NÃO foi resolvida devido à ambiguidade!
+
+      // Confirmar que indústria ficou vazia/Não identificada
+      expect(updateSpy).toHaveBeenCalledWith(
+        'rup_ambigua',
+        expect.objectContaining({
+          store_id: 'store_fort_165',
+          product_id: 'prod_mix_1',
+          industry_id: '',
+          cliente: 'Não identificada',
+          status_normalizacao: 'parcial',
         }),
       )
     })
