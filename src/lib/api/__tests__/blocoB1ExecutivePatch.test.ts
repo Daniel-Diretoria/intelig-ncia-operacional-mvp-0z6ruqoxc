@@ -357,15 +357,13 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
         }
         if (name === 'stores') {
           return {
-            getFullList: vi
-              .fn()
-              .mockResolvedValue([
-                {
-                  id: 'store_fort_165',
-                  codigo_loja: '165',
-                  nome: '165 - FORT ATACADISTA - AVENTUREIRO',
-                },
-              ]),
+            getFullList: vi.fn().mockResolvedValue([
+              {
+                id: 'store_fort_165',
+                codigo_loja: '165',
+                nome: '165 - FORT ATACADISTA - AVENTUREIRO',
+              },
+            ]),
           } as unknown as ReturnType<typeof pb.collection>
         }
         if (name === 'supervisors' || name === 'promoters') {
@@ -438,15 +436,13 @@ describe('Pipeline TradePro Rupturas e Validades — 4 Bloqueadores Executivos',
         }
         if (name === 'stores') {
           return {
-            getFullList: vi
-              .fn()
-              .mockResolvedValue([
-                {
-                  id: 'store_fort_165',
-                  codigo_loja: '165',
-                  nome: '165 - FORT ATACADISTA - AVENTUREIRO',
-                },
-              ]),
+            getFullList: vi.fn().mockResolvedValue([
+              {
+                id: 'store_fort_165',
+                codigo_loja: '165',
+                nome: '165 - FORT ATACADISTA - AVENTUREIRO',
+              },
+            ]),
           } as unknown as ReturnType<typeof pb.collection>
         }
         if (name === 'supervisors' || name === 'promoters') {

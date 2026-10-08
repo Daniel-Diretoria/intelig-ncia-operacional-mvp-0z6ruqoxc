@@ -135,7 +135,9 @@ const fmtBytes = (bytes: number): string => {
 const fmtDate = (iso: string): string => {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString('pt-BR', {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return '—'
+    return d.toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -143,7 +145,7 @@ const fmtDate = (iso: string): string => {
       minute: '2-digit',
     })
   } catch {
-    return iso
+    return '—'
   }
 }
 
@@ -439,13 +441,20 @@ export const ImportacaoPage: React.FC = () => {
     if (!isPreviewButtonEnabled) return
     try {
       // 1. ANTES de criar um novo job de prévia, verificar se há job retryable existente
-      const existingRetryable = await checkForRetryableJob(syncDataInicial, syncDataFinal)
-      if (existingRetryable) {
-        toast({
-          title: 'Sincronização interrompida encontrada',
-          description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
-        })
-        return
+      try {
+        const existingRetryable = await checkForRetryableJob(syncDataInicial, syncDataFinal)
+        if (existingRetryable) {
+          toast({
+            title: 'Sincronização interrompida encontrada',
+            description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
+          })
+          return
+        }
+      } catch (checkErr) {
+        console.warn(
+          '[handleRequestPreview] Falha ao verificar job retryable de Rupturas:',
+          checkErr,
+        )
       }
 
       // 2. Se não houver job retryable, prosseguir com o fluxo normal criando prévia
@@ -657,16 +666,23 @@ export const ImportacaoPage: React.FC = () => {
   const handleValRequestPreview = async () => {
     if (!isValPreviewButtonEnabled) return
     try {
-      const existingRetryable = await checkForRetryableValidadesJob(
-        valSyncDataInicial,
-        valSyncDataFinal,
-      )
-      if (existingRetryable) {
-        toast({
-          title: 'Sincronização interrompida encontrada',
-          description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
-        })
-        return
+      try {
+        const existingRetryable = await checkForRetryableValidadesJob(
+          valSyncDataInicial,
+          valSyncDataFinal,
+        )
+        if (existingRetryable) {
+          toast({
+            title: 'Sincronização interrompida encontrada',
+            description: `Job com ${existingRetryable.paginas_processadas} de ${existingRetryable.paginas_total} páginas concluídas pronto para retomada.`,
+          })
+          return
+        }
+      } catch (checkErr) {
+        console.warn(
+          '[handleValRequestPreview] Falha ao verificar job retryable de Validades:',
+          checkErr,
+        )
       }
 
       const job = await requestValidadesPreview(valSyncDataInicial, valSyncDataFinal)
@@ -871,115 +887,96 @@ export const ImportacaoPage: React.FC = () => {
     const valDataInicial = valSyncDataInicial || defaultDataInicial
     const valDataFinal = valSyncDataFinal || defaultDataFinal
 
-    // Execução sequencial/paralela segura: cada fonte tem seu próprio try/catch isolado
-    // 1. Sincronização de Rupturas
-    const syncRupturasPromise = (async () => {
+    // Etapa 1: Rupturas
+    try {
       setSyncAllStatus((prev) => ({
         ...prev,
         rupturas: { status: 'syncing' },
       }))
-      try {
-        const preview = await requestRupturasPreview(rupDataInicial, rupDataFinal)
-        if (preview.status === 'error') {
-          const errMsg = preview.message || 'Erro ao consultar prévia de Rupturas'
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            rupturas: { status: 'error', message: errMsg },
-          }))
-          return
-        }
-
-        if (preview.total_informado === 0) {
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            rupturas: { status: 'success', registros: 0, message: '0 registros' },
-          }))
-          return
-        }
-
-        const job = await startRupturasSync(preview.id)
-        if (job.status === 'error') {
-          const errMsg = job.message || 'Erro durante a sincronização de Rupturas'
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            rupturas: { status: 'error', message: errMsg },
-          }))
-          return
-        }
-
-        const count = job.registros_consolidados ?? job.total_informado ?? 0
-        setSyncAllStatus((prev) => ({
-          ...prev,
-          rupturas: { status: 'success', registros: count },
-        }))
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Rupturas'
+      const preview = await requestRupturasPreview(rupDataInicial, rupDataFinal)
+      if (preview.status === 'error') {
+        const errMsg =
+          preview.message || preview.error_code || 'Falha ao consultar prévia de Rupturas'
         setSyncAllStatus((prev) => ({
           ...prev,
           rupturas: { status: 'error', message: errMsg },
         }))
+      } else if (preview.total_informado === 0) {
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          rupturas: { status: 'success', registros: 0, message: '0 registros' },
+        }))
+      } else {
+        const job = await startRupturasSync(preview.id)
+        if (job.status === 'error') {
+          const errMsg = job.message || job.error_code || 'Falha durante sincronização de Rupturas'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            rupturas: { status: 'error', message: errMsg },
+          }))
+        } else {
+          const count = job.registros_consolidados ?? job.total_informado ?? 0
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            rupturas: { status: 'success', registros: count },
+          }))
+        }
       }
-    })()
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Rupturas'
+      setSyncAllStatus((prev) => ({
+        ...prev,
+        rupturas: { status: 'error', message: errMsg },
+      }))
+    }
 
-    // 2. Sincronização de Validades
-    const syncValidadesPromise = (async () => {
+    // Etapa 2: Validades (SEMPRE executada, try/catch independente)
+    try {
       setSyncAllStatus((prev) => ({
         ...prev,
         validades: { status: 'syncing' },
       }))
-      try {
-        const preview = await requestValidadesPreview(valDataInicial, valDataFinal)
-        if (preview.status === 'error') {
-          const errMsg = preview.message || 'Erro ao consultar prévia de Validades'
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            validades: { status: 'error', message: errMsg },
-          }))
-          return
-        }
-
-        if (preview.total_informado === 0) {
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            validades: { status: 'success', registros: 0, message: '0 registros' },
-          }))
-          return
-        }
-
-        const job = await startValidadesSync(preview.id)
-        if (job.status === 'error') {
-          const errMsg = job.message || 'Erro durante a sincronização de Validades'
-          setSyncAllStatus((prev) => ({
-            ...prev,
-            validades: { status: 'error', message: errMsg },
-          }))
-          return
-        }
-
-        const count = job.registros_consolidados ?? job.total_informado ?? 0
-        setSyncAllStatus((prev) => ({
-          ...prev,
-          validades: { status: 'success', registros: count },
-        }))
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Validades'
+      const preview = await requestValidadesPreview(valDataInicial, valDataFinal)
+      if (preview.status === 'error') {
+        const errMsg =
+          preview.message || preview.error_code || 'Falha ao consultar prévia de Validades'
         setSyncAllStatus((prev) => ({
           ...prev,
           validades: { status: 'error', message: errMsg },
         }))
+      } else if (preview.total_informado === 0) {
+        setSyncAllStatus((prev) => ({
+          ...prev,
+          validades: { status: 'success', registros: 0, message: '0 registros' },
+        }))
+      } else {
+        const job = await startValidadesSync(preview.id)
+        if (job.status === 'error') {
+          const errMsg = job.message || job.error_code || 'Falha durante sincronização de Validades'
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            validades: { status: 'error', message: errMsg },
+          }))
+        } else {
+          const count = job.registros_consolidados ?? job.total_informado ?? 0
+          setSyncAllStatus((prev) => ({
+            ...prev,
+            validades: { status: 'success', registros: count },
+          }))
+        }
       }
-    })()
-
-    try {
-      await Promise.all([syncRupturasPromise, syncValidadesPromise])
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Falha ao sincronizar Validades'
+      setSyncAllStatus((prev) => ({
+        ...prev,
+        validades: { status: 'error', message: errMsg },
+      }))
+    } finally {
+      setIsSyncingAll(false)
       toast({
         title: 'Sincronização concluída',
         description: 'Ciclo de sincronização de Rupturas e Validades finalizado.',
       })
-    } catch {
-      // Isolado, tratado individualmente em cada branch
-    } finally {
-      setIsSyncingAll(false)
     }
   }
 
@@ -1842,13 +1839,127 @@ export const ImportacaoPage: React.FC = () => {
                 </div>
               </div>
 
-              {lastTestTimestamp && (
-                <div className="text-xs text-slate-500 flex items-center gap-1.5 self-center">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Último teste: {fmtDate(lastTestTimestamp)}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-3 flex-wrap">
+                {lastTestTimestamp && (
+                  <div className="text-xs text-slate-500 flex items-center gap-1.5 self-center">
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Último teste: {fmtDate(lastTestTimestamp)}</span>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  onClick={handleSyncAll}
+                  disabled={isSyncingAll || !canSyncTradePro}
+                  className="h-10 px-4 gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs disabled:opacity-50"
+                >
+                  <RefreshCw className={cn('w-4 h-4', isSyncingAll && 'animate-spin')} />
+                  <span>{isSyncingAll ? 'Sincronizando Tudo...' : 'Sincronizar Tudo'}</span>
+                </Button>
+              </div>
             </div>
+
+            {/* Barra de Progresso / Status do "Sincronizar Tudo" */}
+            {(isSyncingAll ||
+              syncAllStatus.rupturas.status !== 'idle' ||
+              syncAllStatus.validades.status !== 'idle') && (
+              <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw
+                      className={cn('w-4 h-4 text-indigo-600', isSyncingAll && 'animate-spin')}
+                    />
+                    <span className="text-xs font-bold text-indigo-950">
+                      {isSyncingAll
+                        ? 'Sincronização em andamento (Rupturas & Validades)'
+                        : 'Resultado da Sincronização Unificada'}
+                    </span>
+                  </div>
+                  {isSyncingAll && (
+                    <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] font-semibold animate-pulse">
+                      Em execução...
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {/* Status Rupturas */}
+                  <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Rupturas</span>
+                      <span className="text-[11px] text-slate-500">
+                        {syncAllStatus.rupturas.status === 'idle' && 'Não iniciada'}
+                        {syncAllStatus.rupturas.status === 'pending' && 'Aguardando início...'}
+                        {syncAllStatus.rupturas.status === 'syncing' && 'Sincronizando dados...'}
+                        {syncAllStatus.rupturas.status === 'success' && (
+                          <span className="text-emerald-700 font-medium">
+                            Concluída (
+                            {syncAllStatus.rupturas.registros?.toLocaleString('pt-BR') ?? 0}{' '}
+                            registros)
+                          </span>
+                        )}
+                        {syncAllStatus.rupturas.status === 'error' && (
+                          <span
+                            className="text-red-600 font-medium truncate max-w-[200px] block"
+                            title={syncAllStatus.rupturas.message}
+                          >
+                            {syncAllStatus.rupturas.message || 'Falhou'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      {syncAllStatus.rupturas.status === 'syncing' && (
+                        <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                      )}
+                      {syncAllStatus.rupturas.status === 'success' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                      {syncAllStatus.rupturas.status === 'error' && (
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status Validades */}
+                  <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Validades</span>
+                      <span className="text-[11px] text-slate-500">
+                        {syncAllStatus.validades.status === 'idle' && 'Não iniciada'}
+                        {syncAllStatus.validades.status === 'pending' && 'Aguardando etapa...'}
+                        {syncAllStatus.validades.status === 'syncing' && 'Sincronizando dados...'}
+                        {syncAllStatus.validades.status === 'success' && (
+                          <span className="text-emerald-700 font-medium">
+                            Concluída (
+                            {syncAllStatus.validades.registros?.toLocaleString('pt-BR') ?? 0}{' '}
+                            registros)
+                          </span>
+                        )}
+                        {syncAllStatus.validades.status === 'error' && (
+                          <span
+                            className="text-red-600 font-medium truncate max-w-[200px] block"
+                            title={syncAllStatus.validades.message}
+                          >
+                            {syncAllStatus.validades.message || 'Falhou'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      {syncAllStatus.validades.status === 'syncing' && (
+                        <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                      )}
+                      {syncAllStatus.validades.status === 'success' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                      {syncAllStatus.validades.status === 'error' && (
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Formulário de Teste de Conexão */}
             <div className="bg-slate-50/70 rounded-xl p-5 border border-slate-200/80 space-y-4">
@@ -4707,39 +4818,47 @@ export const ImportacaoPage: React.FC = () => {
                       // Tenta extrair informação útil do errors_json._meta
                       let errorReason = '—'
                       if (isFailed) {
-                        const raw = (h as unknown as { errors_json?: unknown }).errors_json
-                        if (raw) {
-                          try {
-                            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-                            const meta = parsed?._meta
-                            if (meta) {
-                              const rp = meta.rawPersisted
-                              const re = meta.rawExpected
-                              if (typeof rp === 'number' && typeof re === 'number') {
-                                if (rp === re) {
-                                  errorReason = `Brutos completos (${rp}/${re}); consolidação pendente`
-                                } else if (rp > 0) {
-                                  errorReason = `Brutos: ${rp}/${re} persistidos; consolidação pendente`
-                                } else {
-                                  errorReason = `Falha na gravação bruta: 0/${re}`
+                        try {
+                          const raw = (h as unknown as { errors_json?: unknown })?.errors_json
+                          if (raw) {
+                            try {
+                              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+                              const meta = parsed?._meta
+                              if (meta) {
+                                const rp = meta?.rawPersisted
+                                const re = meta?.rawExpected
+                                if (typeof rp === 'number' && typeof re === 'number') {
+                                  if (rp === re) {
+                                    errorReason = `Brutos completos (${rp}/${re}); consolidação pendente`
+                                  } else if (rp > 0) {
+                                    errorReason = `Brutos: ${rp}/${re} persistidos; consolidação pendente`
+                                  } else {
+                                    errorReason = `Falha na gravação bruta: 0/${re}`
+                                  }
                                 }
                               }
+                            } catch {
+                              // ignora erro de parse
                             }
-                          } catch {
-                            // ignora erro de parse
                           }
-                        }
-                        if (
-                          errorReason === '—' &&
-                          (h as unknown as { error_message?: string; erro?: string }).error_message
-                        ) {
-                          errorReason = (h as unknown as { error_message?: string }).error_message!
-                        } else if (
-                          errorReason === '—' &&
-                          (h as unknown as { erro?: string }).erro
-                        ) {
-                          errorReason = (h as unknown as { erro?: string }).erro!
-                        } else if (errorReason === '—') {
+                          if (
+                            errorReason === '—' &&
+                            (h as unknown as { error_message?: string; erro?: string })
+                              ?.error_message
+                          ) {
+                            errorReason =
+                              (h as unknown as { error_message?: string }).error_message ||
+                              'Erro desconhecido'
+                          } else if (
+                            errorReason === '—' &&
+                            (h as unknown as { erro?: string })?.erro
+                          ) {
+                            errorReason =
+                              (h as unknown as { erro?: string }).erro || 'Erro desconhecido'
+                          } else if (errorReason === '—') {
+                            errorReason = 'Erro desconhecido'
+                          }
+                        } catch {
                           errorReason = 'Erro desconhecido'
                         }
                       }
@@ -5009,7 +5128,24 @@ export const ImportacaoPage: React.FC = () => {
         <div className="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-1">
           {validadesPreviewJob?.amostra_estrutura_json ? (
             (() => {
-              const diag = validadesPreviewJob.amostra_estrutura_json
+              let diag: any = validadesPreviewJob.amostra_estrutura_json
+              if (typeof diag === 'string') {
+                try {
+                  diag = JSON.parse(diag)
+                } catch {
+                  diag = null
+                }
+              }
+              if (!diag || typeof diag !== 'object') {
+                return (
+                  <div className="p-6 text-center space-y-3">
+                    <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+                    <p className="font-bold text-slate-900 text-sm">
+                      Estrutura da amostra corrompida ou ilegível
+                    </p>
+                  </div>
+                )
+              }
               const pag = diag.metadadosPaginacao
               const cli = diag.diagnosticoCliente
               const amostra = diag.amostraOperacionalSegura
@@ -5042,16 +5178,21 @@ export const ImportacaoPage: React.FC = () => {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                       <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                         <span className="text-slate-500 block">Campo de Total</span>
-                        <span className="font-mono font-bold text-slate-900">{pag.campoTotal}</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {pag?.campoTotal ?? '—'}
+                        </span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                         <span className="text-slate-500 block">Total de Registros</span>
-                        <span className="font-bold text-slate-900">{pag.totalDeRegistros}</span>
+                        <span className="font-bold text-slate-900">
+                          {pag?.totalDeRegistros ?? 0}
+                        </span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                         <span className="text-slate-500 block">Páginas na API</span>
                         <span className="font-mono text-slate-800">
-                          {pag.totalDePaginasApi} (qtd/pág: {pag.quantidadePorPaginaApi})
+                          {pag?.totalDePaginasApi ?? 0} (qtd/pág: {pag?.quantidadePorPaginaApi ?? 0}
+                          )
                         </span>
                       </div>
                       <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -5059,7 +5200,7 @@ export const ImportacaoPage: React.FC = () => {
                           Páginas Previstas (Lote 30)
                         </span>
                         <span className="font-bold text-emerald-950 text-sm">
-                          {pag.totalDePaginasPrevistas} páginas
+                          {pag?.totalDePaginasPrevistas ?? 0} páginas
                         </span>
                       </div>
                     </div>
@@ -5077,7 +5218,7 @@ export const ImportacaoPage: React.FC = () => {
                           Campos de cliente detectados no registro:
                         </span>
                         <span className="font-mono font-semibold text-slate-900">
-                          {cli.camposClienteDetectados.length > 0
+                          {(cli?.camposClienteDetectados?.length ?? 0) > 0
                             ? cli.camposClienteDetectados.join(', ')
                             : 'Nenhum campo de cliente direto no item'}
                         </span>
@@ -5085,13 +5226,13 @@ export const ImportacaoPage: React.FC = () => {
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <span className="text-slate-600">Cód. Cliente extraído do payload:</span>
                         <span className="font-mono font-bold text-slate-900">
-                          {cli.codClienteEncontrado || 'Não presente no item'}
+                          {cli?.codClienteEncontrado || 'Não presente no item'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <span className="text-slate-600">Fornecedor operacional retornado:</span>
                         <span className="font-mono font-semibold text-slate-800">
-                          {cli.fornecedorValor || 'DIRETORIA (não usado para inferir indústria)'}
+                          {cli?.fornecedorValor || 'DIRETORIA (não usado para inferir indústria)'}
                         </span>
                       </div>
 
@@ -5107,7 +5248,7 @@ export const ImportacaoPage: React.FC = () => {
                   </div>
 
                   {/* 3. Amostra dos Campos Operacionais (Loja, Produto, Promotor, Coleta) */}
-                  {amostra && (
+                  {amostra && amostra.loja && (
                     <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                       <p className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                         <Eye className="w-3.5 h-3.5 text-emerald-600" />
@@ -5119,19 +5260,19 @@ export const ImportacaoPage: React.FC = () => {
                           <p className="font-semibold text-slate-800">Loja / Cliente</p>
                           <p>
                             <span className="text-slate-500">Razão Social:</span>{' '}
-                            <strong>{amostra.loja.razaoSocial || '—'}</strong>
+                            <strong>{amostra.loja?.razaoSocial || '—'}</strong>
                           </p>
                           <p>
                             <span className="text-slate-500">Fantasia:</span>{' '}
-                            <strong>{amostra.loja.fantasia || '—'}</strong>
+                            <strong>{amostra.loja?.fantasia || '—'}</strong>
                           </p>
                           <p>
                             <span className="text-slate-500">CNPJ:</span>{' '}
-                            <span className="font-mono">{amostra.loja.cpfCnpj || '—'}</span>
+                            <span className="font-mono">{amostra.loja?.cpfCnpj || '—'}</span>
                           </p>
                           <p>
-                            <span className="text-slate-500">Cidade/UF:</span> {amostra.loja.cidade}
-                            /{amostra.loja.estado || '—'}
+                            <span className="text-slate-500">Cidade/UF:</span>{' '}
+                            {amostra.loja?.cidade || '—'}/{amostra.loja?.estado || '—'}
                           </p>
                         </div>
 
@@ -5140,22 +5281,22 @@ export const ImportacaoPage: React.FC = () => {
                           <p>
                             <span className="text-slate-500">Código Produto:</span>{' '}
                             <span className="font-mono font-bold">
-                              {amostra.produto.codigo || '—'}
+                              {amostra.produto?.codigo || '—'}
                             </span>
                           </p>
                           <p>
                             <span className="text-slate-500">Descrição:</span>{' '}
-                            <strong>{amostra.produto.descricao || '—'}</strong>
+                            <strong>{amostra.produto?.descricao || '—'}</strong>
                           </p>
                           <p>
                             <span className="text-slate-500">Data Validade:</span>{' '}
                             <span className="font-mono font-bold text-amber-700">
-                              {amostra.coleta.validade || '—'}
+                              {amostra.coleta?.validade || '—'}
                             </span>
                           </p>
                           <p>
                             <span className="text-slate-500">Dias p/ Vencimento:</span>{' '}
-                            {amostra.coleta.diasParaVencimento ?? '—'}
+                            {amostra.coleta?.diasParaVencimento ?? '—'}
                           </p>
                         </div>
 
@@ -5163,19 +5304,19 @@ export const ImportacaoPage: React.FC = () => {
                           <p className="font-semibold text-slate-800">Coleta & Promotor</p>
                           <p>
                             <span className="text-slate-500">Promotor:</span>{' '}
-                            {amostra.promotor.nome || '—'}
+                            {amostra.promotor?.nome || '—'}
                           </p>
                           <p>
                             <span className="text-slate-500">ID Promotor:</span>{' '}
-                            <span className="font-mono">{amostra.promotor.id || '—'}</span>
+                            <span className="font-mono">{amostra.promotor?.id || '—'}</span>
                           </p>
                           <p>
                             <span className="text-slate-500">Data Realizado:</span>{' '}
-                            {amostra.coleta.dataRealizado || '—'}
+                            {amostra.coleta?.dataRealizado || '—'}
                           </p>
                           <p>
                             <span className="text-slate-500">Quantidade:</span>{' '}
-                            {amostra.coleta.quantidade ?? '—'}
+                            {amostra.coleta?.quantidade ?? '—'}
                           </p>
                         </div>
 
